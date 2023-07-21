@@ -1,0 +1,10 @@
+apiVersion: awspca.cert-manager.io/v1beta1
+kind: AWSPCAClusterIssuer
+metadata:
+  name: iugu-cluster-pca
+spec:
+  arn: arn:aws:acm-pca:sa-east-1:321447219895:certificate-authority/4dd2f06c-b2c9-4596-b89f-ce48d6a2baa6
+  region: sa-east-1
+  secretRef:
+    namespace: cert-manager
+    name: awsca-config

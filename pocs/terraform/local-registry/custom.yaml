@@ -1,0 +1,13 @@
+env:
+  - name: REGISTRY_HTTP_TLS_CERTIFICATE
+    value: "/certs/tls.crt"
+  - name: REGISTRY_HTTP_TLS_KEY
+    value: "/certs/tls.key"
+extraVolumeMounts:
+  - name: certs
+    mountPath: /certs
+    readOnly: true
+extraVolumes:
+  - name: certs
+    secret:
+      secretName: docker-registry-tls-cert

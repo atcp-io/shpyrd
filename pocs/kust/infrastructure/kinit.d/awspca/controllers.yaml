@@ -1,0 +1,15 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: awspca
+  namespace: cert-manager
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: aws-privateca-issuer
+      sourceRef:
+        kind: HelmRepository
+        name: awspca
+        namespace: cert-manager
+      interval: 12h

@@ -1,0 +1,5 @@
+service:
+  annotations:
+    # Create internal ELB
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"

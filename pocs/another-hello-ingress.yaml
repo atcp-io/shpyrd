@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: another-world-ingress
+  labels:
+    app: another-hello
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: another-service.core.iugu
+    cert-manager.io/issuer: iugu-cluster-pca
+    cert-manager.io/issuer-kind: AWSPCAClusterIssuer
+    cert-manager.io/issuer-group: awspca.cert-manager.io
+    cert-manager.io/common-name: core.iugu
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+      - another-service.core.iugu
+      secretName: another-service-tls
+  rules:
+    - host: another-service.core.iugu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello-world-service
+                port:
+                  number: 80
+

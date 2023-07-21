@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb-svc
+  labels:
+    app: hello-world
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-name: lb-svc
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    service.beta.kubernetes.io/aws-load-balancer-subnets: subnet-0ee18f52b4f2a75f4, subnet-0880cc3d78939fe04, subnet-03307a01716b9ba07
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: hello-world
+

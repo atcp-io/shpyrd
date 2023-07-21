@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base/podinfo
+  - ../base/java-app
+  - ../base/dummy-go
+patches:
+  - path: podinfo-values.yaml
+    target:
+      kind: HelmRelease
+  - path: java-app-values.yaml
+    target:
+      kind: Ingress
+      name: java-app
+      namespace: java-app
+  - path: dummy-go-values.yaml
+    target:
+      kind: Ingress
+      name: dummy-go
+      namespace: dummy-go

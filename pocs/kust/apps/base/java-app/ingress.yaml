@@ -1,0 +1,7 @@
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: java-app
+  namespace: java-app
+spec:
+  ingressClassName: nginx

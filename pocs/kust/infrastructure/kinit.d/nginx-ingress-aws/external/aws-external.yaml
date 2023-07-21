@@ -1,0 +1,30 @@
+$patch: delete
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx
+---
+$patch: delete
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: nginx
+  namespace: nginx
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: ingress-nginx
+  namespace: nginx
+spec:
+  values:
+    controller:
+      $patch: replace
+      ingressClassByName: true
+      ingressClass: nginx-external
+      replicaCount: 2
+      ingressClassResource:
+        name: nginx-external
+        enabled: true
+        default: false
+        controllerValue: "k8s.io/ingress-nginx-external"

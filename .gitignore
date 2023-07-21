@@ -1,0 +1,37 @@
+*~
+bin
+/.idea
+
+.tool-versions
+tools/bin/*
+*.out
+dist/
+.cache
+.parcel-cache
+node_modules
+coverage
+*.lcov
+ginkgo.report
+.deps
+test/library/wego-library-test
+tilt_modules
+.envrc
+
+localhost-key.pem
+localhost.pem
+
+# Ignore generated credentials from google-github-actions/auth
+gha-creds-*.json
+
+# Ignore VIM's swap files
+*.swp
+
+# .vscode
+.vscode
+
+# terraform
+.terraform
+
+# macOS
+.DS_Store
+gitops-server.dockerfile

@@ -1,0 +1,54 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: infrastructure-rc0d
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  serviceAccountName: kustomize-controller
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infrastructure/prod/rc0.d
+  prune: true
+  wait: true
+  timeout: 5m
+  dependsOn:
+    - name: vendor-config
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: infrastructure-rc1d
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  serviceAccountName: kustomize-controller
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infrastructure/prod/rc1.d
+  prune: true
+  wait: true
+  timeout: 5m
+  dependsOn:
+    - name: infrastructure-rc0d
+---
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: infrastructure-rc2d
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  serviceAccountName: kustomize-controller
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infrastructure/prod/rc2.d
+  prune: true
+  wait: true
+  timeout: 5m
+  dependsOn:
+    - name: infrastructure-rc1d

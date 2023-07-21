@@ -1,0 +1,35 @@
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus-ks-service.kube-system.svc.cluster.local:9090
+      access: proxy
+      isDefault: true
+grafana.ini:
+  auth:
+    disable_login_form: true
+    signout_redirect_url: https://iugu-sa.okta.com
+  auth.basic:
+    enabled: false
+  users:
+    auto_assign_org_role: Admin
+  auth.okta:
+    name: Okta
+    icon: okta
+    enabled: true
+    allow_sign_up: true
+    allow_assign_grafana_admin: true
+    auto_login: true
+    client_id: 0oatqaal2w4LzZzJR357
+    client_secret: Xh_o9XKeIS70OTqIkqIN3fjyc30kMTYoTVZzurtK
+    scopes: openid profile email groups
+    auth_url: https://iugu-sa.okta.com/oauth2/v1/authorize
+    token_url: https://iugu-sa.okta.com/oauth2/v1/token
+    api_url: https://iugu-sa.okta.com/oauth2/v1/userinfo
+    use_pkce: true
+  server:
+    # domain: monitoring.iugu.com
+    root_url: http://monitoring.iugu.com
+    enforce_domain: false

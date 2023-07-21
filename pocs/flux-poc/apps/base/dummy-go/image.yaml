@@ -1,0 +1,35 @@
+---
+apiVersion: v1
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJwcml2YXRlLWRvY2tlci1yZWdpc3RyeS5sb2NhbC1zZXJ2aWNlcy5zdmMuY2x1c3Rlci5sb2NhbDozMDA1MCI6eyJ1c2VybmFtZSI6InVzZXIiLCJwYXNzd29yZCI6InBhc3N3b3JkIiwiYXV0aCI6ImRYTmxjanB3WVhOemQyOXlaQT09In19fQ==
+kind: Secret
+metadata:
+  name: image-registry-credentials
+  namespace: dummy-go
+type: kubernetes.io/dockerconfigjson
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kpack-service-account
+  namespace: dummy-go
+secrets:
+  - name: image-registry-credentials
+imagePullSecrets:
+  - name: image-registry-credentials
+---
+apiVersion: kpack.io/v1alpha2
+kind: Image
+metadata:
+  name: dummy-go-img
+  namespace: dummy-go
+spec:
+  tag: private-docker-registry.local-services.svc.cluster.local:30050/dummy-go
+  serviceAccountName: kpack-service-account
+  builder:
+    name: image-builder
+    kind: ClusterBuilder
+  source:
+    git:
+      url: https://github.com/pnegri/dummy-go
+      revision: main

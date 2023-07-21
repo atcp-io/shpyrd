@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: java-app
+  namespace: java-app
+spec:
+  containers:
+  - name: java-app-img
+    image: private-docker-registry.local-services.svc.cluster.local:30050/java-app-img:latest
+    ports:
+    - containerPort: 8080
+  imagePullSecrets:
+  - name: image-registry-credentials

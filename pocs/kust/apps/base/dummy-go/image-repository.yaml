@@ -1,0 +1,67 @@
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: dummy-go
+  namespace: dummy-go
+spec:
+  image: private-docker-registry.local-services.svc.cluster.local:30050/dummy-go
+  interval: 1m0s
+  secretRef:
+    name: image-registry-credentials
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: dummy-go
+  namespace: dummy-go
+spec:
+  imageRepositoryRef:
+    name: dummy-go
+  filterTags:
+    pattern: '^b(?P<build_number>.*)\..*\..*$'
+    extract: '$build_number'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta1
+kind: ImageUpdateAutomation
+metadata:
+  name: dummy-go
+  namespace: dummy-go
+spec:
+  interval: 1m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: fluxcdbot@users.noreply.github.com
+        name: fluxcdbot
+      messageTemplate: |
+        Automated image update
+
+        Files:
+        {{ range $filename, $_ := .Updated.Files -}}
+        - {{ $filename }}
+        {{ end -}}
+
+        Objects:
+        {{ range $resource, $_ := .Updated.Objects -}}
+        - {{ $resource.Kind | lower }} {{ $resource.Name | lower  }}
+        {{ end -}}
+
+        Images:
+        {{ range $_, $image := .Updated.Images -}}
+        -	{{ $image }}
+        {{ end -}}           
+    push:
+      branch: main
+  update:
+    path: ./apps/base/dummy-go
+    strategy: Setters

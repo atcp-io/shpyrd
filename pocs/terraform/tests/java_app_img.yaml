@@ -1,0 +1,15 @@
+apiVersion: kpack.io/v1alpha2
+kind: Image
+metadata:
+  name: java-app-img
+  namespace: management
+spec:
+  tag: localregistry-docker-registry.management.svc.cluster.local:30050/java-app-img
+  serviceAccountName: kpack-service-account
+  builder:
+    name: image-builder
+    kind: Builder
+  source:
+    git:
+      url: https://github.com/spring-projects/spring-petclinic
+      revision: 82cb521d636b282340378d80a6307a08e3d4a4c4

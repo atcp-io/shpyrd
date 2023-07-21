@@ -1,0 +1,34 @@
+apiVersion: ENC[AES256_GCM,data:rSA=,iv:K82cgg927hKEtvSxM8R7PMpMf97HSzLyu5Mi/n0rno4=,tag:5Fp02tcABvfodBE/HIuSNA==,type:str]
+kind: ENC[AES256_GCM,data:7ahL5Gdy,iv:lel4tfxxcy/d2z5m3Ius1/NwQKcjKqEHDPpS1NC6QG0=,tag:/f/8AScLlkpXUyJs/HoUXg==,type:str]
+metadata:
+    name: ENC[AES256_GCM,data:ASnRql8PbTYJ3Ab5,iv:fdHJ4+HjFbwMKv8cnaRTakUPw7oI/SPvm+4M+2REaug=,tag:Mz/jlQmIfwAdKOyx2xRp4g==,type:str]
+    namespace: ENC[AES256_GCM,data:/GIkdv05hZbFG4bT,iv:dB+NxpXIoEnbXnv9XDlDFEtx0S2064s7Tw6DyORAD+k=,tag:M2HoRSKv/esgWvGqYn5TlQ==,type:str]
+data:
+    AWS_ACCESS_KEY_ID: ENC[AES256_GCM,data:t+sKxBdtyefvKmDmc4hV3PWM0rh5R+STiGSkPw==,iv:UVi29gn1P5qTTDm9nM+f9uUuk80m9jCgm8rpTCbbaa8=,tag:qBZKqjF+KrsTPXKrU7gxcQ==,type:str]
+    AWS_SECRET_ACCESS_KEY: ENC[AES256_GCM,data:hCg1SuJG/xiqW+AFcGngot67LM5fE7pjYCEyOr669a1STwibhU5HpsQV6oyHK5qEkwbc+ZOKi0g=,iv:24od1eusK2VI9dvdyqbKnUkClFnoL2xzzEEOUGR0w90=,tag:cow/tx51DynXI2XG4hSJ4g==,type:str]
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    age: []
+    lastmodified: "2023-07-15T02:34:25Z"
+    mac: ENC[AES256_GCM,data:hAv+KQ0rfqrHaC6QZ95Q7SfdtWKU8LP+f2n2JQNspn2Qy5OW4BGanSS/7lgRtZmt9Hp5qBxFjaESFBl7eCVGVFVELuxLNn9IZJw9KSzFkRtwrK04Yd/7/WtUbgXH7hZDTfUgjGGKkA3TnnfSoXS8GMPwaW957c6ruNiZTkKFopg=,iv:U9Jbcd5ZvNOrl2zC1SkFy1z6NITKyTEs5bPIJytQRPM=,tag:j0EcjiPYh8g1wP4sBB4A5g==,type:str]
+    pgp:
+        - created_at: "2023-07-15T01:33:09Z"
+          enc: |
+            -----BEGIN PGP MESSAGE-----
+
+            hQEMA/RC89GuDCFcAQgAv71Xc8LB4ekUEP2Lu2gSrLLP4aH/eCIFyMr5HNcOGsaD
+            syY8wlx0xEIjFdP1J2tu6cK5NQuO8/8Q0FtWcOmI0vxPvkdAEyt28y6FBrGiOhPN
+            1MAW9UDyIPRRjVLhvipPGQgbigvi/eHWxslov357ovjytaDY0czH0YWS5mQFrhBQ
+            KIG1mozpE/qFkDl6fUMMcn0UdYiDyTCEsvgJ8LwoDD5OYqRBOEx6lgyDRdCYClqP
+            T39Ai494N5fOdACkfRIvkNCQUZQvurkNq9DUoMlSP1whoGf3RRj8F/MwbBo8QhuL
+            MfMyn/tB956CZ/adqyFOesY8hJbXsmS3e/R7GY6TPdRoAQkCEMvmW+vY706sXmzx
+            b0AuXY1C6odduw0ibZGLm2o6GNQA8bT4U8nN7f8pIbrIKvA58nDQOsxpirqzaXib
+            RvBsMnnIP+jmaOWwF8a+irNR9bvp/Wo3Xrt0zvaxQrry7eYN6UdyyNA=
+            =MWUl
+            -----END PGP MESSAGE-----
+          fp: 6290297CFA31EDB96C78FB8F9762A5311E1F6F97
+    unencrypted_suffix: _unencrypted
+    version: 3.7.3
