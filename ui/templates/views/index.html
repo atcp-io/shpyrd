@@ -1,0 +1,11 @@
+{{define "views/index"}}
+{{ template "shared/top" . }}
+
+<h1>Index</h1>
+
+{{ range .items }}
+      Name: {{ .Name }},
+{{ end }}
+
+{{ template "shared/bottom" . }}
+{{ end}}
