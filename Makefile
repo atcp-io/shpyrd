@@ -7,3 +7,9 @@ operator:
 	mkdir -p bin
 	mv operator-sdk_${OS}_${ARCH} bin/operator-sdk
 	chmod 755 bin/operator-sdk
+
+installclint:
+	npm install -g @commitlint/cli @commitlint/config-conventional
+
+commitlint:
+	commitlint --from=HEAD~1
