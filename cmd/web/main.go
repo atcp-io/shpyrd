@@ -1,6 +1,8 @@
 package main
 
-import "shpyrd/pkg/http"
+import (
+	"shpyrd/pkg/http"
+)
 
 func main() {
 	http.New()
