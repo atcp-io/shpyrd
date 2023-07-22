@@ -30,10 +30,21 @@ func pong(c *gin.Context) {
 	})
 }
 
-func install_helm(c *gin.Context) {
+func getHelms(c *gin.Context) {
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "install_helm",
+	listAction := action.NewList(actionConfig)
+	releases, err := listAction.Run()
+	if err != nil {
+		fmt.Println("ERROR - HELM")
+		log.Println(err)
+	}
+	for _, release := range releases {
+		log.Println("Release: " + release.Name + " Status: " + release.Info.Status.String())
+	}
+
+	c.HTML(http.StatusOK, "views/helms", gin.H{
+		"items": releases,
+		"title": "Helms",
 	})
 }
 
@@ -97,16 +108,18 @@ func New() {
 
 	_engine.GET("/ping", pong)
 
+	_engine.GET("/helms", getHelms)
+
 	_engine.GET("/", defaultHandler)
 }
 
 var kubeClient *kubernetes.Clientset
+var actionConfig *action.Configuration
 
 func getActionConfig(namespace string, config *rest.Config) (*action.Configuration, error) {
 	actionConfig := new(action.Configuration)
-	var kubeConfig *genericclioptions.ConfigFlags
 	// Create the ConfigFlags struct instance with initialized values from ServiceAccount
-	kubeConfig = genericclioptions.NewConfigFlags(false)
+	kubeConfig := genericclioptions.NewConfigFlags(false)
 	kubeConfig.APIServer = &config.Host
 	kubeConfig.BearerToken = &config.BearerToken
 	kubeConfig.CAFile = &config.CAFile
@@ -137,15 +150,9 @@ func Run() {
 		log.Debug(err)
 	}
 
-	actionConfig, err := getActionConfig("", kubeConfig)
-	listAction := action.NewList(actionConfig)
-	releases, err := listAction.Run()
+	actionConfig, err = getActionConfig("", kubeConfig)
 	if err != nil {
-		fmt.Println("ERROR - HELM")
-		log.Println(err)
-	}
-	for _, release := range releases {
-		log.Println("Release: " + release.Name + " Status: " + release.Info.Status.String())
+		log.Debug(err)
 	}
 
 	fmt.Println(gin.Version)
