@@ -10,6 +10,7 @@ import (
 
 	"helm.sh/helm/v3/pkg/action"
 
+	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 
@@ -24,10 +25,13 @@ func Hello() string {
 	return "Hello, world."
 }
 
-func pong(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"message": "pong",
-	})
+type helmInfo struct {
+	Name   string `json:"Name"`
+	Status string `json:"Status"`
+}
+
+type helmInfos struct {
+	Helms []*helmInfo `json:"Clients"`
 }
 
 func getHelms(c *gin.Context) {
@@ -38,14 +42,23 @@ func getHelms(c *gin.Context) {
 		fmt.Println("ERROR - HELM")
 		log.Println(err)
 	}
+	var hlms []*helmInfo
 	for _, release := range releases {
 		log.Println("Release: " + release.Name + " Status: " + release.Info.Status.String())
+
+		hlms = append(hlms, &helmInfo{Name: release.Name, Status: release.Info.Status.String()})
 	}
 
-	c.HTML(http.StatusOK, "views/helms", gin.H{
-		"items": releases,
-		"title": "Helms",
-	})
+	//, _ := json.Marshal(helmInfos{Helms: hlms})
+	// c.JSON(http.StatusOK, helmInfos{Helms: hlms})
+	c.IndentedJSON(http.StatusOK, releases)
+
+	/*
+		c.HTML(http.StatusOK, "views/helms", gin.H{
+			"items": releases,
+			"title": "Helms",
+		})
+	*/
 }
 
 func ListNamespaces(client kubernetes.Interface) (*v1.NamespaceList, error) {
@@ -53,11 +66,30 @@ func ListNamespaces(client kubernetes.Interface) (*v1.NamespaceList, error) {
 	namespaces, err := client.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		fmt.Println(err)
-		err = fmt.Errorf("error getting namespaces: %v\n", err)
+		err = fmt.Errorf("error getting namespaces: %v", err)
 		return nil, err
 	}
 
 	return namespaces, nil
+}
+
+func getNamespaces(c *gin.Context) {
+	namespaces, err := ListNamespaces(kubeClient)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	//, _ := json.Marshal(helmInfos{Helms: hlms})
+	// c.JSON(http.StatusOK, helmInfos{Helms: hlms})
+	c.IndentedJSON(http.StatusOK, namespaces)
+
+	/*
+		c.HTML(http.StatusOK, "views/helms", gin.H{
+			"items": releases,
+			"title": "Helms",
+		})
+	*/
 }
 
 func defaultHandler(c *gin.Context) {
@@ -104,13 +136,11 @@ func New() {
 	_engine = gin.Default()
 	_engine.SetTrustedProxies(nil)
 	_engine.LoadHTMLGlob("ui/templates/**/*")
-	_engine.Static("/assets", "./ui/assets")
+	// _engine.Static("/assets", "./public/assets")
+	_engine.Use(static.Serve("/", static.LocalFile("public", false)))
 
-	_engine.GET("/ping", pong)
-
-	_engine.GET("/helms", getHelms)
-
-	_engine.GET("/", defaultHandler)
+	_engine.GET("/api/helms", getHelms)
+	_engine.GET("/api/namespaces", getNamespaces)
 }
 
 var kubeClient *kubernetes.Clientset
