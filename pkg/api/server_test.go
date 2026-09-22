@@ -427,3 +427,25 @@ func TestSizesAndResize(t *testing.T) {
 		t.Errorf("unknown size: %d", rec.Code)
 	}
 }
+
+func TestApplyProcesses(t *testing.T) {
+	s, cr := newTestServer(t, nil, []client.Object{sampleApp("web1", shpyrdv1.PhaseRunning)})
+	rec := do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"shared-m","replicas":3},"worker":{"size":"shared-xs"}}}`, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown process worker must fail: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"shared-m","replicas":3}}}`, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply: %d %s", rec.Code, rec.Body.String())
+	}
+	got := &shpyrdv1.App{}
+	if err := cr.Get(context.Background(), types.NamespacedName{Namespace: "app-web1", Name: "web1"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Processes["web"].Size != "shared-m" || *got.Spec.Processes["web"].Replicas != 3 {
+		t.Errorf("changes not applied: %+v", got.Spec.Processes["web"])
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"nope"}}}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown size: %d", rec.Code)
+	}
+}

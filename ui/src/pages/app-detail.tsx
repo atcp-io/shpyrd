@@ -325,17 +325,7 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
             <Row k="Domains" v={(app.spec.domains?.length ? app.spec.domains : [app.status.url?.replace(/^https:\/\//, '') ?? '-']).join(', ')} mono />
           </CardContent>
         </Card>
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle className="text-sm">Processes</CardTitle>
-            <CardDescription>Instances and size per process type. Sizes come from the cluster catalog (Cluster page).</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {processes.map((p) => (
-              <ProcessRow key={p} app={app} process={p} onChanged={onChanged} />
-            ))}
-          </CardContent>
-        </Card>
+        <ProcessesCard app={app} processes={processes} onChanged={onChanged} />
       </div>
 
       <Card>
@@ -446,70 +436,118 @@ function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   )
 }
 
-function ProcessRow({ app, process, onChanged }: { app: AppDetail; process: string; onChanged: () => void }) {
-  const desired = app.spec.processes?.[process]?.replicas ?? app.processes?.[process]?.desired ?? 1
-  const st = app.processes?.[process]
+type ProcessDraft = { size: string; replicas: number }
+
+/** Sizes and instance counts are edited as a draft and applied together, so
+ * a batch of changes yields one release and one rollout. */
+function ProcessesCard({ app, processes, onChanged }: { app: AppDetail; processes: string[]; onChanged: () => void }) {
   const catalog = useQuery({ queryKey: ['sizes'], queryFn: api.sizes, staleTime: 60_000 })
-  const scale = useMutation({
-    mutationFn: (n: number) => api.scale(app.namespace, app.name, process, n),
-    onSuccess: (_, n) => {
-      toast.success(`${process} scaled to ${n}`)
-      onChanged()
-    },
-    onError: (e: Error) => toast.error(e.message),
+  const current = (p: string): ProcessDraft => ({
+    size: app.spec.processes?.[p]?.size || app.processes?.[p]?.size || catalog.data?.default || '',
+    replicas: app.spec.processes?.[p]?.replicas ?? app.processes?.[p]?.desired ?? 1,
   })
-  const resize = useMutation({
-    mutationFn: (size: string) => api.resize(app.namespace, app.name, process, size),
-    onSuccess: (_, size) => {
-      toast.success(`${process} resized to ${size}; new release rolling out`)
-      onChanged()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-  const spec = app.spec.processes?.[process]
-  const sizeName = spec?.size || st?.size || catalog.data?.default || ''
-  const alloc = st?.cpu && st?.memory ? `${st.cpu} CPU · ${st.memory}` : ''
-  const ok = st ? st.ready >= st.desired && st.desired > 0 : false
+  const [draft, setDraft] = useState<Record<string, ProcessDraft>>({})
+  const value = (p: string): ProcessDraft => draft[p] ?? current(p)
+  const changes = Object.fromEntries(
+    processes
+      .map((p) => {
+        const cur = current(p)
+        const v = value(p)
+        const change: { size?: string; replicas?: number } = {}
+        if (v.size && v.size !== cur.size && v.size !== 'custom') change.size = v.size
+        if (v.replicas !== cur.replicas) change.replicas = v.replicas
+        return [p, change] as const
+      })
+      .filter(([, ch]) => Object.keys(ch).length > 0),
+  )
+  const dirty = Object.keys(changes).length > 0
   const busy = isBusy(app)
+  const apply = useMutation({
+    mutationFn: () => api.applyProcesses(app.namespace, app.name, changes),
+    onSuccess: () => {
+      const parts = Object.entries(changes).map(([p, ch]) =>
+        [p, ch.size ? `→ ${ch.size}` : '', ch.replicas !== undefined ? `×${ch.replicas}` : ''].filter(Boolean).join(' '),
+      )
+      toast.success(`Applying: ${parts.join(', ')}`)
+      setDraft({})
+      onChanged()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   return (
-    <div className="grid gap-1.5 text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className={cn('size-2 rounded-full', !st || st.desired === 0 ? 'bg-muted-foreground' : ok ? 'bg-emerald-500' : 'animate-pulse bg-amber-500')} />
-          <span className="font-medium">{process}</span>
-          {spec?.port && <span className="font-mono text-[10px] text-muted-foreground">:{spec.port}</span>}
-          <span className="text-xs text-muted-foreground">{st ? `${st.ready} of ${st.desired} running` : 'not deployed'}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon-xs" disabled={desired <= 0 || scale.isPending} onClick={() => scale.mutate(desired - 1)}>
-            <Minus />
-          </Button>
-          <span className="w-6 text-center font-mono text-xs">{desired}</span>
-          <Button variant="outline" size="icon-xs" disabled={scale.isPending} onClick={() => scale.mutate(desired + 1)}>
-            <Plus />
-          </Button>
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-2 pl-4">
-        <Select value={sizeName} onValueChange={(v) => resize.mutate(v)} disabled={busy || resize.isPending || !catalog.data}>
-          <SelectTrigger className="h-7 w-44 text-xs" size="sm">
-            <SelectValue placeholder="size" />
-          </SelectTrigger>
-          <SelectContent>
-            {catalog.data?.sizes.map((sz) => (
-              <SelectItem key={sz.name} value={sz.name}>
-                <span className="font-mono text-xs">{sz.name}</span>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {sz.cpu} CPU · {sz.memory}
-                </span>
-              </SelectItem>
-            ))}
-            {sizeName === 'custom' && <SelectItem value="custom">custom</SelectItem>}
-          </SelectContent>
-        </Select>
-        <span className="font-mono text-[11px] text-muted-foreground">{alloc}</span>
-      </div>
-    </div>
+    <Card size="sm" className={cn(dirty && 'ring-primary/40')}>
+      <CardHeader>
+        <CardTitle className="text-sm">Processes</CardTitle>
+        <CardDescription>Instances and size per process type. Edit, then apply everything at once.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {processes.map((p) => {
+          const st = app.processes?.[p]
+          const spec = app.spec.processes?.[p]
+          const v = value(p)
+          const cur = current(p)
+          const ok = st ? st.ready >= st.desired && st.desired > 0 : false
+          const changed = draft[p] !== undefined && (v.size !== cur.size || v.replicas !== cur.replicas)
+          return (
+            <div key={p} className={cn('grid gap-1.5 rounded-md px-2 py-1.5 text-sm', changed && 'bg-primary/5')}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className={cn('size-2 rounded-full', !st || st.desired === 0 ? 'bg-muted-foreground' : ok ? 'bg-emerald-500' : 'animate-pulse bg-amber-500')} />
+                  <span className="font-medium">{p}</span>
+                  {spec?.port && <span className="font-mono text-[10px] text-muted-foreground">:{spec.port}</span>}
+                  <span className="text-xs text-muted-foreground">{st ? `${st.ready} of ${st.desired} running` : 'not deployed'}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="icon-xs" disabled={v.replicas <= 0 || busy} onClick={() => setDraft({ ...draft, [p]: { ...v, replicas: v.replicas - 1 } })}>
+                    <Minus />
+                  </Button>
+                  <span className={cn('w-6 text-center font-mono text-xs', v.replicas !== cur.replicas && 'text-primary')}>{v.replicas}</span>
+                  <Button variant="outline" size="icon-xs" disabled={busy} onClick={() => setDraft({ ...draft, [p]: { ...v, replicas: v.replicas + 1 } })}>
+                    <Plus />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 pl-4">
+                <Select value={v.size} onValueChange={(size) => setDraft({ ...draft, [p]: { ...v, size } })} disabled={busy || !catalog.data}>
+                  <SelectTrigger className={cn('h-7 w-44 text-xs', v.size !== cur.size && 'border-primary text-primary')} size="sm">
+                    <SelectValue placeholder="size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {catalog.data?.sizes.map((sz) => (
+                      <SelectItem key={sz.name} value={sz.name}>
+                        <span className="font-mono text-xs">{sz.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {sz.cpu} CPU · {sz.memory}
+                        </span>
+                      </SelectItem>
+                    ))}
+                    {cur.size === 'custom' && <SelectItem value="custom">custom</SelectItem>}
+                  </SelectContent>
+                </Select>
+                <span className="font-mono text-[11px] text-muted-foreground">{st?.cpu && st?.memory ? `${st.cpu} CPU · ${st.memory}` : ''}</span>
+              </div>
+            </div>
+          )
+        })}
+        {dirty && (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs">
+            <span>
+              {Object.keys(changes).length} process{Object.keys(changes).length > 1 ? 'es' : ''} changed
+              {Object.values(changes).some((c) => c.size) ? ' · a new release will roll out' : ''}
+            </span>
+            <div className="flex gap-2">
+              <Button size="xs" variant="outline" onClick={() => setDraft({})} disabled={apply.isPending}>
+                Cancel
+              </Button>
+              <Button size="xs" onClick={() => apply.mutate()} disabled={busy || apply.isPending} title={busy ? 'Wait for the current release to finish' : undefined}>
+                Apply
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

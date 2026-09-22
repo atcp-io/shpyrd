@@ -128,3 +128,73 @@ func (s *Server) resizeApp(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, summarize(app))
 }
+
+// ProcessChange is one entry of an applyProcesses request.
+type ProcessChange struct {
+	Size     *string `json:"size,omitempty"`
+	Replicas *int32  `json:"replicas,omitempty"`
+}
+
+type applyProcessesRequest struct {
+	Processes map[string]ProcessChange `json:"processes" binding:"required"`
+}
+
+// applyProcesses changes sizes and instance counts of several process types
+// in one update, so a batch of edits yields a single release and rollout.
+func (s *Server) applyProcesses(c *gin.Context) {
+	var req applyProcessesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	if len(req.Processes) == 0 {
+		abort(c, http.StatusBadRequest, errors.New("no changes"))
+		return
+	}
+	cat, _, err := s.loadCatalog(c)
+	if err != nil {
+		abort(c, http.StatusBadGateway, err)
+		return
+	}
+	resizes := false
+	for name, ch := range req.Processes {
+		if ch.Size != nil {
+			if _, ok := cat.Get(*ch.Size); !ok {
+				abort(c, http.StatusBadRequest, fmt.Errorf("unknown size %q for %s", *ch.Size, name))
+				return
+			}
+			resizes = true
+		}
+		if ch.Replicas != nil && (*ch.Replicas < 0 || *ch.Replicas > 100) {
+			abort(c, http.StatusBadRequest, errors.New("replicas must be between 0 and 100"))
+			return
+		}
+	}
+	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
+		if resizes && rolloutInProgress(a) {
+			return fmt.Errorf("a release is still rolling out (%s); wait for it to finish", firstNonEmpty(a.Status.Message, a.Status.Phase))
+		}
+		if a.Spec.Processes == nil {
+			a.Spec.Processes = map[string]shpyrdv1.Process{"web": {}}
+		}
+		for name, ch := range req.Processes {
+			p, ok := a.Spec.Processes[name]
+			if !ok && name != "web" {
+				return errors.New("unknown process " + name)
+			}
+			if ch.Size != nil {
+				p.Size = *ch.Size
+				p.Resources = corev1.ResourceRequirements{}
+			}
+			if ch.Replicas != nil {
+				p.Replicas = ch.Replicas
+			}
+			a.Spec.Processes[name] = p
+		}
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	c.JSON(http.StatusOK, summarize(app))
+}

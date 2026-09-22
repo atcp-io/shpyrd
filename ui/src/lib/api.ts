@@ -254,6 +254,8 @@ export const api = {
     request<AppSummary>(`${app(ns, name)}/scale`, json('POST', { process, replicas })),
   resize: (ns: string, name: string, process: string, size: string) =>
     request<AppSummary>(`${app(ns, name)}/resize`, json('POST', { process, size })),
+  applyProcesses: (ns: string, name: string, processes: Record<string, { size?: string; replicas?: number }>) =>
+    request<AppSummary>(`${app(ns, name)}/processes`, json('POST', { processes })),
   sizes: () => request<SizeCatalog>('/api/sizes'),
   saveSizes: (catalog: SizeCatalog) => request<SizeCatalog>('/api/sizes', json('PUT', catalog)),
   rollback: (ns: string, name: string, release: number) =>

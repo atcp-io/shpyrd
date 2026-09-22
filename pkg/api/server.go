@@ -176,6 +176,7 @@ func (s *Server) routes() {
 	api.GET("/apps/:ns/:name/metrics", s.appMetrics)
 	api.POST("/apps/:ns/:name/scale", s.scaleApp)
 	api.POST("/apps/:ns/:name/resize", s.resizeApp)
+	api.POST("/apps/:ns/:name/processes", s.applyProcesses)
 	api.POST("/apps/:ns/:name/rollback", s.rollbackApp)
 
 	if s.opts.UI != nil {
