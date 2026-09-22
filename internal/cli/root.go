@@ -50,6 +50,8 @@ func New() *cobra.Command {
 	root.AddCommand(newResizeCmd(g))
 	root.AddCommand(newSizesCmd(g))
 	root.AddCommand(newLogsCmd(g))
+	root.AddCommand(newShellCmd(g))
+	root.AddCommand(newRunCmd(g))
 	root.AddCommand(newReleasesCmd(g))
 	root.AddCommand(newRollbackCmd(g))
 	root.AddCommand(newOpenCmd(g))

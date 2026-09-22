@@ -290,6 +290,8 @@ shpyrd secrets   set K=V ... | unset K | list            (names only; values are
 shpyrd scale     web=2 worker=1
 shpyrd resize    web=shared-m worker=dedicated-s          (instance sizes; `shpyrd sizes` manages the catalog)
 shpyrd logs      [-f] [--process web] [--tail n] [--build]
+shpyrd shell     [--process web | --instance web.2] [-- cmd...]   (RFC-0005)
+shpyrd run       [--size shared-l] [--detach] <cmd...>            (RFC-0005)
 shpyrd releases  | rollback [n]
 shpyrd open
 ```

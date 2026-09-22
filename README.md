@@ -78,6 +78,8 @@ shpyrd secrets set DATABASE_URL=postgres://...   # config vars -> new release, r
 shpyrd scale web=2 worker=1         # process types come from the buildpack (Procfile / launch.toml)
 shpyrd resize web=shared-l          # sizes: shpyrd sizes list (shared = burstable CPU, dedicated = guaranteed)
 shpyrd logs -f --process web
+shpyrd shell --instance web.2       # bash in a running instance, with the buildpack environment
+shpyrd run rails db:migrate         # one-off instance of the current release; exit code passes through
 shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its config vars
 ```
 

@@ -18,7 +18,7 @@ Design changes to shpyrd are proposed as short RFCs before they are built.
 | [0002](0002-extension-model.md) | Extension model | provisional |
 | [0003](0003-projects-and-resources.md) | Projects and resources | implementable |
 | [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implementable |
-| [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implementable |
+| [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI) |
 | [0006](0006-persistent-volumes.md) | Persistent volumes | implementable |
 | [0007](0007-authentication.md) | Authentication (OIDC, Dex, Okta) | provisional |
 | [0008](0008-teams-roles-and-security.md) | Teams, roles and security | provisional |

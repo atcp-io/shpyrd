@@ -1,6 +1,6 @@
 # RFC-0005 Shell and one-off commands
 
-**Status:** implementable
+**Status:** implemented (CLI); browser terminal pending
 
 **Creation date:** 2026-09-22
 
@@ -77,4 +77,10 @@ output streams into the same terminal.
 
 ## Implementation History
 
-- 2026-09-22: RFC written; `shpyrd shell` and `shpyrd run` implemented in phase B.
+- 2026-09-22: RFC written.
+- 2026-09-22: `shpyrd shell` (exec, WebSocket with SPDY fallback, TTY only when stdin is a
+  terminal, CNB launcher so buildpack environments load, bash then sh) and `shpyrd run`
+  (one-off pod `<app>-run-<rand>` with the release image, config vars and a catalog size,
+  attach, exit code passthrough, `--detach`) shipped in the CLI. The controller deletes
+  finished one-off pods after 10 minutes. Browser terminal and `pods/exec` through the
+  server are not done yet.

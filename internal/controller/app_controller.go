@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -56,6 +57,7 @@ func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(kpackImage).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(envSecretToApp)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.sizesToAllApps)).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(runPodToApp), builder.WithPredicates(isRunPod)).
 		Complete(r)
 }
 
@@ -150,6 +152,11 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	if next, gcErr := r.gcRunPods(ctx, app); gcErr != nil {
+		logger.Error(gcErr, "clean up one-off instances")
+	} else if next > 0 && (out.result.RequeueAfter == 0 || next < out.result.RequeueAfter) {
+		out.result.RequeueAfter = next
 	}
 	return out.result, nil
 }
