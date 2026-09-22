@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"shpyrd/pkg/ext"
 )
 
@@ -254,5 +256,98 @@ func TestRateLimiter(t *testing.T) {
 	now = now.Add(time.Minute)
 	if !rl.allow("a") {
 		t.Error("tokens refill over time")
+	}
+}
+
+func TestTokenDisabledAndTickets(t *testing.T) {
+	// A disabled token is refused with an explanation while sessions and
+	// tickets keep working; /api/config stops advertising it.
+	s, _ := newTestServer(t, nil, nil)
+	s.opts.TokenDisabled = true
+	s.opts.Public.Auth = AuthConfig{}
+	if rec := do(t, s, "GET", "/api/apps", "", true); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "admin token is disabled") {
+		t.Errorf("disabled token: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "GET", "/api/config", "", false); !strings.Contains(rec.Body.String(), `"token":false`) {
+		t.Errorf("config must not advertise the token: %s", rec.Body.String())
+	}
+	sid, _ := signIn(t, s, ext.Identity{Subject: "u", Email: "ada@example.test", Provider: "local"})
+	if rec := doCookie(t, s, "GET", "/api/me", "", sid, ""); rec.Code != http.StatusOK {
+		t.Errorf("sessions still work: %d", rec.Code)
+	}
+
+	// One-time login ticket minted by the CLI (Secret in the system namespace).
+	code, err := MintLoginTicket(context.Background(), s.kube.Kube, "shpyrd-system", "patrick@laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, s, "GET", "/api/auth/ticket?code="+code+"&next=/cluster", "", false)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/cluster" || cookieValue(rec, sessionCookie) == "" {
+		t.Fatalf("ticket login: %d -> %s cookies=%v", rec.Code, rec.Header().Get("Location"), rec.Result().Cookies())
+	}
+	me := doCookie(t, s, "GET", "/api/me", "", cookieValue(rec, sessionCookie), "")
+	if !strings.Contains(me.Body.String(), `"provider":"kubeconfig"`) || !strings.Contains(me.Body.String(), `"platform":"platform-admin"`) || !strings.Contains(me.Body.String(), "patrick@laptop") {
+		t.Errorf("ticket identity: %s", me.Body.String())
+	}
+	// Tickets are one-shot, and unknown codes are refused.
+	if rec := do(t, s, "GET", "/api/auth/ticket?code="+code, "", false); !strings.Contains(rec.Header().Get("Location"), "login_error=") {
+		t.Errorf("replayed ticket: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := do(t, s, "GET", "/api/auth/ticket?code=nope", "", false); !strings.Contains(rec.Header().Get("Location"), "login_error=") {
+		t.Errorf("bogus ticket: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	// An expired ticket is refused and cleaned up.
+	code2, _ := MintLoginTicket(context.Background(), s.kube.Kube, "shpyrd-system", "late@laptop")
+	list, _ := s.kube.Kube.CoreV1().Secrets("shpyrd-system").List(context.Background(), metav1.ListOptions{LabelSelector: LoginTicketLabel + "=true"})
+	for i := range list.Items {
+		list.Items[i].Data["expires"] = []byte(time.Now().Add(-time.Minute).UTC().Format(time.RFC3339))
+		_, _ = s.kube.Kube.CoreV1().Secrets("shpyrd-system").Update(context.Background(), &list.Items[i], metav1.UpdateOptions{})
+	}
+	if rec := do(t, s, "GET", "/api/auth/ticket?code="+code2, "", false); !strings.Contains(rec.Header().Get("Location"), "expired") {
+		t.Errorf("expired ticket: %s", rec.Header().Get("Location"))
+	}
+	left, _ := s.kube.Kube.CoreV1().Secrets("shpyrd-system").List(context.Background(), metav1.ListOptions{LabelSelector: LoginTicketLabel + "=true"})
+	if len(left.Items) != 0 {
+		t.Errorf("stale tickets should be removed, %d left", len(left.Items))
+	}
+}
+
+func TestFailedTokenAttemptsThrottled(t *testing.T) {
+	s, _ := newTestServer(t, nil, nil)
+	s.tokenFailures = newRateLimiter(3)
+	bad := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/api/apps", nil)
+		req.Header.Set("Authorization", "Bearer wrong")
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	for i := 0; i < 3; i++ {
+		if rec := bad(); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: %d", i, rec.Code)
+		}
+	}
+	if rec := bad(); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("fourth wrong attempt should be throttled: %d", rec.Code)
+	}
+	// Even the right token is refused while throttled.
+	if rec := do(t, s, "GET", "/api/apps", "", true); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("right token while throttled: %d", rec.Code)
+	}
+	// Each failure left an audit event.
+	events, _ := s.kube.Kube.CoreV1().Events("shpyrd-system").List(context.Background(), metav1.ListOptions{})
+	failed := 0
+	for _, ev := range events.Items {
+		if ev.Annotations["shpyrd.io/action"] == "auth.token_failed" {
+			failed++
+		}
+	}
+	if failed != 3 {
+		t.Errorf("audited failures = %d, want 3", failed)
+	}
+	// Sessions are not affected by token throttling.
+	sid, _ := signIn(t, s, ext.Identity{Subject: "u", Email: "ada@example.test", Provider: "local"})
+	if rec := doCookie(t, s, "GET", "/api/me", "", sid, ""); rec.Code != http.StatusOK {
+		t.Errorf("session while token throttled: %d", rec.Code)
 	}
 }

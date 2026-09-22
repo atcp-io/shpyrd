@@ -264,7 +264,7 @@ func (s *Server) authProviders(c *gin.Context) {
 }
 
 func (s *Server) authConfig() AuthConfig {
-	cfg := AuthConfig{Token: s.opts.Token != "", Providers: []ProviderInfo{}}
+	cfg := AuthConfig{Token: s.opts.Token != "" && !s.opts.TokenDisabled, Providers: []ProviderInfo{}}
 	if s.rp != nil {
 		cfg.Providers = s.rp.providerList()
 	}
@@ -298,6 +298,7 @@ func (s *Server) authCallback(c *gin.Context) {
 	id, next, err := s.rp.complete(c.Request.Context(), c.Query("state"), c.Query("code"))
 	if err != nil {
 		s.log.Warn("login failed", "error", err, "remote", c.ClientIP())
+		s.auditAnonymous(c, "auth.login_failed", err.Error())
 		s.loginFailed(c, err)
 		return
 	}
@@ -308,7 +309,38 @@ func (s *Server) authCallback(c *gin.Context) {
 	}
 	s.setSessionCookies(c, sess)
 	s.log.Info("user signed in", "email", id.Email, "provider", id.Provider)
+	ext.SetIdentity(c, id)
+	s.audit(c, "", "auth.login", id.Email, "provider "+id.Provider)
 	c.Redirect(http.StatusFound, next)
+}
+
+// authTicket signs a browser in with a one-time login ticket minted by the
+// CLI (`shpyrd cluster dashboard`): the ticket Secret in the system
+// namespace holds the code's hash, an expiry and the local user, so the
+// admin token never reaches the browser and the session is attributable.
+func (s *Server) authTicket(c *gin.Context) {
+	code := c.Query("code")
+	if code == "" || s.kube == nil || s.kube.Kube == nil {
+		abort(c, http.StatusNotFound, errors.New("no such login ticket"))
+		return
+	}
+	actor, err := RedeemLoginTicket(c.Request.Context(), s.kube.Kube, s.deps().SystemNamespace, code)
+	if err != nil {
+		s.log.Warn("login ticket refused", "error", err, "remote", c.ClientIP())
+		s.auditAnonymous(c, "auth.ticket_failed", err.Error())
+		s.loginFailed(c, err)
+		return
+	}
+	id := ext.Identity{Subject: "kubeconfig:" + actor, Name: actor, Provider: "kubeconfig", Admin: true}
+	sess, err := s.rp.sessions.create(c.Request.Context(), id)
+	if err != nil {
+		abort(c, http.StatusInternalServerError, err)
+		return
+	}
+	s.setSessionCookies(c, sess)
+	ext.SetIdentity(c, id)
+	s.audit(c, "", "auth.login", actor, "one-time ticket from the CLI")
+	c.Redirect(http.StatusFound, safeNext(c.Query("next")))
 }
 
 // loginFailed sends the browser back to the login page with the reason.
@@ -469,6 +501,17 @@ func (r *rateLimiter) allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// exhausted reports whether key has no tokens left, without taking one.
+func (r *rateLimiter) exhausted(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	b, ok := r.buckets[key]
+	if !ok {
+		return false
+	}
+	return b.tokens+r.now().Sub(b.last).Seconds()*r.rate < 1
 }
 
 func (r *rateLimiter) middleware() gin.HandlerFunc {

@@ -7,6 +7,8 @@ package audit
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/user"
@@ -79,10 +81,12 @@ func Record(ctx context.Context, k kubernetes.Interface, ref Ref, e Entry) error
 		msg += " from " + e.From
 	}
 	ts := metav1.NewTime(e.Time)
+	suffix := make([]byte, 4)
+	_, _ = rand.Read(suffix)
 	ev := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "audit-",
-			Namespace:    ref.Namespace,
+			Name:      fmt.Sprintf("audit-%x-%s", e.Time.UnixNano(), hex.EncodeToString(suffix)),
+			Namespace: ref.Namespace,
 			Annotations: map[string]string{
 				AnnotationActor: e.Actor, AnnotationAction: e.Action, AnnotationTarget: e.Target,
 				AnnotationDetail: e.Detail, AnnotationFrom: e.From, AnnotationVia: e.Via,

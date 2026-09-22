@@ -152,7 +152,9 @@ func (s *Snapshot) teamsOf(id ext.Identity) map[string]*shpyrdv1.Team {
 // platform admin; without any membership objects everyone is (bootstrap).
 func (s *Snapshot) RolesFor(id ext.Identity) Roles {
 	r := Roles{Projects: map[string]string{}, Enforced: s.Enforced()}
-	if id.Provider == "token" || id.Subject == "admin-token" {
+	// The admin token, and sessions opened from the CLI with cluster access
+	// (login tickets), are platform admins: their holders already are.
+	if id.Provider == "token" || id.Provider == "kubeconfig" || id.Subject == "admin-token" {
 		r.Platform = shpyrdv1.RolePlatformAdmin
 		return r
 	}

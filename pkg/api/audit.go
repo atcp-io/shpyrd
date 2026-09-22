@@ -35,6 +35,17 @@ func (s *Server) audit(c *gin.Context, project, action, target, detail string) {
 	}
 }
 
+// auditAnonymous records a security event of an unauthenticated client.
+func (s *Server) auditAnonymous(c *gin.Context, action, detail string) {
+	if s.kube == nil || s.kube.Kube == nil {
+		return
+	}
+	entry := audit.Entry{Actor: "anonymous", Action: action, Target: c.ClientIP(), Detail: detail, From: c.ClientIP(), Via: "api"}
+	if err := audit.Record(c.Request.Context(), s.kube.Kube, audit.ClusterRef(s.deps().SystemNamespace), entry); err != nil {
+		s.log.Warn("audit: cannot record", "action", action, "error", err)
+	}
+}
+
 // appAudit lists the audit trail of a project.
 func (s *Server) appAudit(c *gin.Context) {
 	project := authz.ProjectFromNamespace(c.Param("ns"))

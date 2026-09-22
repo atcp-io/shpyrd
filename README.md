@@ -147,8 +147,13 @@ shpyrd users list | passwd | rm
 ```
 
 The dashboard then offers "Sign in with email and password" next to the admin
-token, which stays for automation (`shpyrd cluster dashboard`, CI; rotate it
-with `shpyrd cluster token --rotate`).
+token. The token is a shared platform-admin credential meant for bootstrap and
+automation: rotate it with `shpyrd cluster token --rotate`, and once accounts
+and a platform-admin team exist switch it off with `shpyrd cluster token
+--disable` (the API then refuses it). `shpyrd cluster dashboard` never sends
+the token to the browser: it mints a one-time, 60-second login ticket in the
+cluster that the browser exchanges for a normal session attributed to you.
+Wrong tokens are audited and throttled per client.
 
 ## Teams, roles and security
 

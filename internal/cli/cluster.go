@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -18,6 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/api"
+	"shpyrd/pkg/audit"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kind"
 	"shpyrd/pkg/kube"
@@ -107,15 +112,43 @@ func adminToken(ctx context.Context, k *kube.Client) (string, error) {
 }
 
 func newClusterTokenCmd(g *globalFlags) *cobra.Command {
-	var rotate bool
+	var (
+		rotate  bool
+		disable bool
+		enable  bool
+	)
 	cmd := &cobra.Command{
 		Use:   "token",
-		Short: "Print the dashboard/API admin token (--rotate replaces it)",
+		Short: "Print the dashboard/API admin token (--rotate replaces it, --disable switches it off)",
+		Long: `The admin token is a shared credential with full platform-admin rights,
+meant for bootstrap and automation. Once accounts exist (extension
+auth-local or another provider) and a platform-admin team includes at least
+one person, --disable switches it off: the API refuses it and sign-in goes
+through accounts only. --enable turns it back on; --rotate replaces it.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			k, err := kube.Connect(kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx})
 			if err != nil {
 				return err
+			}
+			if disable || enable {
+				if disable && enable {
+					return errors.New("--disable and --enable are exclusive")
+				}
+				if disable {
+					if err := checkTokenCanBeDisabled(ctx, k); err != nil {
+						return err
+					}
+				}
+				if err := setTokenDisabled(ctx, k, disable); err != nil {
+					return err
+				}
+				if disable {
+					fmt.Fprintln(cmd.OutOrStdout(), "Admin token disabled; the server is restarting. Sign in with your account; `shpyrd cluster dashboard` still works through one-time tickets.")
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "Admin token enabled; the server is restarting.")
+				}
+				return nil
 			}
 			if rotate {
 				tok, err := rotateAdminToken(ctx, k)
@@ -130,12 +163,86 @@ func newClusterTokenCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if disabled, _ := tokenDisabled(ctx, k); disabled {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Note: the admin token is disabled on this cluster (`shpyrd cluster token --enable` turns it back on).")
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), tok)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&rotate, "rotate", false, "generate a new token, store it and restart the server")
+	cmd.Flags().BoolVar(&disable, "disable", false, "switch the token off (needs a login provider and a platform-admin team)")
+	cmd.Flags().BoolVar(&enable, "enable", false, "switch the token back on")
 	return cmd
+}
+
+// tokenDisabled reads the switch from the token Secret.
+func tokenDisabled(ctx context.Context, k *kube.Client) (bool, error) {
+	sec, err := k.Kube.CoreV1().Secrets(install.DefaultSystemNamespace).Get(ctx, install.AdminTokenSecretName, metav1.GetOptions{})
+	if err != nil {
+		return false, err
+	}
+	return string(sec.Data["disabled"]) == "true", nil
+}
+
+// checkTokenCanBeDisabled refuses to lock everyone out: accounts must be
+// able to sign in and someone must be a platform admin.
+func checkTokenCanBeDisabled(ctx context.Context, k *kube.Client) error {
+	exts := recordedExtensions(ctx, k)
+	hasProvider := false
+	for _, e := range exts {
+		if strings.HasPrefix(e, "auth-") {
+			hasProvider = true
+		}
+	}
+	if !hasProvider {
+		return errors.New("no login provider is enabled: enable one first (`shpyrd extensions enable auth-local`) or nobody could sign in")
+	}
+	c, err := k.ControllerClient()
+	if err != nil {
+		return err
+	}
+	var teams shpyrdv1.TeamList
+	if err := c.List(ctx, &teams); err != nil {
+		return err
+	}
+	for _, t := range teams.Items {
+		if t.Spec.PlatformRole == shpyrdv1.RolePlatformAdmin && (len(t.Spec.Members) > 0 || len(t.Spec.Groups) > 0) {
+			return nil
+		}
+	}
+	return errors.New("no team holds the platform-admin role: create one that includes you first (`shpyrd teams create platform --platform-role platform-admin --member you@example.com`)")
+}
+
+// setTokenDisabled flips the switch and restarts the server.
+func setTokenDisabled(ctx context.Context, k *kube.Client, disabled bool) error {
+	secrets := k.Kube.CoreV1().Secrets(install.DefaultSystemNamespace)
+	sec, err := secrets.Get(ctx, install.AdminTokenSecretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("read admin token: %w", err)
+	}
+	if sec.Data == nil {
+		sec.Data = map[string][]byte{}
+	}
+	if disabled {
+		sec.Data["disabled"] = []byte("true")
+	} else {
+		delete(sec.Data, "disabled")
+	}
+	sec.StringData = nil
+	if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update admin token: %w", err)
+	}
+	return restartServer(ctx, k)
+}
+
+// restartServer rolls the server deployment so it re-reads its Secrets.
+func restartServer(ctx context.Context, k *kube.Client) error {
+	patch := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"shpyrd.io/restarted-at":%q}}}}}`, time.Now().UTC().Format(time.RFC3339))
+	if _, err := k.Kube.AppsV1().Deployments(install.DefaultSystemNamespace).Patch(ctx, "shpyrd-server", types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("restart server: %w", err)
+	}
+	return nil
 }
 
 // rotateAdminToken replaces the token Secret and restarts the server so it
@@ -156,9 +263,8 @@ func rotateAdminToken(ctx context.Context, k *kube.Client) (string, error) {
 	if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
 		return "", fmt.Errorf("update admin token: %w", err)
 	}
-	patch := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"shpyrd.io/restarted-at":%q}}}}}`, time.Now().UTC().Format(time.RFC3339))
-	if _, err := k.Kube.AppsV1().Deployments(install.DefaultSystemNamespace).Patch(ctx, "shpyrd-server", types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil {
-		return "", fmt.Errorf("restart server: %w", err)
+	if err := restartServer(ctx, k); err != nil {
+		return "", err
 	}
 	return tok, nil
 }
@@ -167,7 +273,11 @@ func newClusterDashboardCmd(g *globalFlags) *cobra.Command {
 	var noOpen bool
 	cmd := &cobra.Command{
 		Use:   "dashboard",
-		Short: "Open the shpyrd dashboard in the browser (logs you in with the admin token)",
+		Short: "Open the shpyrd dashboard in the browser, signed in as you",
+		Long: `Open the dashboard signed in through a one-time login ticket: a short-lived
+Secret in the cluster that the browser redeems for a normal session. The admin
+token never reaches the browser, and the session is attributed to you
+(user@host) in the audit trail. The ticket is valid for 60 seconds and once.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			k, err := kube.Connect(kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx})
@@ -178,23 +288,23 @@ func newClusterDashboardCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("shpyrd is not installed on this cluster (%v)", err)
 			}
-			tok, err := adminToken(ctx, k)
+			code, err := api.MintLoginTicket(ctx, k.Kube, install.DefaultSystemNamespace, audit.LocalActor())
 			if err != nil {
 				return err
 			}
-			url := install.BaseURL(info.Vars)("shpyrd")
+			base := install.BaseURL(info.Vars)("shpyrd")
+			login := base + "/api/auth/ticket?code=" + url.QueryEscape(code)
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Dashboard: %s\nToken:     %s\n", url, tok)
+			fmt.Fprintf(out, "Dashboard: %s\n", base)
 			if noOpen {
+				fmt.Fprintf(out, "Sign-in:   %s\n           (one-time link, valid for %s)\n", login, api.LoginTicketTTL)
 				return nil
 			}
-			// The token travels in the URL fragment, which browsers never send
-			// to the server; the dashboard stores it locally and drops it from
-			// the address bar.
-			return openBrowser(url + "/#token=" + tok)
+			fmt.Fprintln(out, "Opening the dashboard signed in as", audit.LocalActor())
+			return openBrowser(login)
 		},
 	}
-	cmd.Flags().BoolVar(&noOpen, "no-open", false, "only print the URL and token")
+	cmd.Flags().BoolVar(&noOpen, "no-open", false, "only print the URL and the one-time sign-in link")
 	return cmd
 }
 

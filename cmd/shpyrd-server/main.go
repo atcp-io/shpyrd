@@ -108,6 +108,7 @@ func run(o runOptions, logger *slog.Logger) error {
 		UI:             ui.Dist(),
 		Sources:        &api.SourceStore{Dir: o.dataDir, BaseURL: internalURL},
 		Token:          strings.TrimSpace(os.Getenv("SHPYRD_ADMIN_TOKEN")),
+		TokenDisabled:  strings.TrimSpace(os.Getenv("SHPYRD_ADMIN_TOKEN_DISABLED")) == "true",
 		Prometheus:     prom,
 		Extensions:     extensions,
 		IngressService: envOr("SHPYRD_INGRESS_SERVICE", "ingress-nginx-controller.ingress-nginx.svc:443"),

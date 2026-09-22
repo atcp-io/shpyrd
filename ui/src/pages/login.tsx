@@ -28,7 +28,8 @@ export function LoginPage() {
     window.location.pathname === "/"
       ? "/"
       : window.location.pathname + window.location.search;
-  const tokenForm = showToken || providers.length === 0;
+  const tokenAllowed = config.data?.auth?.token ?? true;
+  const tokenForm = tokenAllowed && (showToken || providers.length === 0);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -39,7 +40,10 @@ export function LoginPage() {
           </CardTitle>
           <CardDescription>
             {providers.length > 0 ? (
-              <>Sign in to the dashboard with your account.</>
+              <>
+                Sign in to the dashboard with your account.
+                {!tokenAllowed && " The admin token is disabled on this cluster."}
+              </>
             ) : (
               <>
                 Paste the admin token to open the dashboard. Get it with{" "}
@@ -70,7 +74,7 @@ export function LoginPage() {
               </a>
             </Button>
           ))}
-          {providers.length > 0 && !showToken && (
+          {providers.length > 0 && !showToken && tokenAllowed && (
             <button
               type="button"
               className="text-xs text-muted-foreground underline-offset-4 hover:underline"

@@ -35,6 +35,9 @@ type Options struct {
 	Sources *SourceStore
 	// Token protects the API. Empty disables authentication (development).
 	Token string
+	// TokenDisabled refuses the admin token: sign-in through accounts only
+	// (`shpyrd cluster token --disable`). Authentication stays required.
+	TokenDisabled bool
 	// Apps is the client used for App resources; defaults to an uncached
 	// controller-runtime client built from the kube client. Tests inject a
 	// fake.
@@ -83,6 +86,8 @@ type Server struct {
 	prom    *PromClient
 	rp      *relyingParty
 	authz   *authz.Resolver
+	// tokenFailures throttles clients presenting wrong admin tokens.
+	tokenFailures *rateLimiter
 }
 
 // New wires the routes.
@@ -121,17 +126,21 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	if opts.Vars == nil {
 		opts.Vars = os.Getenv
 	}
-	opts.Public.AuthRequired = opts.Token != ""
+	opts.Public.AuthRequired = opts.Token != "" || opts.TokenDisabled
 	opts.Public.Metrics = opts.Prometheus != nil
 	opts.Public.Extensions = ext.Names(opts.Extensions)
 	if opts.Public.Extensions == nil {
 		opts.Public.Extensions = []string{}
 	}
-	if opts.Token == "" {
+	if opts.Token == "" && !opts.TokenDisabled {
 		opts.Logger.Warn("API authentication disabled: no admin token configured")
+	}
+	if opts.TokenDisabled {
+		opts.Logger.Info("admin token disabled: sign-in through accounts only")
 	}
 	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus}
 	s.authz = &authz.Resolver{Client: opts.Apps}
+	s.tokenFailures = newRateLimiter(20)
 	s.engine = gin.New()
 	s.engine.Use(gin.Recovery(), s.requestLogger(), securityHeaders())
 	_ = s.engine.SetTrustedProxies(nil)
@@ -219,6 +228,7 @@ func (s *Server) routes() error {
 	login := newRateLimiter(30).middleware()
 	pub.GET("/auth/login", login, s.authLogin)
 	pub.GET("/auth/callback", login, s.authCallback)
+	pub.GET("/auth/ticket", login, s.authTicket)
 
 	// Every protected route names the action it performs (RFC-0008); the
 	// caller's roles decide.
@@ -286,7 +296,7 @@ func (s *Server) routes() error {
 // through it).
 func (s *Server) auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if s.opts.Token == "" {
+		if s.opts.Token == "" && !s.opts.TokenDisabled {
 			c.Next()
 			return
 		}
@@ -295,7 +305,23 @@ func (s *Server) auth() gin.HandlerFunc {
 			tok = strings.TrimSpace(h[7:])
 		}
 		if tok != "" {
+			if s.opts.TokenDisabled {
+				abort(c, http.StatusUnauthorized, errors.New("the admin token is disabled on this cluster; sign in with your account"))
+				return
+			}
+			// Wrong tokens are throttled per client and audited; while a
+			// client is throttled even the right token is refused, which
+			// blunts brute force.
+			ip := c.ClientIP()
+			if s.tokenFailures.exhausted(ip) {
+				c.Header("Retry-After", "60")
+				abort(c, http.StatusTooManyRequests, errors.New("too many failed token attempts; try again in a minute"))
+				return
+			}
 			if subtle.ConstantTimeCompare([]byte(tok), []byte(s.opts.Token)) != 1 {
+				s.tokenFailures.allow(ip)
+				s.log.Warn("invalid admin token", "remote", ip, "path", c.Request.URL.Path)
+				s.auditAnonymous(c, "auth.token_failed", c.Request.URL.Path)
 				c.Header("WWW-Authenticate", `Bearer realm="shpyrd"`)
 				abort(c, http.StatusUnauthorized, errors.New("missing or invalid token"))
 				return

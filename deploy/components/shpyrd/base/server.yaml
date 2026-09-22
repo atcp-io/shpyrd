@@ -62,6 +62,14 @@ spec:
                 secretKeyRef:
                   name: shpyrd-admin-token
                   key: token
+            # "true" once `shpyrd cluster token --disable` switched the token off:
+            # sign-in then goes through accounts only.
+            - name: SHPYRD_ADMIN_TOKEN_DISABLED
+              valueFrom:
+                secretKeyRef:
+                  name: shpyrd-admin-token
+                  key: disabled
+                  optional: true
           ports:
             - name: http
               containerPort: 8080

@@ -103,5 +103,12 @@ out by design.
   by the server (`/api/users`) and `shpyrd users add|list|passwd|rm` (bcrypt, Dex's object
   naming), so no Dex API client is needed and accounts survive disable/enable. Dashboard:
   provider buttons on the login page, session gate, user menu with sign-out, Users page.
-  Not done: `shpyrd login` for the CLI (kubeconfig remains its identity), rate limiting of
-  the callback, and steps 3.2/3.3.
+  Not done: `shpyrd login` for the CLI (kubeconfig remains its identity) and steps 3.2/3.3.
+- 2026-09-22: Admin token hardening. `shpyrd cluster token --disable|--enable` (refused
+  unless a login provider is enabled and a platform-admin team has members; the server then
+  refuses the token instead of switching authentication off), `shpyrd cluster dashboard`
+  signs the browser in through a one-time 60-second login ticket (a hashed Secret redeemed
+  once by `/api/auth/ticket`, session attributed to `user@host` with provider `kubeconfig`)
+  so the token never reaches localStorage or browser history; wrong tokens are audited and
+  throttled per client (20 per minute, the right token included while throttled); login
+  and callback endpoints are rate limited; sign-ins and failures are audited.
