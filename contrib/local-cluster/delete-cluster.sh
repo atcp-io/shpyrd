@@ -1,2 +1,3 @@
 #!/bin/bash
-kind delete clusters tkb
+set -euo pipefail
+kind delete cluster --name shpyrd

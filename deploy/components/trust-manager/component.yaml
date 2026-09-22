@@ -1,0 +1,19 @@
+name: trust-manager
+description: Distributes the CA bundle (system roots + shpyrd CA) to every namespace
+namespace: cert-manager
+helm:
+  repo: https://charts.jetstack.io
+  chart: trust-manager
+  version: v0.25.0
+  release: trust-manager
+  values: [values.yaml]
+kustomize:
+  path: base
+wait:
+  - deployment: cert-manager/trust-manager
+  - condition:
+      apiVersion: trust.cert-manager.io/v1alpha1
+      kind: Bundle
+      name: shpyrd-ca-bundle
+      type: Synced
+timeout: 5m

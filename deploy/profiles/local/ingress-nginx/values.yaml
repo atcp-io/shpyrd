@@ -1,0 +1,23 @@
+# Local (kind) profile: bind ports 80/443 directly on the control-plane node,
+# which `shpyrd cluster create` maps to the same ports on the host.
+controller:
+  hostPort:
+    enabled: true
+  service:
+    type: ClusterIP
+  publishService:
+    enabled: false
+  extraArgs:
+    publish-status-address: "127.0.0.1"
+  nodeSelector:
+    ingress-ready: "true"
+    kubernetes.io/os: linux
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  terminationGracePeriodSeconds: 0

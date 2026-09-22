@@ -1,0 +1,13 @@
+name: monitoring-crds
+description: Prometheus Operator CRDs (ServiceMonitor, PodMonitor, PrometheusRule) so earlier runlevels can declare scrape targets
+namespace: monitoring
+helm:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: prometheus-operator-crds
+  version: 32.0.0
+  release: monitoring-crds
+wait:
+  - crd: servicemonitors.monitoring.coreos.com
+  - crd: podmonitors.monitoring.coreos.com
+  - crd: prometheusrules.monitoring.coreos.com
+timeout: 5m

@@ -1,0 +1,86 @@
+# kube-prometheus-stack values shared by all profiles.
+fullnameOverride: monitoring
+cleanPrometheusOperatorObjectNames: true
+
+# CRDs come from the monitoring-crds component.
+crds:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+prometheusOperator:
+  admissionWebhooks:
+    certManager:
+      enabled: true
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+
+prometheus:
+  prometheusSpec:
+    # Discover ServiceMonitors/PodMonitors/Rules from every namespace, not
+    # only the ones carrying the Helm release label.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    retention: 7d
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+
+grafana:
+  enabled: true
+  defaultDashboardsEnabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      label: grafana_dashboard
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+  grafana.ini:
+    server:
+      root_url: https://grafana.${SHPYRD_DOMAIN}
+    security:
+      # Panels are embedded in the shpyrd dashboard.
+      allow_embedding: true
+    analytics:
+      check_for_updates: false
+      reporting_enabled: false
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: shpyrd-ca
+    hosts:
+      - grafana.${SHPYRD_DOMAIN}
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.${SHPYRD_DOMAIN}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+kube-state-metrics:
+  # Expose the shpyrd labels on kube_pod_labels so the dashboard can break
+  # CPU and memory down by process type (web, worker...).
+  metricLabelsAllowlist:
+    - pods=[shpyrd.io/app,shpyrd.io/process]
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi

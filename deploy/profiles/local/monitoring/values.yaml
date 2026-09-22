@@ -1,0 +1,32 @@
+# Local (kind) profile: trim the stack for a laptop and disable scrape targets
+# that kind binds to 127.0.0.1 (they would only show as "down").
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    resources:
+      requests:
+        cpu: 50m
+        memory: 400Mi
+
+grafana:
+  # Development only: anonymous read access so the shpyrd dashboard can embed
+  # panels without a login round-trip. Admin login is admin / shpyrd.
+  adminPassword: shpyrd
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+
+prometheus-node-exporter:
+  # Docker Desktop cannot provide the host root filesystem mount.
+  hostRootFsMount:
+    enabled: false

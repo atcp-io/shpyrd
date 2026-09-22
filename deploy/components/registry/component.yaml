@@ -1,0 +1,9 @@
+name: registry
+description: In-cluster OCI registry for built application images and the kpack builder
+namespace: shpyrd-system
+kustomize:
+  path: base
+wait:
+  - deployment: shpyrd-system/registry
+  - endpoints: shpyrd-system/registry
+timeout: 5m

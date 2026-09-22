@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shpyrd-server
+  labels:
+    app.kubernetes.io/name: shpyrd-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shpyrd-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shpyrd-server
+    spec:
+      serviceAccountName: shpyrd-server
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: ${SHPYRD_SERVER_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args: ["--addr", ":8080"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SHPYRD_DOMAIN
+              value: ${SHPYRD_DOMAIN}
+            - name: SHPYRD_REGISTRY_HOST
+              value: ${SHPYRD_REGISTRY_HOST}
+            - name: SHPYRD_VERSION
+              value: ${SHPYRD_VERSION}
+            - name: SHPYRD_HTTPS_PORT
+              value: "${SHPYRD_HTTPS_PORT}"
+            - name: SHPYRD_CLUSTER_ISSUER
+              value: shpyrd-ca
+            - name: SHPYRD_DATA_DIR
+              value: /data
+            - name: SHPYRD_LEADER_ELECT
+              value: "1"
+            - name: SHPYRD_PROMETHEUS_URL
+              value: http://monitoring-prometheus.monitoring.svc:9090
+            - name: SHPYRD_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: shpyrd-admin-token
+                  key: token
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 8081
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: shpyrd-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shpyrd-server
+  labels:
+    app.kubernetes.io/name: shpyrd-server
+spec:
+  selector:
+    app.kubernetes.io/name: shpyrd-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

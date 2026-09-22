@@ -1,0 +1,12 @@
+# The CA key pair is written to Secret cert-manager/shpyrd-root-ca by the
+# installer's local-ca hook from ~/.shpyrd/ca. `shpyrd cluster trust-ca`
+# installs the same certificate in the operating system trust store.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: shpyrd-ca
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  ca:
+    secretName: shpyrd-root-ca

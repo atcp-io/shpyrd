@@ -1,0 +1,19 @@
+# Every namespace gets ConfigMap shpyrd-ca-bundle with the public roots plus
+# the shpyrd development CA. Workloads that call other apps over HTTPS mount
+# it at /etc/ssl/certs/ca-certificates.crt (Go, Node, Python honour it).
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: shpyrd-ca-bundle
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  sources:
+    - useDefaultCAs: true
+    - secret:
+        name: shpyrd-root-ca
+        key: tls.crt
+  target:
+    configMap:
+      key: ca-certificates.crt
+    namespaceSelector: {}

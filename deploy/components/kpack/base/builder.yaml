@@ -1,0 +1,165 @@
+# Builder configuration for shpyrd apps.
+#
+# Each Paketo composite buildpack is registered as its own ClusterBuildpack.
+# The buildpackages are multi-arch (amd64 + arm64) so kpack resolves the
+# digest matching the node architecture, which matters on Apple Silicon. The
+# prebuilt paketobuildpacks/builder-* images are amd64-only and must not be
+# used as a buildpack source on arm64 clusters.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kpack-builder
+  namespace: ${SHPYRD_SYSTEM_NS}
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStack
+metadata:
+  name: jammy
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  id: io.buildpacks.stacks.jammy
+  buildImage:
+    image: index.docker.io/paketobuildpacks/build-jammy-base:latest
+  runImage:
+    image: index.docker.io/paketobuildpacks/run-jammy-base:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-java
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/java:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-nodejs
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/nodejs:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-go
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/go:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-python
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/python:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-ruby
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/ruby:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-dotnet-core
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/dotnet-core:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-web-servers
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/web-servers:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuildpack
+metadata:
+  name: paketo-procfile
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  image: index.docker.io/paketobuildpacks/procfile:latest
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuilder
+metadata:
+  name: shpyrd
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  tag: ${SHPYRD_REGISTRY_HOST}/shpyrd/builder
+  stack:
+    name: jammy
+    kind: ClusterStack
+  serviceAccountRef:
+    name: kpack-builder
+    namespace: ${SHPYRD_SYSTEM_NS}
+  # Detection runs group by group; the first group whose buildpacks all
+  # detect wins. Order mirrors the Paketo base builder.
+  order:
+    - group:
+        - name: paketo-java
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-nodejs
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-go
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-python
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-ruby
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-dotnet-core
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-web-servers
+          kind: ClusterBuildpack
+    - group:
+        - name: paketo-procfile
+          kind: ClusterBuildpack

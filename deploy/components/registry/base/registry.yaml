@@ -1,0 +1,121 @@
+# Plain HTTP registry on a fixed ClusterIP. Because the address is RFC1918,
+# go-containerregistry based tools (kpack, the buildpacks lifecycle) use
+# HTTP for it automatically; kind nodes get a containerd hosts.toml for the
+# same host. The NodePort lets the machine running kind push to
+# localhost:30050 (used by `shpyrd deploy --local-build`).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-config
+data:
+  config.yml: |
+    version: 0.1
+    log:
+      level: info
+      formatter: text
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+      delete:
+        enabled: true
+      cache:
+        blobdescriptor: inmemory
+    http:
+      addr: :5000
+      headers:
+        X-Content-Type-Options: [nosniff]
+    health:
+      storagedriver:
+        enabled: true
+        interval: 10s
+        threshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  labels:
+    app.kubernetes.io/name: registry
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: registry
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: registry
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: registry:3
+          args: ["serve", "/etc/distribution/config.yml"]
+          ports:
+            - name: http
+              containerPort: 5000
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+            - name: config
+              mountPath: /etc/distribution
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
+        - name: config
+          configMap:
+            name: registry-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  labels:
+    app.kubernetes.io/name: registry
+spec:
+  type: NodePort
+  clusterIP: ${SHPYRD_REGISTRY_IP}
+  selector:
+    app.kubernetes.io/name: registry
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      nodePort: 30050

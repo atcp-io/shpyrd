@@ -1,0 +1,25 @@
+# trust-manager reads Bundle sources from the "trust namespace" (where the
+# shpyrd root CA Secret lives) and writes targets to all namespaces.
+app:
+  trust:
+    namespace: cert-manager
+  webhook:
+    tls:
+      approverPolicy:
+        enabled: false
+
+# Allow Bundles to write Secret targets as well as ConfigMaps (needed by
+# workloads that can only mount a Secret).
+secretTargets:
+  enabled: true
+  authorizedSecretsAll: true
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+
+# The default CA package image provides the public roots merged into the
+# bundle via useDefaultCAs.
+defaultPackage:
+  enabled: true

@@ -1,0 +1,35 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: shpyrd-tls
+spec:
+  secretName: shpyrd-tls
+  dnsNames:
+    - shpyrd.${SHPYRD_DOMAIN}
+  issuerRef:
+    kind: ClusterIssuer
+    name: shpyrd-ca
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shpyrd-server
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - shpyrd.${SHPYRD_DOMAIN}
+      secretName: shpyrd-tls
+  rules:
+    - host: shpyrd.${SHPYRD_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shpyrd-server
+                port:
+                  name: http

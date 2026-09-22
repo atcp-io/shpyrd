@@ -1,0 +1,19 @@
+name: monitoring
+description: Prometheus, Grafana, node-exporter and kube-state-metrics (kube-prometheus-stack)
+namespace: monitoring
+helm:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: kube-prometheus-stack
+  version: 91.4.1
+  release: monitoring
+  values: [values.yaml]
+  # CRDs are installed by the monitoring-crds component in rc0.
+  skipCRDs: true
+kustomize:
+  path: base
+wait:
+  - deployment: monitoring/monitoring-operator
+  - deployment: monitoring/monitoring-grafana
+  - deployment: monitoring/monitoring-kube-state-metrics
+  - statefulSet: monitoring/prometheus-monitoring
+timeout: 15m

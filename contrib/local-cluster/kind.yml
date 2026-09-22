@@ -1,40 +1,39 @@
+# Equivalent of what `shpyrd cluster create` generates, for people who prefer
+# to run kind by hand:
+#
+#   kind create cluster --config kind.yml
+#   shpyrd cluster init --context kind-shpyrd
+#
+# - ports 80/443 on the host go to ingress-nginx on the control-plane
+# - port 30050 exposes the in-cluster registry (docker push localhost:30050/...)
+# - the service subnet is pinned so the registry can sit on 10.96.0.50
+#
+# After creation, `shpyrd cluster init` still needs the containerd registry
+# mirror on each node; run:
+#   for n in $(kind get nodes --name shpyrd); do
+#     docker exec $n sh -c 'mkdir -p /etc/containerd/certs.d/10.96.0.50:5000 && printf "server = \"http://10.96.0.50:5000\"\n\n[host.\"http://10.96.0.50:5000\"]\n  capabilities = [\"pull\", \"resolve\", \"push\"]\n  skip_verify = true\n" > /etc/containerd/certs.d/10.96.0.50:5000/hosts.toml'
+#   done
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: tkb
+name: shpyrd
 networking:
-  ipFamily: dual
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry]
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
-      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."private-docker-registry.local-services.svc.cluster.local:30050"]
-        endpoint = ["http://127.0.0.1:30050"]
-    [plugins."io.containerd.grpc.v1.cri".registry.configs]
-      [plugins."io.containerd.grpc.v1.cri".registry.configs."127.0.0.1:30050".tls]
-        insecure_skip_verify = true
+  serviceSubnet: 10.96.0.0/16
 nodes:
-- role: control-plane
-  image: kindest/node:v1.26.0
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-  - containerPort: 30050
-    hostPort: 30050
-    protocol: TCP
-  - containerPort: 30051
-    hostPort: 30051
-    protocol: TCP
-  - containerPort: 30052
-    hostPort: 30052
-    protocol: TCP
-- role: worker
-  image: kindest/node:v1.26.0
-- role: worker
-  image: kindest/node:v1.26.0
-- role: worker
-  image: kindest/node:v1.26.0
-
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      - containerPort: 30050
+        hostPort: 30050
+        protocol: TCP
+  - role: worker

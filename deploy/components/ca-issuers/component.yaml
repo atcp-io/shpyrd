@@ -1,0 +1,13 @@
+name: ca-issuers
+description: ClusterIssuer backed by the shpyrd development root CA (local profile)
+namespace: cert-manager
+hooks: [local-ca]
+kustomize:
+  path: base
+wait:
+  - condition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      name: shpyrd-ca
+      type: Ready
+timeout: 3m

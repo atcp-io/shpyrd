@@ -1,0 +1,32 @@
+name: kpack
+description: Builds application images from source with Cloud Native Buildpacks (Paketo)
+namespace: kpack
+kustomize:
+  path: base
+wait:
+  - deployment: kpack/kpack-controller
+  - deployment: kpack/kpack-webhook
+  - dryRun:
+      apiVersion: kpack.io/v1alpha2
+      kind: ClusterStack
+      metadata:
+        name: shpyrd-webhook-probe
+      spec:
+        id: io.buildpacks.stacks.jammy
+        buildImage:
+          image: paketobuildpacks/build-jammy-base
+        runImage:
+          image: paketobuildpacks/run-jammy-base
+  # kpack assembles the builder image from the Paketo buildpacks and pushes
+  # it to the in-cluster registry. First run downloads ~1 GiB.
+  - condition:
+      apiVersion: kpack.io/v1alpha2
+      kind: ClusterStack
+      name: jammy
+      type: Ready
+  - condition:
+      apiVersion: kpack.io/v1alpha2
+      kind: ClusterBuilder
+      name: shpyrd
+      type: Ready
+timeout: 20m

@@ -1,0 +1,82 @@
+# Grafana dashboards shipped with shpyrd. The Grafana sidecar loads every
+# ConfigMap labelled grafana_dashboard=1 from any namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shpyrd-dashboard-web-apps
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: shpyrd
+data:
+  shpyrd-web-apps.json: |
+    {
+      "uid": "shpyrd-web-apps",
+      "title": "shpyrd / Web apps",
+      "tags": ["shpyrd"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "time": {"from": "now-1h", "to": "now"},
+      "refresh": "30s",
+      "templating": {
+        "list": [
+          {
+            "name": "host",
+            "label": "Host",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": "label_values(nginx_ingress_controller_requests, host)",
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "current": {"text": "All", "value": "$__all"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1, "type": "timeseries", "title": "Requests / s",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum by (host) (rate(nginx_ingress_controller_requests{host=~\"$host\"}[2m]))", "legendFormat": "{{host}}"}]
+        },
+        {
+          "id": 2, "type": "timeseries", "title": "5xx ratio",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum by (host) (rate(nginx_ingress_controller_requests{host=~\"$host\", status=~\"5..\"}[2m])) / sum by (host) (rate(nginx_ingress_controller_requests{host=~\"$host\"}[2m]))", "legendFormat": "{{host}}"}]
+        },
+        {
+          "id": 3, "type": "timeseries", "title": "Latency p95",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (host, le) (rate(nginx_ingress_controller_request_duration_seconds_bucket{host=~\"$host\"}[5m])))", "legendFormat": "{{host}}"}]
+        },
+        {
+          "id": 4, "type": "timeseries", "title": "Responses by status class",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum by (status) (label_replace(rate(nginx_ingress_controller_requests{host=~\"$host\"}[2m]), \"status\", \"$1xx\", \"status\", \"(.).*\"))", "legendFormat": "{{status}}"}]
+        },
+        {
+          "id": 5, "type": "timeseries", "title": "CPU by app namespace",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"app-.*\", container!=\"\"}[2m]))", "legendFormat": "{{namespace}}"}]
+        },
+        {
+          "id": 6, "type": "timeseries", "title": "Memory (working set) by app namespace",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"app-.*\", container!=\"\"})", "legendFormat": "{{namespace}}"}]
+        }
+      ]
+    }

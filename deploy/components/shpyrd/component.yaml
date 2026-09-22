@@ -1,0 +1,15 @@
+name: shpyrd
+description: shpyrd server (API, App controller and dashboard)
+namespace: shpyrd-system
+hooks: [admin-token]
+kustomize:
+  path: base
+wait:
+  - deployment: shpyrd-system/shpyrd-server
+  - condition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      namespace: shpyrd-system
+      name: shpyrd-tls
+      type: Ready
+timeout: 5m

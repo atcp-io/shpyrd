@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shpyrd-server
+---
+# The server reads cluster state for the dashboard and, as the App
+# controller, manages app namespaces, workloads, ingress, certificates and
+# kpack builds.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-server
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes, events, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  # App namespaces are created by `apps create` and removed by destroy.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log, pods/status]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete]
+  - apiGroups: [""]
+    resources: [services, configmaps, secrets, serviceaccounts]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, update, patch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates, issuers, clusterissuers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [kpack.io]
+    resources: [images, builds, builders, clusterbuilders, clusterstacks, clusterbuildpacks, sourceresolvers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors, podmonitors]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [shpyrd.io]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: shpyrd-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: shpyrd-server
+subjects:
+  - kind: ServiceAccount
+    name: shpyrd-server
+    namespace: ${SHPYRD_SYSTEM_NS}

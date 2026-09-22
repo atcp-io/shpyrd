@@ -1,0 +1,29 @@
+# ingress-nginx values shared by all profiles. Profiles override how traffic
+# reaches the controller (host ports on kind, a cloud load balancer on AWS).
+controller:
+  ingressClassResource:
+    name: nginx
+    default: true
+  watchIngressWithoutClass: true
+
+  config:
+    use-forwarded-headers: "true"
+    # Per-host metrics power the shpyrd "web app" dashboards.
+    enable-metrics: "true"
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        app.kubernetes.io/part-of: shpyrd
+
+  admissionWebhooks:
+    enabled: true
+    certManager:
+      enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi

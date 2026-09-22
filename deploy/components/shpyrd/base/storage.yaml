@@ -1,0 +1,12 @@
+# Uploaded source archives (`shpyrd deploy` from a checkout) are served to
+# kpack from here. kpack re-fetches them when it rebuilds an image after a
+# stack or buildpack update, so they must survive pod restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shpyrd-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi

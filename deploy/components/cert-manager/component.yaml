@@ -1,0 +1,24 @@
+name: cert-manager
+description: X.509 certificate management (issues app and dashboard certificates)
+namespace: cert-manager
+helm:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: v1.21.2
+  release: cert-manager
+  values: [values.yaml]
+wait:
+  - deployment: cert-manager/cert-manager
+  - deployment: cert-manager/cert-manager-cainjector
+  - deployment: cert-manager/cert-manager-webhook
+  # The webhook Deployment being Available is not enough: the CA bundle is
+  # injected asynchronously. Dry-run an Issuer until the API server accepts it.
+  - dryRun:
+      apiVersion: cert-manager.io/v1
+      kind: Issuer
+      metadata:
+        name: shpyrd-webhook-probe
+        namespace: cert-manager
+      spec:
+        selfSigned: {}
+timeout: 8m
