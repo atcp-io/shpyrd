@@ -1,0 +1,102 @@
+# RFC-0008 Teams, roles and security
+
+**Status:** provisional
+
+**Creation date:** 2026-09-22
+
+**Last update:** 2026-09-22
+
+## Summary
+
+Authorization and hardening for production: users belong to **teams**, projects are owned
+by teams, **roles** (viewer, developer, admin, platform admin) say what each can see and
+do; enforcement in the API and a **mirror into Kubernetes RBAC** so `kubectl` users see the
+same. Plus the core security work that does not depend on extensions: isolation between
+projects, quotas, an audit log, hardened sessions and supply chain.
+
+## Motivation
+
+Identity (RFC-0007) without authorization only puts names on an all-powerful token. A
+production platform needs least privilege, tenant isolation and a record of who did what.
+
+### Goals
+
+- A small role set a company can operate without a policy language.
+- The dashboard hides what the role cannot do; the API refuses it; Kubernetes agrees.
+- Projects cannot see or reach each other unless allowed.
+- Every mutation is attributable.
+
+### Non-Goals
+
+- Fine-grained per-resource ACLs or custom roles (revisit with demand).
+- Multi-cluster identity federation.
+
+## Proposal
+
+### Model
+
+Users (from the identity provider) belong to **Teams** (groups claim, or managed locally).
+A project is owned by one team; roles are granted per project to teams or users. Two
+platform-wide roles exist besides.
+
+| Role | Sees | Does |
+| --- | --- | --- |
+| viewer | project overview, releases, builds, logs, metrics; config var **names** | nothing |
+| developer | everything viewer sees | deploy, rollback, scale, resize, set/unset config vars, shell, one-off commands |
+| admin (project) | + members, domains, resources | destroy project, attach/detach resources, manage members |
+| platform admin | cluster page, extensions, size catalog, all projects | everything, install/upgrade |
+| platform viewer | cluster page read-only, all projects read-only | nothing |
+
+### Enforcement
+
+1. **API middleware**: every request resolves (identity, project, action) → allow/deny;
+   denied is 403 and the UI hides the action beforehand (roles are part of
+   `GET /api/me`).
+2. **Kubernetes RBAC mirror**: per project the controller maintains `Role`/`RoleBinding`
+   objects granting the equivalent verbs to the OIDC groups (viewer: get/list/watch on
+   the namespace's objects; developer: + update App spec, create pods/exec; admin: +
+   delete). shpyrd never grants more than its own ServiceAccount has. Drift is
+   reconciled.
+
+### Core hardening (no extension needed)
+
+- **Network isolation**: default-deny `NetworkPolicy` per project namespace; allow ingress
+  from ingress-nginx, egress to DNS, the internet and bound resources; projects reach each
+  other only through a declared binding.
+- **Pod security**: `restricted` Pod Security Standard on project namespaces; app
+  containers non-root (buildpack images already are), no privilege escalation; Dockerfile
+  images that need root are refused with an explanation.
+- **Quotas**: `ResourceQuota` and `LimitRange` per project derived from a plan (sum of
+  sizes) so one project cannot starve the cluster.
+- **Audit log**: every mutating API call and CLI action (deploy, rollback, scale, resize,
+  config change, shell, destroy, login) recorded as `{who, what, target, when, from}`,
+  append-only, shown on the project's Activity tab and exportable; Kubernetes Events until
+  the storage extension provides a durable store.
+- **Secrets**: values write-only (done); etcd encryption at rest enabled by the installer
+  where the profile allows; config var Secrets excluded from backups by label; kpack SBOMs
+  retained; images signed with cosign and verified at deploy (later).
+- **Sessions and API**: short cookies with rotation, CSRF for cookie mutations, rate limits
+  on login and API, security headers (HSTS, CSP for the dashboard), admin token rotation.
+- **Supply chain**: base stack charts and images pinned by digest; `cluster status` reports
+  drift and known CVEs from SBOMs (later).
+
+## Design Details
+
+- `pkg/authz`: `Can(identity, action, project) bool` with a static role → actions table;
+  actions are the API's verbs (`app.deploy`, `app.rollback`, `config.set`, `shell.exec`,
+  `project.destroy`, `cluster.admin`...).
+- Membership objects: `Team` (name, members, groups claim) and `ProjectMember`
+  (project, subject or team, role) as CRDs in `shpyrd-system`, editable from the CLI
+  (`shpyrd teams`, `shpyrd members`) and the dashboard.
+- The RBAC mirror uses `ClusterRole`s `shpyrd-viewer|developer|admin` (aggregated) and
+  per-namespace `RoleBinding`s to groups.
+
+### Drawbacks
+
+- Two enforcement points (API and Kubernetes RBAC) must stay consistent; the controller
+  owns both from one table. Network policies can surprise apps that call each other
+  across projects; the binding path is the supported way.
+
+## Implementation History
+
+- 2026-09-22: RFC written; phase D.

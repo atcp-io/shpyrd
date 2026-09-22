@@ -1,6 +1,6 @@
 # RFC-0001 MVP: local platform, App CRD and CLI
 
-**Status:** implementable
+**Status:** implemented
 
 **Creation date:** 2026-09-21
 
