@@ -10,7 +10,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -18,6 +17,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/sizes"
 )
 
 // Config carries cluster-level settings the controller needs.
@@ -37,6 +37,9 @@ type Config struct {
 	DefaultBuilder string
 	// BuildCacheSize is the kpack cache volume size (e.g. "2Gi"); empty disables.
 	BuildCacheSize string
+	// SystemNamespace holds cluster-wide configuration such as the size
+	// catalog.
+	SystemNamespace string
 }
 
 // Defaults fills unset fields.
@@ -61,6 +64,9 @@ func (c Config) Defaults() Config {
 	}
 	if c.BuildCacheSize == "" {
 		c.BuildCacheSize = "2Gi"
+	}
+	if c.SystemNamespace == "" {
+		c.SystemNamespace = "shpyrd-system"
 	}
 	return c
 }
@@ -209,49 +215,22 @@ func (c Config) desiredKpackImage(app *shpyrdv1.App) *unstructured.Unstructured 
 	return u
 }
 
-// Default process size, the equivalent of a PaaS dyno/machine size. Users
-// override it per process (spec.processes.<name>.resources). Limits give
-// the dashboard a 100% mark for CPU and memory.
-var (
-	DefaultCPURequest    = resource.MustParse("100m")
-	DefaultMemoryRequest = resource.MustParse("128Mi")
-	DefaultCPULimit      = resource.MustParse("1")
-	DefaultMemoryLimit   = resource.MustParse("512Mi")
-)
-
-// processResources fills the resources a process left unset.
-func processResources(in corev1.ResourceRequirements) corev1.ResourceRequirements {
-	out := corev1.ResourceRequirements{Requests: corev1.ResourceList{}, Limits: corev1.ResourceList{}}
-	for k, v := range in.Requests {
-		out.Requests[k] = v
+// processResources resolves the instance size of a process against the
+// cluster catalog (see pkg/sizes): explicit resources override, then the
+// named size, then the catalog default. It returns the size name in effect.
+func processResources(p namedProcess, catalog sizes.Catalog) (corev1.ResourceRequirements, string, error) {
+	res, name, err := catalog.Resolve(p.Size, p.Resources)
+	if err != nil {
+		return corev1.ResourceRequirements{}, "", fmt.Errorf("process %s: %w", p.Name, err)
 	}
-	for k, v := range in.Limits {
-		out.Limits[k] = v
+	if name == "" {
+		name = "custom"
 	}
-	if _, ok := out.Limits[corev1.ResourceCPU]; !ok {
-		out.Limits[corev1.ResourceCPU] = DefaultCPULimit
-	}
-	if _, ok := out.Limits[corev1.ResourceMemory]; !ok {
-		out.Limits[corev1.ResourceMemory] = DefaultMemoryLimit
-	}
-	if _, ok := out.Requests[corev1.ResourceCPU]; !ok {
-		out.Requests[corev1.ResourceCPU] = minQuantity(DefaultCPURequest, out.Limits[corev1.ResourceCPU])
-	}
-	if _, ok := out.Requests[corev1.ResourceMemory]; !ok {
-		out.Requests[corev1.ResourceMemory] = minQuantity(DefaultMemoryRequest, out.Limits[corev1.ResourceMemory])
-	}
-	return out
-}
-
-func minQuantity(a, b resource.Quantity) resource.Quantity {
-	if a.Cmp(b) <= 0 {
-		return a
-	}
-	return b
+	return res, name, nil
 }
 
 // mutateDeployment sets the fields shpyrd owns on a process Deployment.
-func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, configHash string, d *appsv1.Deployment) {
+func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, configHash string, res corev1.ResourceRequirements, d *appsv1.Deployment) {
 	labels := processLabels(app, p.Name)
 	d.Labels = mergeMaps(d.Labels, labels)
 	if d.Spec.Selector == nil {
@@ -266,7 +245,7 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 		Image:     image,
 		Command:   p.Command,
 		Args:      p.Args,
-		Resources: processResources(p.Resources),
+		Resources: res,
 		SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: ptr.To(false),
 		},

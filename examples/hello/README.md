@@ -11,7 +11,7 @@ Dockerfile. The Paketo Go buildpack builds both commands in the cluster.
 `BP_GO_TARGETS` build setting that tells the buildpack to build both.
 
 ```sh
-shpyrd apps create hello-world
+shpyrd projects create hello-world
 cd examples/hello
 shpyrd deploy                        # builds, then runs web (1) and worker (1)
 shpyrd open                          # https://hello-world.<domain>

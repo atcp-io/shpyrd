@@ -57,7 +57,7 @@ setting enabled the CLI applies a kubelet override and warns.
 Try the bundled example first (a Go HTTP server rendering an HTML "Hello world"):
 
 ```sh
-shpyrd apps create hello-world
+shpyrd projects create hello-world
 cd examples/hello && shpyrd deploy  # shpyrd.yaml names the app; ~1 min for the first build
 shpyrd open                         # https://hello-world.127.0.0.1.nip.io
 shpyrd secrets set GREETING="Olá mundo"   # the page picks it up
@@ -68,7 +68,7 @@ Then your own code:
 
 ```sh
 cd my-service                       # any repo a Paketo buildpack understands (Go, Node, Java, Python, Ruby, .NET, static)
-shpyrd apps create my-service --save   # namespace app-my-service, App resource, shpyrd.yaml
+shpyrd projects create my-service --save   # namespace app-my-service, App resource, shpyrd.yaml
 shpyrd deploy                       # archive HEAD, build in-cluster with kpack, roll out
 shpyrd deploy --working-tree        # ...or the directory as is, uncommitted changes included
 shpyrd open                         # https://my-service.127.0.0.1.nip.io
@@ -76,12 +76,15 @@ shpyrd open                         # https://my-service.127.0.0.1.nip.io
 shpyrd deploy --git https://github.com/org/repo --ref main --path services/api   # build from Git; new commits rebuild
 shpyrd secrets set DATABASE_URL=postgres://...   # config vars -> new release, rolling restart (values are never shown again)
 shpyrd scale web=2 worker=1         # process types come from the buildpack (Procfile / launch.toml)
+shpyrd resize web=shared-l          # sizes: shpyrd sizes list (shared = burstable CPU, dedicated = guaranteed)
 shpyrd logs -f --process web
 shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its config vars
 ```
 
-Apps are `App` resources (`kubectl get apps -A`); the controller in `shpyrd-server`
-turns them into kpack builds, Deployments, Services and Ingresses with certificates.
+A project is a namespace with its resources; today that is one app resource
+(`kubectl get apps -A`) that the controller in `shpyrd-server` turns into kpack
+builds, Deployments, Services and Ingresses with certificates. Databases,
+caches and volumes join as further resource types (see rfcs/0002).
 
 ## Dashboard
 
@@ -96,8 +99,19 @@ build history, logs from every instance (`web.1`, `worker.2`...) with level
 highlighting, filtering and live tail, and the config var names. Config var
 values are write-only: they can be added, replaced or removed but never read
 back, in the UI or the CLI. The cluster page shows capacity: CPU and memory used
-versus reserved by pod requests, per node and in total. Processes default to 1 CPU
-and 512 MiB; set `cpu`/`memory` per process in `shpyrd.yaml` to change it.
+versus reserved by pod requests, per node and in total.
+
+## Instance sizes
+
+Processes run with a named **instance size** from a cluster-wide catalog
+(`shpyrd sizes list`, editable with `shpyrd sizes set|delete|default` or on the
+dashboard's Cluster page). Two kinds: `shared` sizes get a guaranteed CPU share
+that can burst up to 4x; `dedicated` sizes get whole cores with requests equal
+to limits. The default catalog goes from `shared-xs` (0.25 CPU, 32 MiB) to
+`dedicated-2xl` (16 CPU, 32 GiB); the default size is `shared-s` (0.5 CPU,
+64 MiB). Pick one per process with `size:` in `shpyrd.yaml`, `shpyrd resize
+web=shared-m`, or the project page; every change is a release. Metrics show CPU
+and memory as a percentage of the size.
 
 The API behind the dashboard (`/api/...`) requires the token; only `/api/healthz`,
 `/api/config` and content-addressed source archives are public.

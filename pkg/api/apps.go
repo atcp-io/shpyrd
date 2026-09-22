@@ -373,8 +373,9 @@ func (s *Server) rollbackApp(c *gin.Context) {
 		if rolloutInProgress(a) {
 			return fmt.Errorf("a release is still rolling out (%s); wait for it to finish", firstNonEmpty(a.Status.Message, a.Status.Phase))
 		}
-		// Pin the build; the controller restores the config vars snapshot.
+		// Pin the build and sizes; the controller restores the config vars snapshot.
 		a.Spec.Image = target.Image
+		restoreSizes(a, target)
 		if a.Annotations == nil {
 			a.Annotations = map[string]string{}
 		}
@@ -386,6 +387,27 @@ func (s *Server) rollbackApp(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, summarize(app))
+}
+
+// restoreSizes puts back the instance sizes a release ran with.
+func restoreSizes(a *shpyrdv1.App, rel *shpyrdv1.Release) {
+	if len(rel.Sizes) == 0 {
+		return
+	}
+	if a.Spec.Processes == nil {
+		a.Spec.Processes = map[string]shpyrdv1.Process{}
+	}
+	for proc, size := range rel.Sizes {
+		p, ok := a.Spec.Processes[proc]
+		if !ok && proc != "web" {
+			continue
+		}
+		if size != "custom" {
+			p.Size = size
+			p.Resources = corev1.ResourceRequirements{}
+		}
+		a.Spec.Processes[proc] = p
+	}
 }
 
 // mutateApp applies a read-modify-write with conflict retries and writes the

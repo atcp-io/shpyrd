@@ -17,9 +17,9 @@ import (
 
 func newAppsCmd(g *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "apps",
-		Short:   "Create, list and inspect applications",
-		Aliases: []string{"app"},
+		Use:     "projects",
+		Short:   "Create, list and inspect projects",
+		Aliases: []string{"project", "apps", "app"},
 	}
 	cmd.AddCommand(newAppsCreateCmd(g), newAppsListCmd(g), newAppsInfoCmd(g), newAppsDestroyCmd(g))
 	return cmd
@@ -32,7 +32,7 @@ func newAppsCreateCmd(g *globalFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
-		Short: "Create an application (namespace app-<name> and the App resource)",
+		Short: "Create a project (its namespace and app resource)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -60,20 +60,20 @@ func newAppsCreateCmd(g *globalFlags) *cobra.Command {
 			}
 			if err := ac.c.Create(ctx, app); err != nil {
 				if apierrors.IsAlreadyExists(err) {
-					return fmt.Errorf("app %q already exists", name)
+					return fmt.Errorf("project %q already exists", name)
 				}
-				return fmt.Errorf("create app: %w", err)
+				return fmt.Errorf("create project: %w", err)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Created app %s (namespace %s)\n", name, ns.Name)
+			fmt.Fprintf(out, "Created project %s\n", name)
 			if save {
-				if err := os.WriteFile("shpyrd.yaml", []byte("app: "+name+"\n"), 0o644); err != nil {
+				if err := os.WriteFile("shpyrd.yaml", []byte("project: "+name+"\n"), 0o644); err != nil {
 					return err
 				}
 				fmt.Fprintln(out, "Wrote shpyrd.yaml")
 				fmt.Fprintln(out, "Next: shpyrd deploy")
 			} else {
-				fmt.Fprintf(out, "Next: shpyrd deploy --app %s   (or add `app: %s` to shpyrd.yaml)\n", name, name)
+				fmt.Fprintf(out, "Next: shpyrd deploy --project %s   (or add `project: %s` to shpyrd.yaml)\n", name, name)
 			}
 			return nil
 		},
@@ -86,7 +86,7 @@ func newAppsCreateCmd(g *globalFlags) *cobra.Command {
 func newAppsListCmd(g *globalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
-		Short:   "List applications",
+		Short:   "List projects",
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
@@ -116,7 +116,7 @@ func newAppsListCmd(g *globalFlags) *cobra.Command {
 func newAppsInfoCmd(g *globalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "info <name>",
-		Short: "Show an application",
+		Short: "Show a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
@@ -136,8 +136,7 @@ func newAppsInfoCmd(g *globalFlags) *cobra.Command {
 
 func printAppInfo(cmd *cobra.Command, app *shpyrdv1.App) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "Name:       %s\n", app.Name)
-	fmt.Fprintf(out, "Namespace:  %s\n", app.Namespace)
+	fmt.Fprintf(out, "Project:    %s\n", app.Name)
 	fmt.Fprintf(out, "Phase:      %s\n", firstNonEmpty(app.Status.Phase, "Pending"))
 	if app.Status.Message != "" {
 		fmt.Fprintf(out, "Message:    %s\n", app.Status.Message)
@@ -195,7 +194,7 @@ func newAppsDestroyCmd(g *globalFlags) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "destroy <name>",
-		Short: "Delete an application and everything in its namespace",
+		Short: "Delete a project and everything in it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -208,7 +207,7 @@ func newAppsDestroyCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			if !yes {
-				fmt.Fprintf(cmd.OutOrStdout(), "Delete app %q and namespace %s? [y/N] ", name, appNamespace(name))
+				fmt.Fprintf(cmd.OutOrStdout(), "Delete project %q with all its resources? [y/N] ", name)
 				var answer string
 				fmt.Fscanln(os.Stdin, &answer)
 				if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {

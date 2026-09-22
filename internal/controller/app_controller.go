@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/sizes"
 )
 
 // AppReconciler turns an App into a kpack Image plus one Deployment (and
@@ -54,7 +55,40 @@ func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.Ingress{}).
 		Owns(kpackImage).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(envSecretToApp)).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.sizesToAllApps)).
 		Complete(r)
+}
+
+// sizesToAllApps requeues every App when the size catalog changes so their
+// Deployments pick up new allocations.
+func (r *AppReconciler) sizesToAllApps(ctx context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetName() != sizes.ConfigMapName || obj.GetNamespace() != r.Config.SystemNamespace {
+		return nil
+	}
+	var apps shpyrdv1.AppList
+	if err := r.List(ctx, &apps); err != nil {
+		return nil
+	}
+	out := make([]reconcile.Request, 0, len(apps.Items))
+	for _, a := range apps.Items {
+		out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}})
+	}
+	return out
+}
+
+// catalog loads the size catalog from the cluster, falling back to the
+// built-in defaults when it is missing or invalid.
+func (r *AppReconciler) catalog(ctx context.Context) sizes.Catalog {
+	cm := &corev1.ConfigMap{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: r.Config.SystemNamespace, Name: sizes.ConfigMapName}, cm); err != nil {
+		return sizes.Defaults()
+	}
+	c, err := sizes.Parse([]byte(cm.Data[sizes.ConfigMapKey]))
+	if err != nil {
+		log.FromContext(ctx).Info("size catalog invalid, using defaults", "err", err.Error())
+		return sizes.Defaults()
+	}
+	return *c
 }
 
 // envSecretToApp maps Secret <app>-env to its App in the same namespace.
@@ -151,7 +185,8 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 			secret = nil
 		}
 	}
-	hash := configHash(app, secret)
+	sizeByProcess := r.processSizes(ctx, app)
+	hash := configHash(app, secret, sizeByProcess)
 
 	// 2. Image: pinned, or produced by kpack from the source.
 	image := app.Spec.Image
@@ -224,7 +259,7 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	if cur := app.CurrentRelease(); cur != nil && cur.Image == image && cur.ConfigHash != hash {
 		configDesc = r.describeConfigChangeSince(ctx, app, cur.Number, secret)
 	}
-	if recordRelease(app, image, hash, sourceID(app, kpackBuild), metav1.Now(), configDesc) {
+	if recordRelease(app, image, hash, sourceID(app, kpackBuild), metav1.Now(), configDesc, sizeByProcess) {
 		out.newRelease = app.CurrentRelease()
 		for _, p := range processes(app) {
 			out.newRelease.Processes = append(out.newRelease.Processes, p.Name)
@@ -315,6 +350,21 @@ func (r *AppReconciler) reconcileKpackImage(ctx context.Context, app *shpyrdv1.A
 	return current, nil
 }
 
+// processSizes resolves the size name of every process against the catalog
+// (for the release fingerprint); unresolvable sizes are recorded as given.
+func (r *AppReconciler) processSizes(ctx context.Context, app *shpyrdv1.App) map[string]string {
+	catalog := r.catalog(ctx)
+	out := map[string]string{}
+	for _, p := range processes(app) {
+		if _, name, err := processResources(p, catalog); err == nil {
+			out[p.Name] = name
+		} else {
+			out[p.Name] = firstNonEmpty(p.Size, "custom")
+		}
+	}
+	return out
+}
+
 // getBuild reads a kpack Build without populating the cache; failures only
 // degrade the release description.
 func (r *AppReconciler) getBuild(ctx context.Context, namespace, name string) *unstructured.Unstructured {
@@ -332,11 +382,16 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 	status := map[string]shpyrdv1.ProcessStatus{}
 	wanted := map[string]bool{}
 
+	catalog := r.catalog(ctx)
 	for _, p := range processes(app) {
 		wanted[p.Name] = true
+		res, sizeName, err := processResources(p, catalog)
+		if err != nil {
+			return nil, err
+		}
 		d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: workloadName(app, p.Name), Namespace: app.Namespace}}
 		op, err := controllerutil.CreateOrUpdate(ctx, r.Client, d, func() error {
-			r.Config.mutateDeployment(app, p, image, hash, d)
+			r.Config.mutateDeployment(app, p, image, hash, res, d)
 			return controllerutil.SetControllerReference(app, d, r.Scheme)
 		})
 		if err != nil {
@@ -355,6 +410,9 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 			ps.Ready, ps.Updated = 0, 0
 		}
 		ps.Failing, ps.Reason = r.processHealth(ctx, app, p.Name)
+		ps.Size = sizeName
+		ps.CPU = res.Requests.Cpu().String()
+		ps.Memory = res.Requests.Memory().String()
 		status[p.Name] = ps
 
 		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: workloadName(app, p.Name), Namespace: app.Namespace}}

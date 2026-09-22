@@ -18,7 +18,7 @@ const subtitles: Record<string, string> = {
   throughput: 'requests per second by response class',
   latency: 'response time percentiles at the edge',
   instances: 'running instances per process type',
-  cpu: 'of each process allocation (100% = every instance saturating its CPU)',
+  cpu: 'of each process allocation; shared sizes can burst above 100%',
   memory: 'of each process allocation',
   network: 'pod network traffic',
 }

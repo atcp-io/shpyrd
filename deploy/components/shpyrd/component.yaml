@@ -1,7 +1,7 @@
 name: shpyrd
 description: shpyrd server (API, App controller and dashboard)
 namespace: shpyrd-system
-hooks: [admin-token]
+hooks: [admin-token, default-sizes]
 kustomize:
   path: base
 wait:

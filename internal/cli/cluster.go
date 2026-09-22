@@ -40,7 +40,7 @@ type initFlags struct {
 
 func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.profile, "profile", "local", "installer profile (local)")
-	cmd.Flags().StringVar(&f.domain, "domain", defaultDomain, "wildcard domain for apps and the dashboard")
+	cmd.Flags().StringVar(&f.domain, "domain", defaultDomain, "wildcard domain for projects and the dashboard")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")

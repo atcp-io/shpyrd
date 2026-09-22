@@ -49,7 +49,7 @@ export function AppsPage() {
             </div>
           ) : apps.error ? (
             <Alert variant="destructive">
-              <AlertTitle>Could not load apps</AlertTitle>
+              <AlertTitle>Could not load projects</AlertTitle>
               <AlertDescription>{(apps.error as Error).message}</AlertDescription>
             </Alert>
           ) : (
@@ -68,7 +68,7 @@ export function AppsPage() {
                 {apps.data?.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
-                      No projects yet. Create one with the button above or <code className="font-mono text-xs">shpyrd apps create</code>.
+                      No projects yet. Create one with the button above or <code className="font-mono text-xs">shpyrd projects create</code>.
                     </TableCell>
                   </TableRow>
                 )}

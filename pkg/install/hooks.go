@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"shpyrd/pkg/localca"
+	"shpyrd/pkg/sizes"
 )
 
 // Hook runs before a component is applied. Hooks are referenced by name from
@@ -26,8 +27,39 @@ const LocalCASecretName = "shpyrd-root-ca"
 const AdminTokenSecretName = "shpyrd-admin-token"
 
 var hooks = map[string]Hook{
-	"local-ca":    localCAHook,
-	"admin-token": adminTokenHook,
+	"local-ca":      localCAHook,
+	"admin-token":   adminTokenHook,
+	"default-sizes": defaultSizesHook,
+}
+
+// defaultSizesHook seeds the instance size catalog on first install and
+// leaves user edits alone afterwards.
+func defaultSizesHook(ctx context.Context, e *Engine, c *Component) error {
+	if _, err := e.kube.Kube.CoreV1().ConfigMaps(c.Namespace).Get(ctx, sizes.ConfigMapName, metav1.GetOptions{}); err == nil {
+		e.rep.Step(c.Name, "keeping existing instance size catalog")
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("size catalog: %w", err)
+	}
+	data, err := sizes.Defaults().Marshal()
+	if err != nil {
+		return err
+	}
+	cm := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]interface{}{
+			"name":      sizes.ConfigMapName,
+			"namespace": c.Namespace,
+			"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": fieldManager},
+		},
+		"data": map[string]interface{}{sizes.ConfigMapKey: string(data)},
+	}}
+	if err := e.applier.applyOneAs(ctx, cm, c.Namespace, false, fieldManager+"-sizes-seed"); err != nil {
+		return fmt.Errorf("size catalog: %w", err)
+	}
+	e.rep.Step(c.Name, "seeded instance size catalog (edit with `shpyrd sizes`)")
+	return nil
 }
 
 // adminTokenHook creates a random admin token on first install and keeps the

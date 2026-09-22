@@ -11,7 +11,19 @@ export type PublicConfig = {
   metrics: boolean
 }
 
-export type ProcessStatus = { desired: number; ready: number; updated?: number; failing?: number; reason?: string }
+export type ProcessStatus = {
+  desired: number
+  ready: number
+  updated?: number
+  failing?: number
+  reason?: string
+  size?: string
+  cpu?: string
+  memory?: string
+}
+
+export type InstanceSize = { name: string; kind: 'shared' | 'dedicated'; cpu: string; memory: string; description?: string }
+export type SizeCatalog = { default: string; sizes: InstanceSize[] }
 
 export type AppSummary = {
   name: string
@@ -39,7 +51,7 @@ export type Release = {
 
 export type Condition = { type: string; status: string; reason?: string; message?: string; lastTransitionTime: string }
 
-export type ProcessSpec = { replicas?: number; port?: number; command?: string[]; args?: string[] }
+export type ProcessSpec = { replicas?: number; port?: number; command?: string[]; args?: string[]; size?: string }
 
 export type AppDetail = {
   name: string
@@ -240,6 +252,10 @@ export const api = {
   },
   scale: (ns: string, name: string, process: string, replicas: number) =>
     request<AppSummary>(`${app(ns, name)}/scale`, json('POST', { process, replicas })),
+  resize: (ns: string, name: string, process: string, size: string) =>
+    request<AppSummary>(`${app(ns, name)}/resize`, json('POST', { process, size })),
+  sizes: () => request<SizeCatalog>('/api/sizes'),
+  saveSizes: (catalog: SizeCatalog) => request<SizeCatalog>('/api/sizes', json('PUT', catalog)),
   rollback: (ns: string, name: string, release: number) =>
     request<AppSummary>(`${app(ns, name)}/rollback`, json('POST', { release })),
   cluster: () => request<ClusterSummary>('/api/cluster'),

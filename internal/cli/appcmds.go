@@ -22,9 +22,11 @@ import (
 	"shpyrd/pkg/configvars"
 )
 
-// appFlag adds the shared --app flag.
+// appFlag adds the shared --project flag (--app kept as a hidden alias).
 func appFlag(cmd *cobra.Command, dst *string) {
-	cmd.Flags().StringVarP(dst, "app", "a", "", "application name (default from shpyrd.yaml)")
+	cmd.Flags().StringVar(dst, "project", "", "project name (default from shpyrd.yaml)")
+	cmd.Flags().StringVarP(dst, "app", "a", "", "alias of --project")
+	_ = cmd.Flags().MarkHidden("app")
 }
 
 // ---- secrets ---------------------------------------------------------------
@@ -33,10 +35,10 @@ func newSecretsCmd(g *globalFlags) *cobra.Command {
 	var appName string
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Manage the application's config vars (Secret <app>-env)",
-		Long: `Config vars are injected into every process as environment variables and
-stored in Secret <app>-env in the app namespace. Changing them rolls out a
-new release.`,
+		Short: "Manage the project's config vars",
+		Long: `Config vars are injected into every process as environment variables.
+Changing them creates a new release and restarts the processes. Values are
+write-only: they are never printed back.`,
 	}
 	set := &cobra.Command{
 		Use:   "set KEY=VALUE [KEY=VALUE...]",
@@ -232,7 +234,7 @@ func newLogsCmd(g *globalFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "logs",
-		Short: "Print application logs",
+		Short: "Print the project's logs",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			name, err := resolveAppName(appName)
@@ -364,8 +366,16 @@ config vars are restored. The source configuration is kept; the next
 			fmt.Fprintf(cmd.OutOrStdout(), "==> Rolling back %s to v%d (build %s, config as of v%d)\n", name, target.Number, digest(target.Image), target.Number)
 			img := target.Image
 			note := fmt.Sprintf("Rollback to v%d", target.Number)
+			sizesOf := target.Sizes
 			updated, err := ac.updateApp(ctx, name, func(a *shpyrdv1.App) error {
 				a.Spec.Image = img
+				for proc, size := range sizesOf {
+					if p, ok := a.Spec.Processes[proc]; ok && size != "custom" {
+						p.Size = size
+						p.Resources = corev1.ResourceRequirements{}
+						a.Spec.Processes[proc] = p
+					}
+				}
 				if a.Annotations == nil {
 					a.Annotations = map[string]string{}
 				}
@@ -401,7 +411,7 @@ func newOpenCmd(g *globalFlags) *cobra.Command {
 	var appName string
 	cmd := &cobra.Command{
 		Use:   "open",
-		Short: "Open the application in the browser",
+		Short: "Open the project in the browser",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			name, err := resolveAppName(appName)
@@ -417,7 +427,7 @@ func newOpenCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			if app.Status.URL == "" {
-				return errors.New("the app has no URL yet (no web process deployed)")
+				return errors.New("the project has no URL yet (no web process deployed)")
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), app.Status.URL)
 			return openBrowser(app.Status.URL)

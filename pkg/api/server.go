@@ -159,6 +159,8 @@ func (s *Server) routes() {
 	api.GET("/helm/releases", s.listHelmReleases)
 	api.GET("/cluster", s.clusterSummary)
 	api.GET("/cluster/metrics", s.clusterMetrics)
+	api.GET("/sizes", s.getSizes)
+	api.PUT("/sizes", s.putSizes)
 	api.POST("/sources", s.uploadSource)
 
 	api.GET("/apps", s.listApps)
@@ -173,6 +175,7 @@ func (s *Server) routes() {
 	api.PUT("/apps/:ns/:name/secrets", s.updateAppSecrets)
 	api.GET("/apps/:ns/:name/metrics", s.appMetrics)
 	api.POST("/apps/:ns/:name/scale", s.scaleApp)
+	api.POST("/apps/:ns/:name/resize", s.resizeApp)
 	api.POST("/apps/:ns/:name/rollback", s.rollbackApp)
 
 	if s.opts.UI != nil {

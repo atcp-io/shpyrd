@@ -194,12 +194,13 @@ func chartQueries(app *shpyrdv1.App) []chartQuery {
 			nameMap:  stripApp,
 		},
 		{
-			// Usage as a percentage of the process allocation (the CPU limit),
-			// averaged over its instances: 100% = every instance saturating
-			// its allocation. Falls back to raw cores when no limits exist.
+			// Usage as a percentage of the process allocation (the CPU
+			// request, i.e. the instance size), averaged over its instances.
+			// Shared sizes may burst above 100%. Falls back to raw cores when
+			// no requests exist.
 			Chart: Chart{ID: "cpu", Title: "CPU", Unit: "%", Kind: "line"},
 			Query: fmt.Sprintf(`100 * sum by (label_shpyrd_io_process) (rate(container_cpu_usage_seconds_total{%s}[2m]) * on (namespace, pod) group_left (label_shpyrd_io_process) %s)`+
-				` / sum by (label_shpyrd_io_process) (kube_pod_container_resource_limits{%s,resource="cpu"} * on (namespace, pod) group_left (label_shpyrd_io_process) %s)`,
+				` / sum by (label_shpyrd_io_process) (kube_pod_container_resource_requests{%s,resource="cpu"} * on (namespace, pod) group_left (label_shpyrd_io_process) %s)`,
 				containers, podLabels, containers, podLabels),
 			LabelKey:     "label_shpyrd_io_process",
 			Fallback:     fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{%s}[2m]))`, containers),
@@ -209,7 +210,7 @@ func chartQueries(app *shpyrdv1.App) []chartQuery {
 		{
 			Chart: Chart{ID: "memory", Title: "Memory", Unit: "%", Kind: "line"},
 			Query: fmt.Sprintf(`100 * sum by (label_shpyrd_io_process) (container_memory_working_set_bytes{%s} * on (namespace, pod) group_left (label_shpyrd_io_process) %s)`+
-				` / sum by (label_shpyrd_io_process) (kube_pod_container_resource_limits{%s,resource="memory"} * on (namespace, pod) group_left (label_shpyrd_io_process) %s)`,
+				` / sum by (label_shpyrd_io_process) (kube_pod_container_resource_requests{%s,resource="memory"} * on (namespace, pod) group_left (label_shpyrd_io_process) %s)`,
 				containers, podLabels, containers, podLabels),
 			LabelKey:     "label_shpyrd_io_process",
 			Fallback:     fmt.Sprintf(`sum(container_memory_working_set_bytes{%s})`, containers),

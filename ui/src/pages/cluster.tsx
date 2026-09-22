@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type ClusterMetrics } from '@/lib/api'
 import { ago, bytes } from '@/lib/format'
 import { MetricChart } from '@/components/metric-chart'
+import { SizesEditor } from '@/components/sizes-editor'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -90,6 +91,8 @@ export function ClusterPage() {
           <NodesTable nodes={c.nodes} usage={m} />
         </CardContent>
       </Card>
+
+      <SizesEditor />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

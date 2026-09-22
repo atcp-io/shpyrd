@@ -47,6 +47,8 @@ func New() *cobra.Command {
 	root.AddCommand(newDeployCmd(g))
 	root.AddCommand(newSecretsCmd(g))
 	root.AddCommand(newScaleCmd(g))
+	root.AddCommand(newResizeCmd(g))
+	root.AddCommand(newSizesCmd(g))
 	root.AddCommand(newLogsCmd(g))
 	root.AddCommand(newReleasesCmd(g))
 	root.AddCommand(newRollbackCmd(g))

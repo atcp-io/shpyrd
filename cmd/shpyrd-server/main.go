@@ -148,11 +148,12 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("shpyrd"),
 		Config: controller.Config{
-			Domain:        os.Getenv("SHPYRD_DOMAIN"),
-			HTTPSPort:     os.Getenv("SHPYRD_HTTPS_PORT"),
-			RegistryHost:  os.Getenv("SHPYRD_REGISTRY_HOST"),
-			ClusterIssuer: os.Getenv("SHPYRD_CLUSTER_ISSUER"),
-			IngressClass:  os.Getenv("SHPYRD_INGRESS_CLASS"),
+			Domain:          os.Getenv("SHPYRD_DOMAIN"),
+			HTTPSPort:       os.Getenv("SHPYRD_HTTPS_PORT"),
+			RegistryHost:    os.Getenv("SHPYRD_REGISTRY_HOST"),
+			ClusterIssuer:   os.Getenv("SHPYRD_CLUSTER_ISSUER"),
+			IngressClass:    os.Getenv("SHPYRD_INGRESS_CLASS"),
+			SystemNamespace: k.Namespace,
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {

@@ -137,6 +137,11 @@ type Process struct {
 	// Args are appended to the command.
 	// +optional
 	Args []string `json:"args,omitempty"`
+	// Size names an instance size from the cluster catalog (shared-s,
+	// dedicated-m, ...). Empty means the catalog default.
+	// +optional
+	Size string `json:"size,omitempty"`
+	// Resources override the size (cpu/memory limits); rarely needed.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
@@ -186,6 +191,10 @@ type Release struct {
 	// to a build that lacks a current process type cannot start it.
 	// +optional
 	Processes []string `json:"processes,omitempty"`
+	// Sizes records the instance size of each process type; rollback
+	// restores them.
+	// +optional
+	Sizes map[string]string `json:"sizes,omitempty"`
 }
 
 // ProcessStatus is the rollout state of one process type.
@@ -200,6 +209,14 @@ type ProcessStatus struct {
 	// Reason explains Failing (e.g. "CrashLoopBackOff (exit 128): ...").
 	// +optional
 	Reason string `json:"reason,omitempty"`
+	// Size is the instance size in effect ("custom" when overridden).
+	// +optional
+	Size string `json:"size,omitempty"`
+	// CPU and Memory are the allocation in effect (requests), for display.
+	// +optional
+	CPU string `json:"cpu,omitempty"`
+	// +optional
+	Memory string `json:"memory,omitempty"`
 }
 
 // App is an application managed by shpyrd. It lives in the namespace that

@@ -425,8 +425,8 @@ spec:
                       minimum: 0
                       type: integer
                     resources:
-                      description: ResourceRequirements describes the compute resource
-                        requirements.
+                      description: Resources override the size (cpu/memory limits);
+                        rarely needed.
                       properties:
                         claims:
                           description: |-
@@ -484,6 +484,11 @@ spec:
                             More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                           type: object
                       type: object
+                    size:
+                      description: |-
+                        Size names an instance size from the cluster catalog (shared-s,
+                        dedicated-m, ...). Empty means the catalog default.
+                      type: string
                   type: object
                 description: |-
                   Processes maps process types (web, worker, ...) to their settings.
@@ -613,6 +618,10 @@ spec:
                 additionalProperties:
                   description: ProcessStatus is the rollout state of one process type.
                   properties:
+                    cpu:
+                      description: CPU and Memory are the allocation in effect (requests),
+                        for display.
+                      type: string
                     desired:
                       format: int32
                       type: integer
@@ -621,12 +630,18 @@ spec:
                         crashing.
                       format: int32
                       type: integer
+                    memory:
+                      type: string
                     ready:
                       format: int32
                       type: integer
                     reason:
                       description: 'Reason explains Failing (e.g. "CrashLoopBackOff
                         (exit 128): ...").'
+                      type: string
+                    size:
+                      description: Size is the instance size in effect ("custom" when
+                        overridden).
                       type: string
                     updated:
                       format: int32
@@ -661,6 +676,13 @@ spec:
                       items:
                         type: string
                       type: array
+                    sizes:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        Sizes records the instance size of each process type; rollback
+                        restores them.
+                      type: object
                     source:
                       description: Source identifies the code (git commit or archive
                         sha).

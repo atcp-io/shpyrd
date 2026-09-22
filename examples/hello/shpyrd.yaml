@@ -1,15 +1,16 @@
 # shpyrd project file (the fly.toml equivalent). `shpyrd deploy` reads it.
-app: hello-world
+project: hello-world
 
 # Process types. The Go buildpack creates one per build target below; the
 # controller runs each as its own Deployment. Only "web" gets a URL.
 processes:
   web:
     port: 8080
-    # Size (limits). Defaults: 1 CPU, 512Mi.
-    # cpu: "500m"
-    # memory: 256Mi
-  worker: {}
+    # Instance size from the cluster catalog (`shpyrd sizes list`).
+    # Default: shared-s (0.5 CPU burstable, 64Mi). This Go app fits in it.
+    # size: shared-m
+  worker:
+    size: shared-xs
 
 build:
   env:

@@ -35,16 +35,17 @@ var appNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$`)
 
 func validateAppName(name string) error {
 	if !appNameRe.MatchString(name) {
-		return fmt.Errorf("invalid app name %q: use lowercase letters, digits and dashes (max 40 characters)", name)
+		return fmt.Errorf("invalid project name %q: use lowercase letters, digits and dashes (max 40 characters)", name)
 	}
 	return nil
 }
 
 // projectConfig is the optional shpyrd.yaml in a repository, the fly.toml
-// equivalent: which app this is, its process types, build settings and
-// domains. Everything but `app` is optional.
+// equivalent: which project this is, its process types, build settings and
+// domains. Everything but `project` is optional (`app` is accepted as an
+// alias for compatibility).
 //
-//	app: my-service
+//	project: my-service
 //	processes:
 //	  web: { port: 8080 }
 //	  worker: {}
@@ -53,7 +54,8 @@ func validateAppName(name string) error {
 //	    BP_GO_TARGETS: ./cmd/web:./cmd/worker
 //	domains: [my-service.example.com]
 type projectConfig struct {
-	App       string                    `json:"app"`
+	Project   string                    `json:"project"`
+	App       string                    `json:"app"` // deprecated alias of project
 	Processes map[string]projectProcess `json:"processes,omitempty"`
 	Build     *projectBuild             `json:"build,omitempty"`
 	Domains   []string                  `json:"domains,omitempty"`
@@ -64,8 +66,11 @@ type projectProcess struct {
 	Replicas *int32   `json:"replicas,omitempty"`
 	Command  []string `json:"command,omitempty"`
 	Args     []string `json:"args,omitempty"`
-	// CPU and Memory size the process (limits), e.g. "500m"/"2" and
-	// "256Mi"/"1Gi". Defaults: 1 CPU, 512Mi.
+	// Size names an instance size from the cluster catalog (`shpyrd sizes
+	// list`), e.g. shared-m or dedicated-s. Empty means the catalog default.
+	Size string `json:"size,omitempty"`
+	// CPU and Memory override the size's limits, e.g. "500m"/"2" and
+	// "256Mi"/"1Gi". Prefer a size.
 	CPU    string `json:"cpu,omitempty"`
 	Memory string `json:"memory,omitempty"`
 }
@@ -112,7 +117,7 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 			if err != nil {
 				return fmt.Errorf("shpyrd.yaml: process %s: %w", name, err)
 			}
-			proc := shpyrdv1.Process{Replicas: cur.Replicas, Port: pp.Port, Command: pp.Command, Args: pp.Args, Resources: res}
+			proc := shpyrdv1.Process{Replicas: cur.Replicas, Port: pp.Port, Command: pp.Command, Args: pp.Args, Size: firstNonEmpty(pp.Size, cur.Size), Resources: res}
 			if pp.Replicas != nil {
 				proc.Replicas = pp.Replicas
 			}
@@ -154,7 +159,7 @@ func loadProjectConfig() (*projectConfig, error) {
 	return &pc, nil
 }
 
-// resolveAppName picks the app from --app, then shpyrd.yaml.
+// resolveAppName picks the project from --project, then shpyrd.yaml.
 func resolveAppName(flag string) (string, error) {
 	if flag != "" {
 		return flag, validateAppName(flag)
@@ -163,10 +168,12 @@ func resolveAppName(flag string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if pc != nil && pc.App != "" {
-		return pc.App, validateAppName(pc.App)
+	if pc != nil {
+		if name := firstNonEmpty(pc.Project, pc.App); name != "" {
+			return name, validateAppName(name)
+		}
 	}
-	return "", errors.New("no app selected: pass --app <name> or add `app: <name>` to shpyrd.yaml")
+	return "", errors.New("no project selected: pass --project <name> or add `project: <name>` to shpyrd.yaml")
 }
 
 // appClient bundles the clients the app commands need. It talks to the
@@ -194,7 +201,7 @@ func (a *appClient) getApp(ctx context.Context, name string) (*shpyrdv1.App, err
 	app := &shpyrdv1.App{}
 	err := a.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name}, app)
 	if apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("app %q not found; create it with `shpyrd apps create %s`", name, name)
+		return nil, fmt.Errorf("project %q not found; create it with `shpyrd projects create %s`", name, name)
 	}
 	if err != nil {
 		return nil, err
@@ -220,7 +227,7 @@ func (a *appClient) updateApp(ctx context.Context, name string, mutate func(*shp
 		}
 		return app, nil
 	}
-	return nil, errors.New("too many conflicts updating the app")
+	return nil, errors.New("too many conflicts updating the project")
 }
 
 // uploadSource sends an archive to shpyrd-server through the API server

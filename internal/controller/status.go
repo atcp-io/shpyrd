@@ -19,9 +19,19 @@ import (
 const maxReleases = 20
 
 // configHash fingerprints everything that changes the running configuration
-// without changing the image: plain env vars and the <app>-env Secret.
-func configHash(app *shpyrdv1.App, secret *corev1.Secret) string {
+// without changing the image: plain env vars, the <app>-env Secret and the
+// instance size of each process type.
+func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]string) string {
 	h := sha256.New()
+	sizeNames := make([]string, 0, len(sizes))
+	for k := range sizes {
+		sizeNames = append(sizeNames, k)
+	}
+	sort.Strings(sizeNames)
+	for _, k := range sizeNames {
+		h.Write([]byte("size:" + k + "=" + sizes[k]))
+		h.Write([]byte{0})
+	}
 	env := append([]corev1.EnvVar(nil), app.Spec.Env...)
 	sort.Slice(env, func(i, j int) bool { return env[i].Name < env[j].Name })
 	for _, e := range env {
@@ -119,10 +129,11 @@ func short(s string) string {
 	return s
 }
 
-// recordRelease appends a release when image or config changed. It returns
-// true when the history was modified. configDesc describes a config-only
-// change (see describeConfigChange); empty falls back to "Config change".
-func recordRelease(app *shpyrdv1.App, image, hash, source string, now metav1.Time, configDesc string) bool {
+// recordRelease appends a release when image, config or sizes changed. It
+// returns true when the history was modified. configDesc describes a
+// config-only change (see describeConfigChange); size changes are described
+// from the previous release's sizes.
+func recordRelease(app *shpyrdv1.App, image, hash, source string, now metav1.Time, configDesc string, sizes map[string]string) bool {
 	cur := app.CurrentRelease()
 	if cur != nil && cur.Image == image && cur.ConfigHash == hash {
 		return false
@@ -134,6 +145,8 @@ func recordRelease(app *shpyrdv1.App, image, hash, source string, now metav1.Tim
 			desc = "Initial deploy"
 		case cur.Image != image:
 			desc = "Deploy"
+		case describeSizeChange(cur.Sizes, sizes) != "":
+			desc = describeSizeChange(cur.Sizes, sizes)
 		default:
 			desc = firstNonEmptyStr(configDesc, "Config change")
 		}
@@ -152,6 +165,7 @@ func recordRelease(app *shpyrdv1.App, image, hash, source string, now metav1.Tim
 		ConfigHash:  hash,
 		Description: desc,
 		CreatedAt:   now,
+		Sizes:       sizes,
 	})
 	if len(app.Status.Releases) > maxReleases {
 		app.Status.Releases = app.Status.Releases[len(app.Status.Releases)-maxReleases:]
@@ -264,6 +278,29 @@ func describeConfigChange(prev, cur map[string][]byte) string {
 		return "Config change"
 	}
 	return strings.Join(parts, ", ") + " config var" + plural(len(set)+len(removed))
+}
+
+// describeSizeChange names processes whose instance size changed:
+// "Resize web to shared-m, worker to shared-xs".
+func describeSizeChange(prev, cur map[string]string) string {
+	if prev == nil {
+		return ""
+	}
+	names := make([]string, 0, len(cur))
+	for k := range cur {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var parts []string
+	for _, k := range names {
+		if prev[k] != cur[k] {
+			parts = append(parts, k+" to "+cur[k])
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Resize " + strings.Join(parts, ", ")
 }
 
 func joinMax(items []string, max int) string {

@@ -395,3 +395,35 @@ func TestClusterMetrics(t *testing.T) {
 		t.Errorf("charts = %+v", cm.Charts)
 	}
 }
+
+func TestSizesAndResize(t *testing.T) {
+	s, cr := newTestServer(t, nil, []client.Object{sampleApp("web1", shpyrdv1.PhaseRunning)})
+	rec := do(t, s, "GET", "/api/sizes", "", true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"default":"shared-s"`) {
+		t.Fatalf("defaults: %d %s", rec.Code, rec.Body.String())
+	}
+	body := `{"default":"tiny","sizes":[{"name":"tiny","kind":"shared","cpu":"0.1","memory":"32Mi"},{"name":"big","kind":"dedicated","cpu":"4","memory":"8Gi"}]}`
+	if rec := do(t, s, "PUT", "/api/sizes", body, true); rec.Code != http.StatusOK {
+		t.Fatalf("put sizes: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "PUT", "/api/sizes", `{"default":"nope","sizes":[{"name":"a","kind":"shared","cpu":"1","memory":"1Gi"}]}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid catalog: %d", rec.Code)
+	}
+	rec = do(t, s, "GET", "/api/sizes", "", true)
+	if !strings.Contains(rec.Body.String(), `"default":"tiny"`) || !strings.Contains(rec.Body.String(), `"big"`) {
+		t.Errorf("catalog not saved: %s", rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/resize", `{"process":"web","size":"big"}`, true); rec.Code != http.StatusOK {
+		t.Fatalf("resize: %d %s", rec.Code, rec.Body.String())
+	}
+	got := &shpyrdv1.App{}
+	if err := cr.Get(context.Background(), types.NamespacedName{Namespace: "app-web1", Name: "web1"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Processes["web"].Size != "big" {
+		t.Errorf("size not applied: %+v", got.Spec.Processes)
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/resize", `{"process":"web","size":"nope"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown size: %d", rec.Code)
+	}
+}

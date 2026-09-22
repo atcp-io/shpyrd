@@ -240,14 +240,21 @@ func TestReconcileSourceBuild(t *testing.T) {
 func TestConfigHashStable(t *testing.T) {
 	app := &shpyrdv1.App{Spec: shpyrdv1.AppSpec{Env: []corev1.EnvVar{{Name: "B", Value: "2"}, {Name: "A", Value: "1"}}}}
 	sec := &corev1.Secret{Data: map[string][]byte{"Y": []byte("y"), "X": []byte("x")}}
-	h1 := configHash(app, sec)
+	sz := map[string]string{"web": "shared-s"}
+	h1 := configHash(app, sec, sz)
 	app.Spec.Env[0], app.Spec.Env[1] = app.Spec.Env[1], app.Spec.Env[0]
-	if h2 := configHash(app, sec); h1 != h2 {
+	if h2 := configHash(app, sec, sz); h1 != h2 {
 		t.Errorf("hash must not depend on env order: %s != %s", h1, h2)
 	}
 	sec.Data["X"] = []byte("changed")
-	if h3 := configHash(app, sec); h3 == h1 {
+	if h3 := configHash(app, sec, sz); h3 == h1 {
 		t.Errorf("hash must change with secret values")
+	}
+	if h4 := configHash(app, sec, map[string]string{"web": "shared-m"}); h4 == configHash(app, sec, sz) {
+		t.Errorf("hash must change with sizes")
+	}
+	if got := describeSizeChange(map[string]string{"web": "shared-s", "worker": "shared-s"}, map[string]string{"web": "shared-m", "worker": "shared-s"}); got != "Resize web to shared-m" {
+		t.Errorf("describeSizeChange = %q", got)
 	}
 	if len(h1) != 12 {
 		t.Errorf("hash length = %d", len(h1))
@@ -324,8 +331,11 @@ func TestRollbackRestoresConfigAndDefaultResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := d.Spec.Template.Spec.Containers[0].Resources
-	if res.Limits.Cpu().String() != "1" || res.Limits.Memory().String() != "512Mi" || res.Requests.Cpu().String() != "100m" {
-		t.Errorf("default resources = %+v", res)
+	if res.Requests.Cpu().String() != "500m" || res.Limits.Cpu().String() != "2" || res.Limits.Memory().String() != "64Mi" {
+		t.Errorf("default (shared-s) resources = %+v", res)
+	}
+	if ps := got.Status.Processes["web"]; ps.Size != "shared-s" || ps.CPU != "500m" || ps.Memory != "64Mi" {
+		t.Errorf("process status size = %+v", ps)
 	}
 
 	// Config change -> v2.

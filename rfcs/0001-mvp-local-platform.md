@@ -284,10 +284,11 @@ inherits as its own (build pods carry `shpyrd.io/app`; workloads are told apart 
 
 ```
 shpyrd cluster   create | init [--profile local --domain ...] | status | destroy | trust-ca | export
-shpyrd apps      create <name> [--save] | list | info <name> | destroy <name>
-shpyrd deploy    [--app <name>] [--git <url> --ref <ref>] [--path <dir>] [--image <ref>] [--no-wait]
+shpyrd projects  create <name> [--save] | list | info <name> | destroy <name>
+shpyrd deploy    [--project <name>] [--working-tree] [--git <url> --ref <ref>] [--path <dir>] [--image <ref>] [--no-wait]
 shpyrd secrets   set K=V ... | unset K | list            (names only; values are write-only)
 shpyrd scale     web=2 worker=1
+shpyrd resize    web=shared-m worker=dedicated-s          (instance sizes; `shpyrd sizes` manages the catalog)
 shpyrd logs      [-f] [--process web] [--tail n] [--build]
 shpyrd releases  | rollback [n]
 shpyrd open

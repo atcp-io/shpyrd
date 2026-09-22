@@ -30,20 +30,20 @@ func newDeployCmd(g *globalFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "deploy",
-		Short: "Build and release the application from the current directory",
-		Long: `Deploy an application.
+		Short: "Build and release the current directory to a project",
+		Long: `Deploy to a project.
 
 By default the committed tree of the current directory (git HEAD, or the
 whole directory outside a repository) is archived, uploaded to the cluster
 and built with buildpacks by kpack; the resulting image is rolled out and
 exposed at https://<app>.<domain>.
 
-  shpyrd deploy --app myapp                   archive the committed tree and build in-cluster
+  shpyrd deploy --project myapp               archive the committed tree and build in-cluster
   shpyrd deploy --working-tree                archive the directory as is, uncommitted changes included
   shpyrd deploy --git https://github.com/o/r  build from a Git URL; new commits rebuild automatically
   shpyrd deploy --image ghcr.io/o/r:tag       run a prebuilt image (no build)
 
-The app is taken from --app or from shpyrd.yaml (app: <name>).`,
+The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			out := cmd.OutOrStdout()
@@ -125,7 +125,7 @@ The app is taken from --app or from shpyrd.yaml (app: <name>).`,
 				return err
 			}
 			if noWait {
-				fmt.Fprintln(out, "Deploy requested. Follow with `shpyrd apps info", name+"`.")
+				fmt.Fprintln(out, "Deploy requested. Follow with `shpyrd projects info", name+"`.")
 				return nil
 			}
 
@@ -157,10 +157,12 @@ The app is taken from --app or from shpyrd.yaml (app: <name>).`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&appName, "app", "a", "", "application name (default from shpyrd.yaml)")
+	cmd.Flags().StringVar(&appName, "project", "", "project name (default from shpyrd.yaml)")
+	cmd.Flags().StringVarP(&appName, "app", "a", "", "alias of --project")
+	_ = cmd.Flags().MarkHidden("app")
 	cmd.Flags().StringVar(&gitURL, "git", "", "build from this Git repository instead of the local checkout")
 	cmd.Flags().StringVar(&gitRef, "ref", "", "Git branch, tag or commit for --git (default main)")
-	cmd.Flags().StringVar(&subPath, "path", "", "directory inside the source that holds the app")
+	cmd.Flags().StringVar(&subPath, "path", "", "directory inside the source that holds the code")
 	cmd.Flags().StringVar(&image, "image", "", "deploy a prebuilt image instead of building")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "return immediately instead of following the build and rollout")
 	cmd.Flags().BoolVar(&workingTree, "working-tree", false, "archive the directory as it is on disk instead of the committed HEAD")

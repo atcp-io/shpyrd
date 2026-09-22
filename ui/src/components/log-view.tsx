@@ -138,6 +138,22 @@ export function useLogStream(path: string | null, deps: unknown[]) {
     if (!path) return
     const ac = new AbortController()
     let first = true
+    // Batch incoming lines and flush at most every 100 ms: re-rendering the
+    // list per line is what makes log tails expensive in the browser.
+    let pending: LogLine[] = []
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const flush = () => {
+      timer = null
+      if (pending.length === 0) return
+      const batch = pending
+      pending = []
+      setLines((prev) => {
+        const base = first ? [] : prev
+        first = false
+        const next = base.concat(batch)
+        return next.length > 5000 ? next.slice(-4000) : next
+      })
+    }
     apiStream(path, ac.signal, (raw) => {
       let l: LogLine
       try {
@@ -145,15 +161,17 @@ export function useLogStream(path: string | null, deps: unknown[]) {
       } catch {
         l = { i: '', p: '', m: raw }
       }
-      setLines((prev) => {
-        const base = first ? [] : prev
-        first = false
-        return base.length > 5000 ? [...base.slice(-4000), l] : [...base, l]
-      })
-    }).catch((e: Error) => {
-      if (e.name !== 'AbortError') setError(e.message)
+      pending.push(l)
+      if (!timer) timer = setTimeout(flush, 100)
     })
-    return () => ac.abort()
+      .then(flush)
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+    return () => {
+      ac.abort()
+      if (timer) clearTimeout(timer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, reset, ...deps])
   return { lines, error, restart: () => {

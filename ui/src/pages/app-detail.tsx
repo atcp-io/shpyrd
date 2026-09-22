@@ -38,7 +38,7 @@ export function AppDetailPage() {
   if (app.error || !app.data) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load app</AlertTitle>
+        <AlertTitle>Could not load project</AlertTitle>
         <AlertDescription>{(app.error as Error)?.message ?? 'not found'}</AlertDescription>
       </Alert>
     )
@@ -112,6 +112,37 @@ export function AppDetailPage() {
   )
 }
 
+/** Streams a text endpoint into a lines state, batching updates (100 ms) so
+ * long outputs do not re-render per line. Returns the effect cleanup. */
+function streamText(path: string, ac: AbortController, setLines: (f: (prev: string[]) => string[]) => void, onError?: (e: Error) => void) {
+  let first = true
+  let pending: string[] = []
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = () => {
+    timer = null
+    if (pending.length === 0) return
+    const batch = pending
+    pending = []
+    setLines((prev) => {
+      const base = first ? [] : prev
+      first = false
+      return base.concat(batch)
+    })
+  }
+  apiStream(path, ac.signal, (l) => {
+    pending.push(l)
+    if (!timer) timer = setTimeout(flush, 100)
+  })
+    .then(flush)
+    .catch((e: Error) => {
+      if (e.name !== 'AbortError') onError?.(e)
+    })
+  return () => {
+    ac.abort()
+    if (timer) clearTimeout(timer)
+  }
+}
+
 // ---- activity: what is happening right now ------------------------------------
 
 /** A release is in flight: building or rolling out. Actions that would start
@@ -140,7 +171,7 @@ function ActivityPanel({ app, onChanged }: { app: AppDetail; onChanged: () => vo
         <Rocket className="size-4" />
         <AlertTitle>Nothing deployed yet</AlertTitle>
         <AlertDescription>
-          Use <strong>Deploy</strong> to build from a Git repository, or run <code className="font-mono text-xs">shpyrd deploy --app {app.name}</code>{' '}
+          Use <strong>Deploy</strong> to build from a Git repository, or run <code className="font-mono text-xs">shpyrd deploy --project {app.name}</code>{' '}
           from a checkout.
         </AlertDescription>
       </Alert>
@@ -218,15 +249,7 @@ function BuildBanner({ app }: { app: AppDetail }) {
   useEffect(() => {
     if (!build) return
     const ac = new AbortController()
-    let first = true
-    apiStream(api.buildLogsPath(app.namespace, app.name, build, true), ac.signal, (l) =>
-      setLines((prev) => {
-        const base = first ? [] : prev
-        first = false
-        return [...base, l]
-      }),
-    ).catch(() => {})
-    return () => ac.abort()
+    return streamText(api.buildLogsPath(app.namespace, app.name, build, true), ac, setLines)
   }, [app.namespace, app.name, build])
   return (
     <Card className="border-sky-500/30">
@@ -283,7 +306,7 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
             {app.spec.source?.subPath && <Row k="Directory" v={app.spec.source.subPath} mono />}
             {!app.spec.source && !app.spec.pinnedDigest && (
               <p className="text-muted-foreground">
-                No source yet. Use <strong>Deploy</strong> above or <code className="font-mono text-xs">shpyrd deploy --app {app.name}</code>.
+                No source yet. Use <strong>Deploy</strong> above or <code className="font-mono text-xs">shpyrd deploy --project {app.name}</code>.
               </p>
             )}
             {app.spec.pinnedDigest && <Row k="Pinned build" v={app.spec.pinnedDigest} mono />}
@@ -305,7 +328,7 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
         <Card size="sm">
           <CardHeader>
             <CardTitle className="text-sm">Processes</CardTitle>
-            <CardDescription>Instances and size per process type. Size is set in shpyrd.yaml (default 1 CPU · 512 MiB).</CardDescription>
+            <CardDescription>Instances and size per process type. Sizes come from the cluster catalog (Cluster page).</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
             {processes.map((p) => (
@@ -426,6 +449,7 @@ function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
 function ProcessRow({ app, process, onChanged }: { app: AppDetail; process: string; onChanged: () => void }) {
   const desired = app.spec.processes?.[process]?.replicas ?? app.processes?.[process]?.desired ?? 1
   const st = app.processes?.[process]
+  const catalog = useQuery({ queryKey: ['sizes'], queryFn: api.sizes, staleTime: 60_000 })
   const scale = useMutation({
     mutationFn: (n: number) => api.scale(app.namespace, app.name, process, n),
     onSuccess: (_, n) => {
@@ -434,30 +458,56 @@ function ProcessRow({ app, process, onChanged }: { app: AppDetail; process: stri
     },
     onError: (e: Error) => toast.error(e.message),
   })
+  const resize = useMutation({
+    mutationFn: (size: string) => api.resize(app.namespace, app.name, process, size),
+    onSuccess: (_, size) => {
+      toast.success(`${process} resized to ${size}; new release rolling out`)
+      onChanged()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
   const spec = app.spec.processes?.[process]
-  const limits = (spec as { resources?: { limits?: Record<string, string> } } | undefined)?.resources?.limits
-  const size = `${limits?.cpu ?? '1'} CPU · ${limits?.memory ?? '512Mi'}`
+  const sizeName = spec?.size || st?.size || catalog.data?.default || ''
+  const alloc = st?.cpu && st?.memory ? `${st.cpu} CPU · ${st.memory}` : ''
   const ok = st ? st.ready >= st.desired && st.desired > 0 : false
+  const busy = isBusy(app)
   return (
-    <div className="flex items-center justify-between gap-2 text-sm">
-      <div className="grid gap-0.5">
+    <div className="grid gap-1.5 text-sm">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className={cn('size-2 rounded-full', !st || st.desired === 0 ? 'bg-muted-foreground' : ok ? 'bg-emerald-500' : 'animate-pulse bg-amber-500')} />
           <span className="font-medium">{process}</span>
           {spec?.port && <span className="font-mono text-[10px] text-muted-foreground">:{spec.port}</span>}
+          <span className="text-xs text-muted-foreground">{st ? `${st.ready} of ${st.desired} running` : 'not deployed'}</span>
         </div>
-        <span className="pl-4 text-xs text-muted-foreground">
-          {st ? `${st.ready} of ${st.desired} running` : 'not deployed'} · {size}
-        </span>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon-xs" disabled={desired <= 0 || scale.isPending} onClick={() => scale.mutate(desired - 1)}>
+            <Minus />
+          </Button>
+          <span className="w-6 text-center font-mono text-xs">{desired}</span>
+          <Button variant="outline" size="icon-xs" disabled={scale.isPending} onClick={() => scale.mutate(desired + 1)}>
+            <Plus />
+          </Button>
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        <Button variant="outline" size="icon-xs" disabled={desired <= 0 || scale.isPending} onClick={() => scale.mutate(desired - 1)}>
-          <Minus />
-        </Button>
-        <span className="w-6 text-center font-mono text-xs">{desired}</span>
-        <Button variant="outline" size="icon-xs" disabled={scale.isPending} onClick={() => scale.mutate(desired + 1)}>
-          <Plus />
-        </Button>
+      <div className="flex items-center justify-between gap-2 pl-4">
+        <Select value={sizeName} onValueChange={(v) => resize.mutate(v)} disabled={busy || resize.isPending || !catalog.data}>
+          <SelectTrigger className="h-7 w-44 text-xs" size="sm">
+            <SelectValue placeholder="size" />
+          </SelectTrigger>
+          <SelectContent>
+            {catalog.data?.sizes.map((sz) => (
+              <SelectItem key={sz.name} value={sz.name}>
+                <span className="font-mono text-xs">{sz.name}</span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {sz.cpu} CPU · {sz.memory}
+                </span>
+              </SelectItem>
+            ))}
+            {sizeName === 'custom' && <SelectItem value="custom">custom</SelectItem>}
+          </SelectContent>
+        </Select>
+        <span className="font-mono text-[11px] text-muted-foreground">{alloc}</span>
       </div>
     </div>
   )
@@ -582,17 +632,9 @@ function Builds({ app }: { app: AppDetail }) {
   useEffect(() => {
     if (!activeName) return
     const ac = new AbortController()
-    let first = true
-    apiStream(api.buildLogsPath(app.namespace, app.name, activeName, activeStatus === 'Building'), ac.signal, (l) =>
-      setLines((prev) => {
-        const base = first ? [] : prev
-        first = false
-        return [...base, l]
-      }),
-    ).catch((e: Error) => {
-      if (e.name !== 'AbortError') setLines([`(${e.message})`])
-    })
-    return () => ac.abort()
+    return streamText(api.buildLogsPath(app.namespace, app.name, activeName, activeStatus === 'Building'), ac, setLines, (e) =>
+      setLines([`(${e.message})`]),
+    )
   }, [app.namespace, app.name, activeName, activeStatus])
 
   return (
@@ -959,7 +1001,7 @@ function DestroyDialog({ app }: { app: AppDetail }) {
         <DialogHeader>
           <DialogTitle>Destroy {app.name}?</DialogTitle>
           <DialogDescription>
-            This deletes the project with all its builds, releases, config vars and running processes. Type its name to confirm.
+            This deletes the project with all its resources: builds, releases, config vars and running processes. Type its name to confirm.
           </DialogDescription>
         </DialogHeader>
         <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={app.name} autoComplete="off" />
