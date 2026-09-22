@@ -58,6 +58,31 @@ spec:
           spec:
             description: AppSpec is the desired state of an application.
             properties:
+              bindings:
+                description: |-
+                  Bindings attach project resources (Postgres, Redis, ...) to the app:
+                  their connection details become config vars of every process.
+                items:
+                  description: |-
+                    Binding attaches a project resource to an app (RFC-0003). The resource's
+                    connection details are injected as config vars named <prefix>_<VAR>,
+                    e.g. DATABASE_URL, through the Secret <app>-bindings.
+                  properties:
+                    kind:
+                      description: Kind of the resource (Postgres, Redis, ...).
+                      type: string
+                    name:
+                      description: Name of the resource in the project.
+                      type: string
+                    prefix:
+                      description: Prefix of the injected variable names; defaults
+                        per kind.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
               build:
                 description: Build tunes the buildpacks build.
                 properties:
@@ -698,6 +723,31 @@ spec:
                 items:
                   description: Release is one entry of the deployment history.
                   properties:
+                    bindings:
+                      description: |-
+                        Bindings records the resources attached to the release; rollback
+                        restores them.
+                      items:
+                        description: |-
+                          Binding attaches a project resource to an app (RFC-0003). The resource's
+                          connection details are injected as config vars named <prefix>_<VAR>,
+                          e.g. DATABASE_URL, through the Secret <app>-bindings.
+                        properties:
+                          kind:
+                            description: Kind of the resource (Postgres, Redis, ...).
+                            type: string
+                          name:
+                            description: Name of the resource in the project.
+                            type: string
+                          prefix:
+                            description: Prefix of the injected variable names; defaults
+                              per kind.
+                            type: string
+                        required:
+                        - kind
+                        - name
+                        type: object
+                      type: array
                     configHash:
                       description: ConfigHash covers env vars and the <app>-env Secret.
                       type: string

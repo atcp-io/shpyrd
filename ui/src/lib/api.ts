@@ -100,6 +100,7 @@ export type AppDetail = {
     processes?: Record<string, ProcessSpec>;
     env?: { name: string; value?: string }[];
     domains?: string[];
+    bindings?: { kind: string; name: string; prefix?: string }[];
     build?: {
       strategy?: "buildpacks" | "dockerfile";
       env?: { name: string; value?: string }[];
@@ -152,6 +153,19 @@ export type BuildInfo = {
 };
 
 export type ConfigVar = { name: string; updatedAt?: string };
+export type BoundVar = { name: string; provider: string };
+
+export type ResourceInfo = {
+  kind: string;
+  name: string;
+  phase: string;
+  message?: string;
+  endpoint?: string;
+  details?: Record<string, string>;
+  attachedTo: string[];
+  data: boolean;
+  createdAt: string;
+};
 
 export type LogLine = { t?: string; i: string; p: string; m: string };
 
@@ -311,7 +325,9 @@ export const api = {
     },
   ) => request<AppSummary>(`${app(ns, name)}/deploy`, json("POST", body)),
   configVars: (ns: string, name: string) =>
-    request<{ vars: ConfigVar[] }>(`${app(ns, name)}/secrets`),
+    request<{ vars: ConfigVar[]; bound?: BoundVar[] }>(
+      `${app(ns, name)}/secrets`,
+    ),
   updateConfigVars: (
     ns: string,
     name: string,
@@ -364,6 +380,8 @@ export const api = {
     request<SizeCatalog>("/api/sizes", json("PUT", catalog)),
   rollback: (ns: string, name: string, release: number) =>
     request<AppSummary>(`${app(ns, name)}/rollback`, json("POST", { release })),
+  resources: (ns: string) =>
+    request<ResourceInfo[]>(`/api/projects/${ns}/resources`),
   volumes: (ns: string) => request<VolumeInfo[]>(`/api/projects/${ns}/volumes`),
   createVolume: (
     ns: string,

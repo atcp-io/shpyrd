@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +21,9 @@ import (
 // ConfigVarsResponse lists config var names; values are never returned.
 type ConfigVarsResponse struct {
 	Vars []configvars.Var `json:"vars"`
+	// Bound are read-only variables provided by attached resources
+	// (RFC-0003); they win over Vars with the same name.
+	Bound []BoundVar `json:"bound,omitempty"`
 }
 
 // ConfigVarsUpdate sets and/or unsets config vars. Dotenv is parsed as
@@ -28,22 +34,45 @@ type ConfigVarsUpdate struct {
 	Dotenv string            `json:"dotenv,omitempty"`
 }
 
+// BoundVar is a config var injected by an attached resource.
+type BoundVar struct {
+	Name     string `json:"name"`
+	Provider string `json:"provider"` // "<Kind>/<name>"
+}
+
 func (s *Server) appSecretKeys(c *gin.Context) {
 	app, ok := s.loadApp(c)
 	if !ok {
 		return
 	}
+	resp := ConfigVarsResponse{Vars: []configvars.Var{}}
 	sec := &corev1.Secret{}
 	err := s.apps.Get(c.Request.Context(), types.NamespacedName{Namespace: app.Namespace, Name: app.EnvSecretName()}, sec)
-	if apierrors.IsNotFound(err) {
-		c.JSON(http.StatusOK, ConfigVarsResponse{Vars: []configvars.Var{}})
-		return
-	}
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	c.JSON(http.StatusOK, ConfigVarsResponse{Vars: configvars.List(sec)})
+	if err == nil {
+		resp.Vars = configvars.List(sec)
+	}
+	resp.Bound = s.boundVars(c.Request.Context(), app)
+	c.JSON(http.StatusOK, resp)
+}
+
+// boundVars lists the variables of <app>-bindings with their providers.
+func (s *Server) boundVars(ctx context.Context, app *shpyrdv1.App) []BoundVar {
+	sec := &corev1.Secret{}
+	if err := s.apps.Get(ctx, types.NamespacedName{Namespace: app.Namespace, Name: app.BindingsSecretName()}, sec); err != nil {
+		return nil
+	}
+	providers := map[string]string{}
+	_ = json.Unmarshal([]byte(sec.Annotations[shpyrdv1.AnnotationBindingProviders]), &providers)
+	out := make([]BoundVar, 0, len(sec.Data))
+	for k := range sec.Data {
+		out = append(out, BoundVar{Name: k, Provider: providers[k]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 func (s *Server) updateAppSecrets(c *gin.Context) {

@@ -21,8 +21,23 @@ const maxReleases = 20
 // configHash fingerprints everything that changes the running configuration
 // without changing the image: plain env vars, the <app>-env Secret and the
 // instance size of each process type.
-func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]string) string {
+func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]string, bindings ...*corev1.Secret) string {
 	h := sha256.New()
+	for _, b := range bindings {
+		if b == nil {
+			continue
+		}
+		keys := make([]string, 0, len(b.Data))
+		for k := range b.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			h.Write([]byte("binding:" + k + "="))
+			h.Write(b.Data[k])
+			h.Write([]byte{0})
+		}
+	}
 	sizeNames := make([]string, 0, len(sizes))
 	for k := range sizes {
 		sizeNames = append(sizeNames, k)

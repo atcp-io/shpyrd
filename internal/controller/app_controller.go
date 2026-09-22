@@ -202,7 +202,15 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 		}
 	}
 	sizeByProcess := r.processSizes(ctx, app)
-	hash := configHash(app, secret, sizeByProcess)
+	// Attached resources contribute config vars through <app>-bindings.
+	bindings, err := r.reconcileBindings(ctx, app)
+	if err != nil {
+		return outcome{}, err
+	}
+	hash := configHash(app, secret, sizeByProcess, bindings)
+	if err := r.ensureProjectLabel(ctx, app); err != nil {
+		return outcome{}, err
+	}
 
 	// 2. Image: pinned, or built from the source (kpack Image for
 	// buildpacks, BuildKit Job for Dockerfiles).
@@ -300,6 +308,7 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 		for _, p := range processes(app) {
 			out.newRelease.Processes = append(out.newRelease.Processes, p.Name)
 		}
+		out.newRelease.Bindings = append([]shpyrdv1.Binding(nil), app.Spec.Bindings...)
 		if err := r.snapshotRelease(ctx, app, out.newRelease.Number, secret); err != nil {
 			return outcome{}, err
 		}
@@ -505,6 +514,21 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 		}
 	}
 	return status, nil
+}
+
+// ensureProjectLabel marks the namespace as this project (RFC-0003); older
+// namespaces were created without the label.
+func (r *AppReconciler) ensureProjectLabel(ctx context.Context, app *shpyrdv1.App) error {
+	ns := &corev1.Namespace{}
+	if err := r.Get(ctx, types.NamespacedName{Name: app.Namespace}, ns); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if ns.Labels[shpyrdv1.LabelProject] == app.Name || ns.Labels[shpyrdv1.LabelManagedBy] != "shpyrd" {
+		return nil
+	}
+	patch := client.MergeFrom(ns.DeepCopy())
+	ns.Labels = mergeMaps(ns.Labels, map[string]string{shpyrdv1.LabelProject: app.Name})
+	return r.Patch(ctx, ns, patch)
 }
 
 func (r *AppReconciler) deleteIfExists(ctx context.Context, obj client.Object) error {

@@ -246,7 +246,7 @@ func (s *Server) createApp(c *gin.Context) {
 	ctx := c.Request.Context()
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   "app-" + req.Name,
-		Labels: map[string]string{shpyrdv1.LabelApp: req.Name, shpyrdv1.LabelManagedBy: "shpyrd"},
+		Labels: map[string]string{shpyrdv1.LabelApp: req.Name, shpyrdv1.LabelProject: req.Name, shpyrdv1.LabelManagedBy: "shpyrd"},
 	}}
 	if err := s.apps.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		abort(c, http.StatusBadGateway, fmt.Errorf("create namespace: %w", err))
@@ -397,6 +397,7 @@ func (s *Server) rollbackApp(c *gin.Context) {
 		// Pin the build and sizes; the controller restores the config vars snapshot.
 		a.Spec.Image = target.Image
 		restoreSizes(a, target)
+		a.Spec.Bindings = append([]shpyrdv1.Binding(nil), target.Bindings...)
 		if a.Annotations == nil {
 			a.Annotations = map[string]string{}
 		}

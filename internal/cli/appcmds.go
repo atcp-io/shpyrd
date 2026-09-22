@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -83,20 +84,42 @@ write-only: they are never printed back.`,
 			}
 			sec := &corev1.Secret{}
 			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name + shpyrdv1.EnvSecretSuffix}, sec); err != nil {
-				if apierrors.IsNotFound(err) {
-					fmt.Fprintln(cmd.OutOrStdout(), "no config vars set")
-					return nil
+				if !apierrors.IsNotFound(err) {
+					return err
 				}
-				return err
+				sec = nil
+			}
+			// Variables provided by attached resources (read-only).
+			bound := &corev1.Secret{}
+			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name + shpyrdv1.BindingsSecretSuffix}, bound); err != nil {
+				bound = nil
+			}
+			if sec == nil && bound == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "no config vars set")
+				return nil
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tUPDATED")
-			for _, v := range configvars.List(sec) {
-				when := "-"
-				if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
-					when = age(metav1.NewTime(t))
+			fmt.Fprintln(tw, "NAME\tUPDATED\tPROVIDED BY")
+			if sec != nil {
+				for _, v := range configvars.List(sec) {
+					when := "-"
+					if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
+						when = age(metav1.NewTime(t))
+					}
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, "-")
 				}
-				fmt.Fprintf(tw, "%s\t%s\n", v.Name, when)
+			}
+			if bound != nil {
+				providers := map[string]string{}
+				_ = json.Unmarshal([]byte(bound.Annotations[shpyrdv1.AnnotationBindingProviders]), &providers)
+				names := make([]string, 0, len(bound.Data))
+				for k := range bound.Data {
+					names = append(names, k)
+				}
+				sort.Strings(names)
+				for _, k := range names {
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", k, "-", firstNonEmpty(providers[k], "binding"))
+				}
 			}
 			return tw.Flush()
 		},
@@ -371,8 +394,10 @@ config vars are restored. The source configuration is kept; the next
 			img := target.Image
 			note := fmt.Sprintf("Rollback to v%d", target.Number)
 			sizesOf := target.Sizes
+			bindingsOf := target.Bindings
 			updated, err := ac.updateApp(ctx, name, func(a *shpyrdv1.App) error {
 				a.Spec.Image = img
+				a.Spec.Bindings = append([]shpyrdv1.Binding(nil), bindingsOf...)
 				for proc, size := range sizesOf {
 					if p, ok := a.Spec.Processes[proc]; ok && size != "custom" {
 						p.Size = size

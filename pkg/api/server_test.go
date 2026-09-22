@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
@@ -536,5 +537,60 @@ func TestVolumesAPIAndScaleRefusal(t *testing.T) {
 	}
 	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/assets", "", true); rec.Code != http.StatusNoContent {
 		t.Errorf("delete: %d", rec.Code)
+	}
+}
+
+func TestProjectResourcesAndBoundVars(t *testing.T) {
+	app := &shpyrdv1.App{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "app-demo"},
+		Spec: shpyrdv1.AppSpec{
+			Source:    &shpyrdv1.Source{Git: &shpyrdv1.GitSource{URL: "https://example.test/r"}},
+			Bindings:  []shpyrdv1.Binding{{Kind: "Postgres", Name: "db"}},
+			Processes: map[string]shpyrdv1.Process{"web": {Volumes: []shpyrdv1.VolumeMount{{Name: "data", Path: "/data"}}}},
+		},
+		Status: shpyrdv1.AppStatus{Phase: "Running", URL: "https://demo.example.test", Releases: []shpyrdv1.Release{{Number: 3, Image: "x"}}},
+	}
+	vol := &shpyrdv1.Volume{
+		ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: "app-demo"},
+		Spec:       shpyrdv1.VolumeSpec{Size: resource.MustParse("5Gi")},
+		Status:     shpyrdv1.VolumeStatus{Phase: "Bound", Capacity: "5Gi", MountedBy: []string{"demo/web"}},
+	}
+	bindings := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo-bindings", Namespace: "app-demo", Annotations: map[string]string{
+			shpyrdv1.AnnotationBindingProviders: `{"DATABASE_URL":"Postgres/db"}`,
+		}},
+		Data: map[string][]byte{"DATABASE_URL": []byte("postgres://secret")},
+	}
+	s, _ := newTestServer(t, nil, []client.Object{app, vol, bindings})
+
+	rec := do(t, s, "GET", "/api/projects/app-demo/resources", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resources: %d %s", rec.Code, rec.Body.String())
+	}
+	var res []ResourceView
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 || res[0].Kind != "App" || res[1].Kind != "Volume" {
+		t.Fatalf("resources = %+v", res)
+	}
+	if res[0].Endpoint != "https://demo.example.test" || res[0].Details["release"] != "v3" || res[0].Details["build"] != "buildpacks" || res[0].Details["bindings"] != "Postgres/db" {
+		t.Errorf("app view = %+v", res[0])
+	}
+	if !res[1].Data || res[1].Details["size"] != "5Gi" || res[1].Details["mode"] != "single-instance" || res[1].AttachedTo[0] != "demo/web" {
+		t.Errorf("volume view = %+v", res[1])
+	}
+
+	rec = do(t, s, "GET", "/api/apps/app-demo/demo/secrets", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("secrets: %d %s", rec.Code, rec.Body.String())
+	}
+	var cfg ConfigVarsResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &cfg)
+	if len(cfg.Bound) != 1 || cfg.Bound[0].Name != "DATABASE_URL" || cfg.Bound[0].Provider != "Postgres/db" {
+		t.Errorf("bound vars = %+v", cfg.Bound)
+	}
+	if strings.Contains(rec.Body.String(), "postgres://secret") {
+		t.Error("bound values must never be returned")
 	}
 }

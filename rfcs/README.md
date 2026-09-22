@@ -16,7 +16,7 @@ Design changes to shpyrd are proposed as short RFCs before they are built.
 | --- | --- | --- |
 | [0001](0001-mvp-local-platform.md) | MVP: local platform, App CRD and CLI | implemented |
 | [0002](0002-extension-model.md) | Extension model | provisional |
-| [0003](0003-projects-and-resources.md) | Projects and resources | implementable |
+| [0003](0003-projects-and-resources.md) | Projects and resources | implemented (bindings plumbing) |
 | [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented |
 | [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI) |
 | [0006](0006-persistent-volumes.md) | Persistent volumes | implemented (RWO) |

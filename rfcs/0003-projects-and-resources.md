@@ -1,6 +1,6 @@
 # RFC-0003 Projects and resources
 
-**Status:** implementable
+**Status:** implemented (resources list, bindings plumbing); attach/detach CLI arrives with the first bindable kind
 
 **Creation date:** 2026-09-22
 
@@ -108,3 +108,13 @@ still bound is refused until detached.
 ## Implementation History
 
 - 2026-09-22: RFC written. Volumes (RFC-0006) are the first non-app resource type.
+- 2026-09-22: Implemented the model: namespaces carry `shpyrd.io/project`, `GET
+  /api/projects/{ns}/resources` and `shpyrd projects info` list every resource in the
+  shared shape (kind, phase, message, endpoint, details, attachedTo, data), the dashboard
+  project page has a Resources card (volumes created and resized there) and the destroy
+  dialog lists what goes, data-holding resources first. Bindings: `spec.bindings` on the
+  App, a `Binder` registry per kind in the controller, the Secret `<app>-bindings` (owned by
+  the App, `envFrom` after `<app>-env` so bound vars win, provider recorded per variable,
+  part of `configHash`), releases record their bindings and rollback restores them, the
+  Config tab and `shpyrd secrets list` show bound vars read-only with their provider. No
+  kind registers a Binder yet; `shpyrd attach|detach` ship with Postgres (RFC-0009).

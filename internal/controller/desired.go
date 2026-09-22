@@ -257,12 +257,18 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 		SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: ptr.To(false),
 		},
-		EnvFrom: []corev1.EnvFromSource{{
-			SecretRef: &corev1.SecretEnvSource{
+		// Config vars, then the vars of attached resources: with envFrom the
+		// last source wins, so bound vars take precedence (RFC-0003).
+		EnvFrom: []corev1.EnvFromSource{
+			{SecretRef: &corev1.SecretEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: app.EnvSecretName()},
 				Optional:             ptr.To(true),
-			},
-		}},
+			}},
+			{SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: app.BindingsSecretName()},
+				Optional:             ptr.To(true),
+			}},
+		},
 	}
 	// Buildpack images expose every process type as /cnb/process/<type>;
 	// "web" is the image entrypoint so it also works for plain images.

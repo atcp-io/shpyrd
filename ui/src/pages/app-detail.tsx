@@ -532,7 +532,7 @@ function Overview({
         <ProcessesCard app={app} processes={processes} onChanged={onChanged} />
       </div>
 
-      <VolumesCard app={app} onChanged={onChanged} />
+      <ResourcesCard app={app} onChanged={onChanged} />
 
       <Card>
         <CardHeader>
@@ -1333,6 +1333,22 @@ function Config({ app }: { app: AppDetail }) {
                   </TableCell>
                 </TableRow>
               ))}
+              {vars.data?.bound?.map((b) => (
+                <TableRow key={"bound-" + b.name} className="bg-muted/30">
+                  <TableCell className="font-mono text-xs">{b.name}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    provided by{" "}
+                    <span className="font-medium text-foreground">
+                      {b.provider}
+                    </span>{" "}
+                    (read-only; wins over a config var of the same name)
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    -
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
           <form
@@ -1608,6 +1624,15 @@ function DestroyDialog({ app }: { app: AppDetail }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const resources = useQuery({
+    queryKey: ["resources", app.namespace],
+    queryFn: () => api.resources(app.namespace),
+    enabled: open,
+  });
+  // Resources holding data go first so they are not missed.
+  const doomed = [...(resources.data ?? [])].sort(
+    (a, b) => Number(b.data) - Number(a.data),
+  );
   const destroy = useMutation({
     mutationFn: () => api.deleteApp(app.namespace, app.name),
     onSuccess: () => {
@@ -1636,6 +1661,32 @@ function DestroyDialog({ app }: { app: AppDetail }) {
             config vars and running processes. Type its name to confirm.
           </DialogDescription>
         </DialogHeader>
+        {doomed.length > 0 && (
+          <ul className="grid gap-1 rounded-md border p-3 text-sm">
+            {doomed.map((r) => (
+              <li
+                key={r.kind + r.name}
+                className="flex items-center justify-between gap-3"
+              >
+                <span>
+                  <span className="text-muted-foreground">{r.kind}</span>{" "}
+                  <span className="font-medium">{r.name}</span>
+                  {r.details?.size && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {r.details.size}
+                    </span>
+                  )}
+                </span>
+                {r.data && (
+                  <span className="text-xs font-medium text-destructive">
+                    data is lost
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
         <Input
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
@@ -1651,7 +1702,7 @@ function DestroyDialog({ app }: { app: AppDetail }) {
             onClick={() => destroy.mutate()}
             disabled={confirm !== app.name || destroy.isPending}
           >
-            Destroy app
+            Destroy project
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1659,9 +1710,9 @@ function DestroyDialog({ app }: { app: AppDetail }) {
   );
 }
 
-// ---- volumes -------------------------------------------------------------------
+// ---- resources -----------------------------------------------------------------
 
-function VolumesCard({
+function ResourcesCard({
   app,
   onChanged,
 }: {
@@ -1669,16 +1720,22 @@ function VolumesCard({
   onChanged: () => void;
 }) {
   const qc = useQueryClient();
+  const resources = useQuery({
+    queryKey: ["resources", app.namespace],
+    queryFn: () => api.resources(app.namespace),
+    refetchInterval: 5000,
+  });
   const volumes = useQuery({
     queryKey: ["volumes", app.namespace],
     queryFn: () => api.volumes(app.namespace),
     refetchInterval: 5000,
   });
   const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["resources", app.namespace] });
     qc.invalidateQueries({ queryKey: ["volumes", app.namespace] });
     onChanged();
   };
-  const remove = useMutation({
+  const removeVolume = useMutation({
     mutationFn: (v: VolumeInfo) =>
       api.deleteVolume(app.namespace, v.name, v.mountedBy.length > 0),
     onSuccess: (_, v) => {
@@ -1687,103 +1744,131 @@ function VolumesCard({
     },
     onError: (e: Error) => toast.error(e.message),
   });
-  const list = volumes.data ?? [];
+  const list = resources.data ?? [];
+  const volumeOf = (name: string) => volumes.data?.find((v) => v.name === name);
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div>
           <CardTitle className="flex items-center gap-2">
-            <HardDrive className="size-4" /> Volumes
+            <HardDrive className="size-4" /> Resources
           </CardTitle>
           <CardDescription>
-            Persistent disks mounted by processes (
-            <code className="font-mono text-xs">processes.web.volumes</code> in
-            shpyrd.yaml). Single-instance volumes pin their process to one
-            instance with Recreate rollouts; shared volumes need a ReadWriteMany
-            provisioner.
+            Everything in this project: the app, its volumes and, as they
+            arrive, databases and caches. Attached resources inject their
+            connection details as config vars.
           </CardDescription>
         </div>
         <VolumeDialog app={app} onDone={refresh} />
       </CardHeader>
       <CardContent>
-        {volumes.isLoading ? (
+        {resources.isLoading ? (
           <Skeleton className="h-10 w-full" />
-        ) : list.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No volumes. Create one here or with{" "}
-            <code className="font-mono text-xs">
-              shpyrd volumes create data --size 5Gi --project {app.name}
-            </code>
-            .
-          </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Type</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Mode</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Mounted by</TableHead>
+                <TableHead>Details</TableHead>
+                <TableHead>Used by</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {list.map((v) => (
-                <TableRow key={v.name}>
-                  <TableCell className="font-medium">{v.name}</TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {v.capacity && v.capacity !== v.size
-                      ? `${v.capacity} → ${v.size}`
-                      : v.size}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {v.shared ? "shared" : "single-instance"}
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "text-xs",
-                        v.phase === "Bound" && "text-emerald-500",
-                        v.phase === "Failed" && "text-destructive",
-                        v.phase === "Pending" && "text-muted-foreground",
-                      )}
-                      title={v.message}
-                    >
-                      {v.phase}
-                      {v.message && v.phase !== "Bound"
-                        ? ` · ${v.message}`
-                        : ""}
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {v.mountedBy.length ? v.mountedBy.join(", ") : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <VolumeDialog app={app} onDone={refresh} resize={v} />
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="text-destructive"
-                        disabled={remove.isPending}
-                        onClick={() => {
-                          const mounted = v.mountedBy.length > 0;
-                          const msg = mounted
-                            ? `Volume ${v.name} is mounted by ${v.mountedBy.join(", ")}. Delete it and ALL its data anyway?`
-                            : `Delete volume ${v.name} and all its data (${v.size})?`;
-                          if (window.confirm(msg)) remove.mutate(v);
-                        }}
+              {list.map((r) => {
+                const vol = r.kind === "Volume" ? volumeOf(r.name) : undefined;
+                return (
+                  <TableRow key={r.kind + r.name}>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.kind}
+                    </TableCell>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "text-xs",
+                          (r.phase === "Bound" || r.phase === "Running") &&
+                            "text-emerald-500",
+                          r.phase === "Failed" && "text-destructive",
+                          (r.phase === "Pending" ||
+                            r.phase === "Building" ||
+                            r.phase === "Deploying") &&
+                            "text-muted-foreground",
+                        )}
+                        title={r.message}
                       >
-                        Delete
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                        {r.phase}
+                        {r.message &&
+                        r.phase !== "Bound" &&
+                        r.phase !== "Running"
+                          ? ` · ${r.message}`
+                          : ""}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {r.kind === "App"
+                        ? [
+                            r.details?.release,
+                            r.details?.build,
+                            r.endpoint?.replace(/^https:\/\//, ""),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : [
+                            r.details?.capacity &&
+                            r.details.capacity !== r.details.size
+                              ? `${r.details.capacity} → ${r.details.size}`
+                              : r.details?.size,
+                            r.details?.mode,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {r.attachedTo.length ? r.attachedTo.join(", ") : "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {vol && (
+                        <div className="flex justify-end gap-1">
+                          <VolumeDialog
+                            app={app}
+                            onDone={refresh}
+                            resize={vol}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="text-destructive"
+                            disabled={removeVolume.isPending}
+                            onClick={() => {
+                              const mounted = vol.mountedBy.length > 0;
+                              const msg = mounted
+                                ? `Volume ${vol.name} is mounted by ${vol.mountedBy.join(", ")}. Delete it and ALL its data anyway?`
+                                : `Delete volume ${vol.name} and all its data (${vol.size})?`;
+                              if (window.confirm(msg)) removeVolume.mutate(vol);
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Postgres and Redis resources arrive with RFC-0009 and RFC-0010;
+          volumes are created here or with{" "}
+          <code className="font-mono">
+            shpyrd volumes create data --size 5Gi
+          </code>
+          .
+        </p>
       </CardContent>
     </Card>
   );

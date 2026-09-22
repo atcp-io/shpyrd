@@ -97,6 +97,12 @@ automatically for local deploys) support multi-stage targets, build args
 images have one entrypoint, so process types other than `web` declare a
 `command`; see `examples/hello-docker`.
 
+`shpyrd projects info` and the project page list every resource of the project
+(the app, volumes, later databases and caches) with its status and what uses it.
+Attaching a resource to the app injects its connection details as read-only
+config vars (`<PREFIX>_URL`, ...), recorded in the release like any config
+change; the first attachable kinds are Postgres and Redis (rfcs/0009, 0010).
+
 Volumes are persistent disks of a project (`shpyrd volumes create|list|resize|delete`,
 a `Volume` resource backed by a PersistentVolumeClaim it owns). A volume is
 single-instance by default: the process mounting it runs one instance with

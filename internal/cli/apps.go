@@ -50,6 +50,7 @@ func newAppsCreateCmd(g *globalFlags) *cobra.Command {
 				Name: appNamespace(name),
 				Labels: map[string]string{
 					shpyrdv1.LabelApp:       name,
+					shpyrdv1.LabelProject:   name,
 					shpyrdv1.LabelManagedBy: "shpyrd",
 				},
 			}}
@@ -131,9 +132,36 @@ func newAppsInfoCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			printAppInfo(cmd, app)
+			var vols shpyrdv1.VolumeList
+			_ = ac.c.List(ctx, &vols, client.InNamespace(app.Namespace))
+			printResources(cmd, app, vols.Items)
 			return nil
 		},
 	}
+}
+
+// printResources lists every resource of the project (RFC-0003): the app
+// itself, its attached resources and the volumes.
+func printResources(cmd *cobra.Command, app *shpyrdv1.App, vols []shpyrdv1.Volume) {
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "Resources:")
+	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", "App", app.Name, firstNonEmpty(app.Status.Phase, "Pending"), firstNonEmpty(app.Status.URL, "-"))
+	for _, b := range app.Spec.Bindings {
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", b.Kind, b.Name, "attached", "config vars "+strings.ToUpper(firstNonEmpty(b.Prefix, "<default>"))+"_*")
+	}
+	for _, v := range vols {
+		mode := "single-instance"
+		if v.Shared() {
+			mode = "shared"
+		}
+		detail := fmt.Sprintf("%s %s", v.Spec.Size.String(), mode)
+		if len(v.Status.MountedBy) > 0 {
+			detail += ", mounted by " + strings.Join(v.Status.MountedBy, ", ")
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", "Volume", v.Name, firstNonEmpty(v.Status.Phase, "Pending"), detail)
+	}
+	_ = tw.Flush()
 }
 
 func printAppInfo(cmd *cobra.Command, app *shpyrdv1.App) {

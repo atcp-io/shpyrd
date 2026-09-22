@@ -436,9 +436,10 @@ func runPod(app *shpyrdv1.App, image string, command []string, res corev1.Resour
 				TTY:       tty,
 				Resources: res,
 				Env:       append([]corev1.EnvVar{{Name: "SHPYRD_RUN", Value: "1"}}, app.Spec.Env...),
-				EnvFrom: []corev1.EnvFromSource{{
-					SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.EnvSecretName()}, Optional: ptr.To(true)},
-				}},
+				EnvFrom: []corev1.EnvFromSource{
+					{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.EnvSecretName()}, Optional: ptr.To(true)}},
+					{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.BindingsSecretName()}, Optional: ptr.To(true)}},
+				},
 				SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: ptr.To(false)},
 			}},
 		},

@@ -15,6 +15,8 @@ const (
 	LabelProcess = "shpyrd.io/process"
 	// LabelManagedBy is set on namespaces created for apps.
 	LabelManagedBy = "app.kubernetes.io/managed-by"
+	// LabelProject marks the namespace of a project (value: project name).
+	LabelProject = "shpyrd.io/project"
 	// AnnotationConfigHash is put on pod templates so config changes roll out.
 	AnnotationConfigHash = "shpyrd.io/config-hash"
 	// AnnotationReleaseNote lets clients describe the next release
@@ -25,6 +27,9 @@ const (
 	AnnotationRollbackTo = "shpyrd.io/rollback-to"
 	// LabelRelease marks per-release snapshots (config var Secrets).
 	LabelRelease = "shpyrd.io/release"
+	// AnnotationBindingProviders on the <app>-bindings Secret maps each
+	// variable to the "<Kind> <name>" resource providing it (JSON).
+	AnnotationBindingProviders = "shpyrd.io/binding-providers"
 	// LabelBuildNumber is set on Dockerfile build Jobs (1, 2, 3...).
 	LabelBuildNumber = "shpyrd.io/build-number"
 	// LabelBuild is set on build pods with the name of their build.
@@ -91,6 +96,24 @@ type AppSpec struct {
 	// Domains served by the web process. Defaults to <name>.<cluster domain>.
 	// +optional
 	Domains []string `json:"domains,omitempty"`
+
+	// Bindings attach project resources (Postgres, Redis, ...) to the app:
+	// their connection details become config vars of every process.
+	// +optional
+	Bindings []Binding `json:"bindings,omitempty"`
+}
+
+// Binding attaches a project resource to an app (RFC-0003). The resource's
+// connection details are injected as config vars named <prefix>_<VAR>,
+// e.g. DATABASE_URL, through the Secret <app>-bindings.
+type Binding struct {
+	// Kind of the resource (Postgres, Redis, ...).
+	Kind string `json:"kind"`
+	// Name of the resource in the project.
+	Name string `json:"name"`
+	// Prefix of the injected variable names; defaults per kind.
+	// +optional
+	Prefix string `json:"prefix,omitempty"`
 }
 
 // Source describes the application source code.
@@ -243,6 +266,10 @@ type Release struct {
 	// restores them.
 	// +optional
 	Sizes map[string]string `json:"sizes,omitempty"`
+	// Bindings records the resources attached to the release; rollback
+	// restores them.
+	// +optional
+	Bindings []Binding `json:"bindings,omitempty"`
 }
 
 // ProcessStatus is the rollout state of one process type.
@@ -303,6 +330,13 @@ func init() {
 
 // EnvSecretName is the Secret holding the app's config vars.
 func (a *App) EnvSecretName() string { return a.Name + EnvSecretSuffix }
+
+// BindingsSecretSuffix: the Secret <app>-bindings holds the config vars
+// provided by attached resources; the controller owns it.
+const BindingsSecretSuffix = "-bindings"
+
+// BindingsSecretName is the Secret with the config vars of attached resources.
+func (a *App) BindingsSecretName() string { return a.Name + BindingsSecretSuffix }
 
 // ReleaseSnapshotName is the Secret holding the config vars as they were
 // when release n was created; rollback restores it.
