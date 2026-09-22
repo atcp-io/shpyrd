@@ -3,7 +3,7 @@ CLUSTER      ?= shpyrd
 SERVER_IMAGE ?= shpyrd-server:dev
 LDFLAGS      := -X shpyrd/pkg/version.Version=$(VERSION)
 
-.PHONY: all build cli server ui image generate test vet lint clean \
+.PHONY: all build cli server ui image dev-image generate test vet lint clean \
         dev-cluster dev-load dev-deploy dev-destroy installclint commitlint
 
 all: build
@@ -23,9 +23,18 @@ server:
 ui:
 	cd ui && npm ci --no-audit --no-fund && npm run build
 
-## Build the server container image
+## Build the server container image (full multi-stage build)
 image:
 	docker build --build-arg VERSION=$(VERSION) -t $(SERVER_IMAGE) .
+
+## Fast development image: compile the server on the host (UI embedded from
+## ui/dist), then package it with Dockerfile.dev. Run `make ui` first when
+## the dashboard changed.
+GOARCH_HOST := $(shell go env GOARCH)
+dev-image:
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH_HOST) go build -trimpath -ldflags "-s -w $(LDFLAGS)" -o bin/shpyrd-server-linux-$(GOARCH_HOST) ./cmd/shpyrd-server
+	docker build -f Dockerfile.dev --build-arg TARGETARCH=$(GOARCH_HOST) -t $(SERVER_IMAGE) .
 
 ## Regenerate deepcopy code and the App CRD from api/
 generate:
@@ -52,7 +61,7 @@ dev-cluster: cli
 	./bin/shpyrd cluster create --name $(CLUSTER) --skip shpyrd
 
 ## Build the server image and load it into the kind cluster
-dev-load: image
+dev-load: dev-image
 	kind load docker-image $(SERVER_IMAGE) --name $(CLUSTER)
 
 ## Load the image and (re)apply the shpyrd component

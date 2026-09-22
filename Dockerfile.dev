@@ -1,0 +1,8 @@
+# Development image: packages a server binary compiled on the host
+# (`make dev-image`), avoiding a full Go build inside the Docker VM.
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETARCH
+COPY bin/shpyrd-server-linux-${TARGETARCH} /shpyrd-server
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/shpyrd-server"]

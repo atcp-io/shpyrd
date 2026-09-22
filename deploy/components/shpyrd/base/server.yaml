@@ -62,16 +62,28 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-          readinessProbe:
+          # Probes tolerate a busy node (builds run on the same machine locally).
+          startupProbe:
             httpGet:
               path: /api/healthz
               port: http
             periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/healthz
               port: http
-            periodSeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 20m
