@@ -25,8 +25,8 @@ func New() *cobra.Command {
 	g := &globalFlags{}
 	root := &cobra.Command{
 		Use:           "shpyrd",
-		Short:         "Make infrastructure easy again",
-		Long:          "shpyrd manages the whole application stack on Kubernetes: cluster bootstrap, builds, deploys and monitoring.",
+		Short:         "Opensource Cloud PaaS",
+		Long:          "shpyrd manages applications and agents from one place, from deploy to monitoring: cluster bootstrap, buildpack builds, releases, config vars, logs and metrics on Kubernetes.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {

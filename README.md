@@ -1,8 +1,9 @@
 # shpyrd
 
-Make infrastructure easy again. shpyrd is an open source platform that manages
-the whole application stack on Kubernetes: cluster bootstrap, image builds,
-deploys, ingress/TLS and monitoring, from one CLI and one dashboard.
+**Opensource Cloud PaaS.** Manage applications and agents stack from one
+place, from deploy to monitoring: cluster bootstrap, buildpack builds,
+releases and rollbacks, URLs with TLS, config vars, logs and metrics, from one
+CLI and one dashboard on top of Kubernetes.
 
 Status: pre-alpha. The design and roadmap live in
 [RFC-0001](rfcs/0001-mvp-local-platform.md). Website: https://shpyrd.io
