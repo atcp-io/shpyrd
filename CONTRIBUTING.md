@@ -1,9 +1,11 @@
 # Contributing
 
-shpyrd is [Apache 2.0 licensed](https://github.com/fluxcd/flux2/blob/main/LICENSE) and
-accepts contributions via GitHub pull requests. This document outlines
-some of the conventions on to make it easier to get your contribution
-accepted.
+shpyrd is [MPL 2.0 licensed](LICENSE) and accepts contributions via GitHub
+pull requests. This document outlines some of the conventions to make it
+easier to get your contribution accepted.
+
+Design changes go through the [RFC process](rfcs/README.md); see
+[RFC-0001](rfcs/0001-mvp-local-platform.md) for the current architecture.
 
 We gratefully welcome improvements to issues and documentation as well as to
 code.
@@ -17,7 +19,7 @@ contribution.
 
 We require all commits to be signed. By signing off with your signature, you
 certify that you wrote the patch or otherwise have the right to contribute the
-material by the rules of the [DCO](DCO):
+material by the rules of the [DCO](https://developercertificate.org/):
 
 `Signed-off-by: Jane Doe <jane.doe@example.com>`
 

@@ -86,7 +86,7 @@ The design details should address at least the following questions:
 
 <!--
 Major milestones in the lifecycle of the RFC such as:
-- The first Flux release where an initial version of the RFC was available.
-- The version of Flux where the RFC graduated to general availability.
-- The version of Flux where the RFC was retired or superseded.
+- The first shpyrd release where an initial version of the RFC was available.
+- The version of shpyrd where the RFC graduated to general availability.
+- The version of shpyrd where the RFC was retired or superseded.
 -->

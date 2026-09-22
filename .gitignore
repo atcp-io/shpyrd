@@ -1,40 +1,30 @@
-*~
-bin
-/.idea
-
-.tool-versions
-tools/bin/*
+# binaries and tools
+/bin
 *.out
-dist/
-.cache
-.parcel-cache
+
+# editors / OS
+/.idea
+.vscode
+*.swp
+.DS_Store
+.envrc
+.tool-versions
+
+# node
 node_modules
 coverage
 *.lcov
-ginkgo.report
-.deps
-test/library/wego-library-test
-tilt_modules
-.envrc
+.cache
 
-localhost-key.pem
-localhost.pem
+# built dashboard (embedded into the server binary); keep the placeholder
+ui/dist/*
+!ui/dist/.gitkeep
 
-# Ignore generated credentials from google-github-actions/auth
-gha-creds-*.json
+# exported manifests
+/shpyrd-export
 
-# Ignore VIM's swap files
-*.swp
-
-# .vscode
-.vscode
-
-# terraform
+# local certificates and state
+*.pem
+*.tfstate
+*.tfstate.*
 .terraform
-
-# macOS
-.DS_Store
-gitops-server.dockerfile
-
-# local public directory
-/public

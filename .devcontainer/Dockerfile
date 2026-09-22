@@ -1,3 +1,3 @@
-FROM mcr.microsoft.com/devcontainers/go:0-1-bullseye
+FROM mcr.microsoft.com/devcontainers/go:1
 
 ENV PATH="$PATH:./bin"
