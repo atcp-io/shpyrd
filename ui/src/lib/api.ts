@@ -216,6 +216,7 @@ export type ResourceInfo = {
   details?: Record<string, string>;
   attachedTo: string[];
   data: boolean;
+  bindable?: boolean;
   createdAt: string;
 };
 
@@ -476,6 +477,26 @@ export const api = {
     request<AppSummary>(`${app(ns, name)}/rollback`, json("POST", { release })),
   resources: (ns: string) =>
     request<ResourceInfo[]>(`/api/projects/${ns}/resources`),
+  createResource: (
+    ns: string,
+    body: { kind: string; name: string; spec: Record<string, unknown> },
+  ) =>
+    request<ResourceInfo>(`/api/projects/${ns}/resources`, json("POST", body)),
+  deleteResource: (ns: string, kind: string, name: string, force = false) =>
+    request<void>(
+      `/api/projects/${ns}/resources/${kind}/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  attach: (
+    ns: string,
+    name: string,
+    body: { kind: string; name: string; prefix?: string },
+  ) => request<AppSummary>(`${app(ns, name)}/bindings`, json("POST", body)),
+  detach: (ns: string, name: string, kind: string, rname: string) =>
+    request<AppSummary>(
+      `${app(ns, name)}/bindings/${kind}/${encodeURIComponent(rname)}`,
+      { method: "DELETE" },
+    ),
   volumes: (ns: string) => request<VolumeInfo[]>(`/api/projects/${ns}/volumes`),
   createVolume: (
     ns: string,

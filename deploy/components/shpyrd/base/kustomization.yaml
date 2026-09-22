@@ -9,6 +9,8 @@ resources:
   - crds/shpyrd.io_volumes.yaml
   - crds/shpyrd.io_teams.yaml
   - crds/shpyrd.io_projectmembers.yaml
+  - crds/shpyrd.io_postgres.yaml
+  - crds/shpyrd.io_redis.yaml
   - rbac.yaml
   - storage.yaml
   - server.yaml

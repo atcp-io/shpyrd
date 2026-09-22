@@ -81,12 +81,17 @@ func (r *AppReconciler) reconcileBindings(ctx context.Context, app *shpyrdv1.App
 			}
 			return nil, fmt.Errorf("binding %s/%s: %w", b.Kind, b.Name, err)
 		}
-		for k, v := range values {
+		keys := make([]string, 0, len(values))
+		for k := range values {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
 			if other, dup := providedBy[k]; dup {
 				return nil, fmt.Errorf("bindings %s and %s/%s both provide %s: set a different prefix on one of them", other, b.Kind, b.Name, k)
 			}
 			providedBy[k] = b.Kind + "/" + b.Name
-			vars[k] = v
+			vars[k] = values[k]
 		}
 	}
 

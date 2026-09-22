@@ -45,10 +45,6 @@ type Config struct {
 	// PodCIDR, when known, lets the project network policy block egress to
 	// pods of other projects while allowing the internet.
 	PodCIDR string
-	// IngressNamespace and MonitoringNamespace may reach project pods
-	// (traffic from the URL, metrics scraping).
-	IngressNamespace    string
-	MonitoringNamespace string
 }
 
 // DefaultBuildKitImage is the rootless BuildKit image used for Dockerfile builds.
@@ -82,12 +78,6 @@ func (c Config) Defaults() Config {
 	}
 	if c.BuildKitImage == "" {
 		c.BuildKitImage = DefaultBuildKitImage
-	}
-	if c.IngressNamespace == "" {
-		c.IngressNamespace = "ingress-nginx"
-	}
-	if c.MonitoringNamespace == "" {
-		c.MonitoringNamespace = "monitoring"
 	}
 	return c
 }

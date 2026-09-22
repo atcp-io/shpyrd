@@ -16,14 +16,14 @@ Design changes to shpyrd are proposed as short RFCs before they are built.
 | --- | --- | --- |
 | [0001](0001-mvp-local-platform.md) | MVP: local platform, App CRD and CLI | implemented |
 | [0002](0002-extension-model.md) | Extension model | implemented (framework) |
-| [0003](0003-projects-and-resources.md) | Projects and resources | implemented (bindings plumbing) |
+| [0003](0003-projects-and-resources.md) | Projects and resources | implemented |
 | [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented |
 | [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI) |
 | [0006](0006-persistent-volumes.md) | Persistent volumes | implemented (RWO) |
 | [0007](0007-authentication.md) | Authentication (OIDC, Dex, Okta) | implemented (3.1 local users) |
 | [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented (quotas, supply chain pending) |
-| [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | provisional |
-| [0010](0010-redis-resource.md) | Redis resource (Valkey) | provisional |
+| [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented (backups pending) |
+| [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented (HA pending) |
 
 ## Phases
 

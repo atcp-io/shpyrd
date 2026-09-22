@@ -29,7 +29,7 @@ func newTestReconciler(t *testing.T, objs ...client.Object) (*AppReconciler, cli
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithStatusSubresource(&shpyrdv1.App{}).
+		WithStatusSubresource(&shpyrdv1.App{}, &shpyrdv1.Volume{}, &shpyrdv1.Postgres{}, &shpyrdv1.Redis{}).
 		Build()
 	r := &AppReconciler{
 		Client:    c,

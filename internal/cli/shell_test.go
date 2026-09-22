@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,7 +8,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kexec "k8s.io/client-go/util/exec"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 )
@@ -78,34 +76,5 @@ func TestRunPodPrebuiltImage(t *testing.T) {
 	}
 	if d := runPod(testApp(false), "x", []string{"tool"}, corev1.ResourceRequirements{}, false, false).Spec.Containers[0]; d.Stdin || d.TTY {
 		t.Error("detached runs do not attach stdin")
-	}
-}
-
-func TestRemoteExit(t *testing.T) {
-	err := remoteExit(kexec.CodeExitError{Err: errors.New("command terminated with exit code 3"), Code: 3})
-	if ExitCode(err) != 3 {
-		t.Errorf("exit code = %d, want 3", ExitCode(err))
-	}
-	plain := errors.New("boom")
-	if remoteExit(plain) != plain || ExitCode(plain) != 1 {
-		t.Error("other errors pass through and exit 1")
-	}
-	if remoteExit(nil) != nil {
-		t.Error("nil stays nil")
-	}
-}
-
-func TestIsNotFound(t *testing.T) {
-	for _, m := range []string{
-		`OCI runtime exec failed: exec failed: unable to start container process: exec: "bash": executable file not found in $PATH: unknown`,
-		"command terminated with exit code 126",
-		"command terminated with exit code 127",
-	} {
-		if !isNotFound(errors.New(m)) {
-			t.Errorf("should be treated as missing executable: %s", m)
-		}
-	}
-	if isNotFound(errors.New("command terminated with exit code 2")) {
-		t.Error("ordinary failures are not missing executables")
 	}
 }

@@ -6,28 +6,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
-	"net/url"
 	"os"
-	"os/signal"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/httpstream"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/remotecommand"
-	kexec "k8s.io/client-go/util/exec"
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/api"
+	"shpyrd/pkg/kexec"
 	"shpyrd/pkg/sizes"
 )
 
@@ -75,7 +67,7 @@ process type with --process; the default is the first web instance.`,
 			if len(command) == 0 {
 				command = []string{"bash"}
 			}
-			return ac.execInteractive(ctx, pod.Namespace, pod.Name, "app", command, len(args) == 0, stdinIsTerminal())
+			return ac.execInteractive(ctx, pod.Namespace, pod.Name, "app", command, len(args) == 0, kexec.StdinIsTerminal())
 		},
 	}
 	cmd.Flags().SetInterspersed(false) // everything after the command belongs to it
@@ -146,157 +138,21 @@ func joinInstances(pods []corev1.Pod, names map[string]string) string {
 // so buildpack environments are loaded, then bash, then sh.
 func (a *appClient) execInteractive(ctx context.Context, namespace, pod, container string, command []string, wantShell, tty bool) error {
 	if !wantShell {
-		return remoteExit(a.exec(ctx, namespace, pod, container, command, tty))
+		return kexec.RemoteExit(kexec.Exec(ctx, a.k, namespace, pod, container, command, tty))
 	}
 	var lastErr error
 	for _, cmd := range [][]string{{cnbLauncher, "--", "bash"}, {"bash"}, {cnbLauncher, "--", "sh"}, {"sh"}} {
-		err := a.exec(ctx, namespace, pod, container, cmd, tty)
+		err := kexec.Exec(ctx, a.k, namespace, pod, container, cmd, tty)
 		if err == nil {
 			return nil
 		}
-		if !isNotFound(err) {
-			return remoteExit(err)
+		if !kexec.IsNotFound(err) {
+			return kexec.RemoteExit(err)
 		}
 		lastErr = err
 	}
 	return fmt.Errorf("no usable shell in the image: %v", lastErr)
 }
-
-func stdinIsTerminal() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
-
-// remoteExit turns a remote non-zero exit into an exitError so the CLI exits
-// with the same code instead of printing an error.
-func remoteExit(err error) error {
-	var ce kexec.CodeExitError
-	if errors.As(err, &ce) {
-		return &exitError{code: ce.Code}
-	}
-	return err
-}
-
-// isNotFound reports exec failures caused by a missing executable.
-func isNotFound(err error) bool {
-	m := err.Error()
-	return strings.Contains(m, "executable file not found") || strings.Contains(m, "no such file or directory") || strings.Contains(m, "exit code 127") || strings.Contains(m, "exit code 126")
-}
-
-// exec streams an exec session; with tty the local terminal is put in raw
-// mode and resizes are forwarded.
-func (a *appClient) exec(ctx context.Context, namespace, pod, container string, command []string, tty bool) error {
-	req := a.k.Kube.CoreV1().RESTClient().Post().
-		Resource("pods").Namespace(namespace).Name(pod).SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: container,
-			Command:   command,
-			Stdin:     true,
-			Stdout:    true,
-			Stderr:    !tty,
-			TTY:       tty,
-		}, scheme.ParameterCodec)
-	return a.stream(ctx, req.URL().String(), tty, os.Stdout)
-}
-
-// attach streams a pod's main process (used by `shpyrd run`).
-func (a *appClient) attach(ctx context.Context, namespace, pod, container string, tty bool, stdout io.Writer) error {
-	req := a.k.Kube.CoreV1().RESTClient().Post().
-		Resource("pods").Namespace(namespace).Name(pod).SubResource("attach").
-		VersionedParams(&corev1.PodAttachOptions{
-			Container: container,
-			Stdin:     true,
-			Stdout:    true,
-			Stderr:    !tty,
-			TTY:       tty,
-		}, scheme.ParameterCodec)
-	return a.stream(ctx, req.URL().String(), tty, stdout)
-}
-
-func (a *appClient) stream(ctx context.Context, rawURL string, tty bool, stdout io.Writer) error {
-	ws, err := remotecommand.NewWebSocketExecutor(a.k.Config, "GET", rawURL)
-	if err != nil {
-		return err
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return err
-	}
-	spdy, err := remotecommand.NewSPDYExecutor(a.k.Config, "POST", u)
-	if err != nil {
-		return err
-	}
-	executor, err := remotecommand.NewFallbackExecutor(ws, spdy, func(err error) bool { return httpstream.IsUpgradeFailure(err) })
-	if err != nil {
-		return err
-	}
-	opts := remotecommand.StreamOptions{Stdin: os.Stdin, Stdout: stdout, Stderr: os.Stderr, Tty: tty}
-	if tty {
-		state, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err == nil {
-			defer term.Restore(int(os.Stdin.Fd()), state)
-		}
-		q := newSizeQueue()
-		defer q.stop()
-		opts.TerminalSizeQueue = q
-	}
-	return executor.StreamWithContext(ctx, opts)
-}
-
-type countingWriter struct {
-	w io.Writer
-	n int
-}
-
-func (c *countingWriter) Write(p []byte) (int, error) {
-	n, err := c.w.Write(p)
-	c.n += n
-	return n, err
-}
-
-// sizeQueue forwards terminal size changes to the remote side.
-type sizeQueue struct {
-	ch   chan remotecommand.TerminalSize
-	done chan struct{}
-}
-
-func newSizeQueue() *sizeQueue {
-	q := &sizeQueue{ch: make(chan remotecommand.TerminalSize, 1), done: make(chan struct{})}
-	q.push()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGWINCH)
-	go func() {
-		defer signal.Stop(sig)
-		for {
-			select {
-			case <-sig:
-				q.push()
-			case <-q.done:
-				return
-			}
-		}
-	}()
-	return q
-}
-
-func (q *sizeQueue) push() {
-	w, h, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		return
-	}
-	select {
-	case q.ch <- remotecommand.TerminalSize{Width: uint16(w), Height: uint16(h)}:
-	default:
-	}
-}
-
-func (q *sizeQueue) Next() *remotecommand.TerminalSize {
-	select {
-	case s := <-q.ch:
-		return &s
-	case <-q.done:
-		return nil
-	}
-}
-
-func (q *sizeQueue) stop() { close(q.done) }
 
 // ---- run --------------------------------------------------------------------
 
@@ -343,7 +199,7 @@ exits (like 'heroku run'). Use it for migrations, consoles and scripts.
 			if err != nil {
 				return err
 			}
-			tty := !detach && stdinIsTerminal()
+			tty := !detach && kexec.StdinIsTerminal()
 			pod := runPod(app, image, args, res, tty, !detach)
 			created, err := ac.k.Kube.CoreV1().Pods(app.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 			if err != nil {
@@ -365,9 +221,9 @@ exits (like 'heroku run'). Use it for migrations, consoles and scripts.
 			if tty {
 				fmt.Fprintln(cmd.ErrOrStderr(), "If you don't see a prompt, try pressing enter.")
 			}
-			out := &countingWriter{w: os.Stdout}
-			attachErr := ac.attach(ctx, app.Namespace, created.Name, "app", tty, out)
-			if out.n == 0 {
+			out := &kexec.CountingWriter{W: os.Stdout}
+			attachErr := kexec.Attach(ctx, ac.k, app.Namespace, created.Name, "app", tty, out)
+			if out.N == 0 {
 				// The command finished before we attached: print what it wrote.
 				logs, lerr := ac.k.Kube.CoreV1().Pods(app.Namespace).GetLogs(created.Name, &corev1.PodLogOptions{Container: "app"}).DoRaw(ctx)
 				if lerr == nil {
@@ -381,7 +237,7 @@ exits (like 'heroku run'). Use it for migrations, consoles and scripts.
 				return err
 			}
 			if code != 0 {
-				return &exitError{code: code}
+				return &kexec.ExitError{Code: code}
 			}
 			return nil
 		},
@@ -499,18 +355,4 @@ func (a *appClient) exitCode(ctx context.Context, namespace, name string) (int, 
 		}
 	}
 	return 0, nil
-}
-
-// exitError carries a remote exit code to main.
-type exitError struct{ code int }
-
-func (e *exitError) Error() string { return fmt.Sprintf("command exited with code %d", e.code) }
-
-// ExitCode returns the process exit code embedded in err, or 1.
-func ExitCode(err error) int {
-	var ee *exitError
-	if errors.As(err, &ee) {
-		return ee.code
-	}
-	return 1
 }

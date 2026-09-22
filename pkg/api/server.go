@@ -265,6 +265,10 @@ func (s *Server) routes() error {
 	api.GET("/apps/:ns/:name/audit", s.require(authz.ProjectView), s.appAudit)
 	// Project resources (RFC-0003/0006): volumes live in the project namespace.
 	api.GET("/projects/:ns/resources", s.require(authz.ProjectView), s.listProjectResources)
+	api.POST("/projects/:ns/resources", s.require(authz.ProjectResource), s.createResource)
+	api.DELETE("/projects/:ns/resources/:kind/:name", s.require(authz.ProjectResource), s.deleteResource)
+	api.POST("/apps/:ns/:name/bindings", s.require(authz.ProjectResource), s.attachResource)
+	api.DELETE("/apps/:ns/:name/bindings/:kind/:rname", s.require(authz.ProjectResource), s.detachResource)
 	api.GET("/projects/:ns/volumes", s.require(authz.ProjectView), s.listVolumes)
 	api.POST("/projects/:ns/volumes", s.require(authz.ProjectResource), s.createVolume)
 	api.PUT("/projects/:ns/volumes/:name", s.require(authz.ProjectResource), s.resizeVolume)

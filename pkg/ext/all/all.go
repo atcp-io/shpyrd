@@ -8,12 +8,16 @@ import (
 
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/ext/authlocal"
+	"shpyrd/pkg/ext/postgres"
+	"shpyrd/pkg/ext/redis"
 )
 
 // All lists every extension the binaries know about, in display order.
 func All() []ext.Extension {
 	return []ext.Extension{
 		authlocal.New(),
+		postgres.New(),
+		redis.New(),
 	}
 }
 
@@ -35,6 +39,20 @@ func splitCSV(s string) []string {
 	for _, part := range strings.Split(s, ",") {
 		if part = strings.TrimSpace(part); part != "" {
 			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// BindableTypes lists the resource kinds of the given extensions that apps
+// can attach.
+func BindableTypes(list []ext.Extension) []ext.ResourceType {
+	var out []ext.ResourceType
+	for _, x := range list {
+		for _, t := range x.Types() {
+			if t.Bindable {
+				out = append(out, t)
+			}
 		}
 	}
 	return out

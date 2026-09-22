@@ -51,6 +51,8 @@ func New() *cobra.Command {
 	root.AddCommand(newResizeCmd(g))
 	root.AddCommand(newSizesCmd(g))
 	root.AddCommand(newVolumesCmd(g))
+	root.AddCommand(newAttachCmd(g))
+	root.AddCommand(newDetachCmd(g))
 	root.AddCommand(newExtensionsCmd(g))
 	root.AddCommand(newTeamsCmd(g))
 	root.AddCommand(newMembersCmd(g))

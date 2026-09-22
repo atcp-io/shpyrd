@@ -18,6 +18,7 @@ import (
 	"time"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/ext/all"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
 )
@@ -595,5 +596,94 @@ func TestProjectResourcesAndBoundVars(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "postgres://secret") {
 		t.Error("bound values must never be returned")
+	}
+}
+
+func TestResourcesAndBindingsAPI(t *testing.T) {
+	app := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: "app-shop"}, Spec: shpyrdv1.AppSpec{Image: "x"}}
+	s, cr := newTestServer(t, nil, []client.Object{app})
+	s.opts.Extensions = all.All() // postgres and redis kinds become available
+
+	// Create a Postgres and a Redis generically.
+	rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Postgres","name":"db","spec":{"version":"16","storage":"10Gi"}}`, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create postgres: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Redis","name":"cache","spec":{"persistent":false}}`, true); rec.Code != http.StatusCreated {
+		t.Fatalf("create redis: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Mongo","name":"x"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown kind: %d", rec.Code)
+	}
+	if rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Postgres","name":"db"}`, true); rec.Code != http.StatusConflict {
+		t.Errorf("duplicate: %d", rec.Code)
+	}
+
+	rec = do(t, s, "GET", "/api/projects/app-shop/resources", "", true)
+	var res []ResourceView
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	kinds := map[string]ResourceView{}
+	for _, r := range res {
+		kinds[r.Kind] = r
+	}
+	if len(res) != 3 || kinds["Postgres"].Details["version"] != "16" || kinds["Postgres"].Details["storage"] != "10Gi" || !kinds["Postgres"].Bindable || kinds["Postgres"].Phase != "Pending" {
+		t.Errorf("resources = %s", rec.Body.String())
+	}
+
+	// Attach: a binding with a release note; duplicates and unknown targets refused.
+	rec = do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Postgres","name":"db"}`, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+	}
+	got := &shpyrdv1.App{}
+	_ = cr.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "shop"}, got)
+	if len(got.Spec.Bindings) != 1 || got.Spec.Bindings[0].Kind != "Postgres" || got.Annotations[shpyrdv1.AnnotationReleaseNote] != "Attach Postgres db" {
+		t.Errorf("app after attach: %+v %v", got.Spec.Bindings, got.Annotations)
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Postgres","name":"db"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("double attach: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Postgres","name":"nope"}`, true); rec.Code != http.StatusNotFound {
+		t.Errorf("attach missing: %d", rec.Code)
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Redis","name":"cache","prefix":"bad prefix"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad prefix: %d", rec.Code)
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Redis","name":"cache","prefix":"queue"}`, true); rec.Code != http.StatusOK {
+		t.Errorf("attach redis: %d %s", rec.Code, rec.Body.String())
+	}
+	_ = cr.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "shop"}, got)
+	if len(got.Spec.Bindings) != 2 || got.Spec.Bindings[1].Prefix != "QUEUE" {
+		t.Errorf("prefix upper-cased: %+v", got.Spec.Bindings)
+	}
+
+	// The resources list shows who attaches what; deletion is refused while attached.
+	rec = do(t, s, "GET", "/api/projects/app-shop/resources", "", true)
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	for _, r := range res {
+		if r.Kind == "Postgres" && (len(r.AttachedTo) != 1 || r.AttachedTo[0] != "shop") {
+			t.Errorf("attachedTo = %v", r.AttachedTo)
+		}
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/app-shop/resources/Postgres/db", "", true); rec.Code != http.StatusConflict {
+		t.Errorf("delete attached: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Detach, then delete.
+	if rec := do(t, s, "DELETE", "/api/apps/app-shop/shop/bindings/Postgres/db", "", true); rec.Code != http.StatusOK {
+		t.Fatalf("detach: %d %s", rec.Code, rec.Body.String())
+	}
+	_ = cr.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "shop"}, got)
+	if len(got.Spec.Bindings) != 1 || got.Spec.Bindings[0].Kind != "Redis" || got.Annotations[shpyrdv1.AnnotationReleaseNote] != "Detach Postgres db" {
+		t.Errorf("app after detach: %+v %v", got.Spec.Bindings, got.Annotations)
+	}
+	if rec := do(t, s, "DELETE", "/api/apps/app-shop/shop/bindings/Postgres/db", "", true); rec.Code != http.StatusBadRequest {
+		t.Errorf("detach twice: %d", rec.Code)
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/app-shop/resources/Postgres/db", "", true); rec.Code != http.StatusNoContent {
+		t.Errorf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/app-shop/resources/Redis/cache?force=true", "", true); rec.Code != http.StatusNoContent {
+		t.Errorf("force delete attached: %d %s", rec.Code, rec.Body.String())
 	}
 }

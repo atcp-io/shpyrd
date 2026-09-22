@@ -89,7 +89,7 @@ func TestBindingsRenderSecretAndRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = runReconcile(t, r, got)
-	if got.Status.Phase != shpyrdv1.PhaseFailed || !strings.Contains(got.Status.Message, "both provide DATABASE_URL") {
+	if got.Status.Phase != shpyrdv1.PhaseFailed || !strings.Contains(got.Status.Message, "both provide DATABASE_HOST") {
 		t.Errorf("duplicate vars: %s %s", got.Status.Phase, got.Status.Message)
 	}
 	got.Spec.Bindings[1].Prefix = "analytics"
@@ -102,21 +102,23 @@ func TestBindingsRenderSecretAndRelease(t *testing.T) {
 		t.Errorf("prefixed binding: %s %v", got.Status.Message, sec.Data)
 	}
 
-	// Not ready and missing resources explain themselves; unknown kinds too.
+	// A resource still provisioning makes the app wait (not fail); missing
+	// resources and unknown kinds are failures that explain themselves.
 	for _, tc := range []struct {
-		b    shpyrdv1.Binding
-		want string
+		b     shpyrdv1.Binding
+		phase string
+		want  string
 	}{
-		{shpyrdv1.Binding{Kind: "Postgres", Name: "slow"}, "is provisioning"},
-		{shpyrdv1.Binding{Kind: "Postgres", Name: "nope"}, "does not exist in this project"},
-		{shpyrdv1.Binding{Kind: "Mongo", Name: "x"}, `kind "Mongo" cannot be attached (available: Postgres)`},
+		{shpyrdv1.Binding{Kind: "Postgres", Name: "slow"}, shpyrdv1.PhasePending, "waiting for an attached resource: Postgres slow is provisioning"},
+		{shpyrdv1.Binding{Kind: "Postgres", Name: "nope"}, shpyrdv1.PhaseFailed, "does not exist in this project"},
+		{shpyrdv1.Binding{Kind: "Mongo", Name: "x"}, shpyrdv1.PhaseFailed, `kind "Mongo" cannot be attached (available: Postgres)`},
 	} {
 		got.Spec.Bindings = []shpyrdv1.Binding{tc.b}
 		if err := c.Update(context.Background(), got); err != nil {
 			t.Fatal(err)
 		}
 		got = runReconcile(t, r, got)
-		if got.Status.Phase != shpyrdv1.PhaseFailed || !strings.Contains(got.Status.Message, tc.want) {
+		if got.Status.Phase != tc.phase || !strings.Contains(got.Status.Message, tc.want) {
 			t.Errorf("%+v: %s %s", tc.b, got.Status.Phase, got.Status.Message)
 		}
 	}
@@ -149,7 +151,7 @@ func TestEnsureProjectLabel(t *testing.T) {
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-demo", Name: IsolationPolicyName}, np); err != nil {
 		t.Fatalf("network policy: %v", err)
 	}
-	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].From) != 3 || len(np.Spec.Egress) != 1 || len(np.Spec.PolicyTypes) != 2 {
+	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].From) != 2 || len(np.Spec.Egress) != 1 || len(np.Spec.PolicyTypes) != 2 {
 		t.Errorf("policy = %+v", np.Spec)
 	}
 	d := &appsv1.Deployment{}

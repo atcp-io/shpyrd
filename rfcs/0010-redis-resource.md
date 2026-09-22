@@ -1,6 +1,6 @@
 # RFC-0010 Redis resource
 
-**Status:** provisional
+**Status:** implemented (single instance); HA via operator pending
 
 **Creation date:** 2026-09-22
 
@@ -75,3 +75,11 @@ The `Binding` exposes `REDIS_URL` (`redis://:password@host:6379/0`) and `REDIS_H
 ## Implementation History
 
 - 2026-09-22: RFC written; phase E.
+- 2026-09-22: Implemented as the `redis` extension (no operator component): a `Redis` CRD
+  (engine valkey|redis, version, size, persistent, storage) run by the controller as a
+  single-replica StatefulSet with a generated password, `maxmemory` at 75% of the size's
+  memory, `allkeys-lru` for caches or AOF on a volume with `noeviction` when persistent,
+  uid 999 with the restricted security context; a `Binder` exposing
+  `REDIS_URL|HOST|PORT|PASSWORD`; `shpyrd redis create|list|info|cli|delete`. Persistence
+  cannot change after creation. Not done: Sentinel/HA through an operator, the exporter
+  sidecar and dashboard panel, PodDisruptionBudget.

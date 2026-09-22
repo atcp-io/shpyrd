@@ -1,0 +1,12 @@
+# CloudNativePG operator. Databases (CNPG Clusters) are created by the
+# shpyrd Postgres controller in project namespaces.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+config:
+  create: true
+  data:
+    # Keep the default PostgreSQL image aligned with what the controller asks for.
+    INHERITED_ANNOTATIONS: shpyrd.io/project
+    INHERITED_LABELS: shpyrd.io/project

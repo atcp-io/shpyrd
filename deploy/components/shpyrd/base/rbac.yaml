@@ -65,6 +65,10 @@ rules:
   - apiGroups: [kpack.io]
     resources: [images, builds, builders, clusterbuilders, clusterstacks, clusterbuildpacks, sourceresolvers]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Postgres resources become CloudNativePG clusters (extension postgres).
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters, poolers, backups, scheduledbackups]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [monitoring.coreos.com]
     resources: [servicemonitors, podmonitors]
     verbs: [get, list, watch, create, update, patch, delete]

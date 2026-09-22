@@ -1,6 +1,6 @@
 # RFC-0009 Postgres resource
 
-**Status:** provisional
+**Status:** implemented (create, attach, psql, HA instances); backups, pooling and rotation pending
 
 **Creation date:** 2026-09-22
 
@@ -80,3 +80,14 @@ endpoint, size, storage used, backups, "Attach".
 ## Implementation History
 
 - 2026-09-22: RFC written; phase E.
+- 2026-09-22: Implemented as the `postgres` extension: the CloudNativePG operator (chart
+  0.29.0, runlevel rc2) as its component, a `Postgres` CRD (version, size, storage, instances)
+  rendered into a CNPG `Cluster` (initdb bootstrap of database and owner `app`, resources
+  from the size catalog raised to a 256 MiB memory floor because initdb OOMs below it,
+  storage that grows but cannot shrink, superuser access off), status from the cluster's
+  ready instances and the `<name>-app` Secret, endpoint `<name>-rw.<ns>.svc:5432`, a
+  `Binder` exposing `DATABASE_URL|HOST|PORT|USER|PASSWORD|NAME`. `shpyrd pg
+  create|list|info|psql|delete` (delete refused while attached), `shpyrd attach|detach`, the
+  generic resources API and dashboard forms. The project network policy now admits every
+  platform namespace so the operator can reach its instances. Not done: backups to object
+  storage, PITR, `Pooler`, `shpyrd pg rotate`, RDS variant.

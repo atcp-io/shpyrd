@@ -16,11 +16,12 @@ import (
 
 // Project isolation (RFC-0008): a NetworkPolicy per project namespace and
 // Pod Security Standard labels. Ingress is allowed from the project's own
-// pods, the ingress controller (the URL) and the monitoring namespace
-// (metrics); everything else, including other projects, is refused. Egress
-// may reach the project's pods, every non-project namespace (DNS, the
-// registry, bound platform services) and the internet; when the pod CIDR is
-// known, pods of other projects are excluded from the internet rule too.
+// pods and from platform namespaces (anything that is not a project: the
+// ingress controller for the URL, monitoring for metrics, operators such as
+// CloudNativePG managing the project's databases); other projects are
+// refused. Egress may reach the project's pods, platform namespaces (DNS,
+// the registry) and the internet; when the pod CIDR is known, pods of other
+// projects are excluded from the internet rule too.
 
 // IsolationPolicyName is the NetworkPolicy in every project namespace.
 const IsolationPolicyName = "shpyrd-isolation"
@@ -75,25 +76,19 @@ func (r *AppReconciler) reconcileIsolation(ctx context.Context, app *shpyrdv1.Ap
 	return nil
 }
 
-func namespaceNamed(name string) networkingv1.NetworkPolicyPeer {
-	return networkingv1.NetworkPolicyPeer{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": name}}}
-}
-
 // isolationPolicy is the spec applied to every project namespace.
 func (c Config) isolationPolicy() networkingv1.NetworkPolicySpec {
 	samePods := networkingv1.NetworkPolicyPeer{PodSelector: &metav1.LabelSelector{}}
-	spec := networkingv1.NetworkPolicySpec{
-		PodSelector: metav1.LabelSelector{},
-		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
-		Ingress: []networkingv1.NetworkPolicyIngressRule{{
-			From: []networkingv1.NetworkPolicyPeer{samePods, namespaceNamed(c.IngressNamespace), namespaceNamed(c.MonitoringNamespace)},
-		}},
-	}
-	// Egress: own pods, platform namespaces (anything that is not a project),
-	// and the internet.
+	// Platform namespaces: anything that is not a project.
 	nonProject := networkingv1.NetworkPolicyPeer{NamespaceSelector: &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{{Key: shpyrdv1.LabelProject, Operator: metav1.LabelSelectorOpDoesNotExist}},
 	}}
+	spec := networkingv1.NetworkPolicySpec{
+		PodSelector: metav1.LabelSelector{},
+		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
+		Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{samePods, nonProject}}},
+	}
+	// Egress: own pods, platform namespaces and the internet.
 	internet := networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0"}}
 	if c.PodCIDR != "" {
 		internet.IPBlock.Except = []string{c.PodCIDR}

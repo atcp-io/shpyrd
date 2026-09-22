@@ -19,8 +19,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/internal/controller"
+
 	"shpyrd/pkg/api"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/ext/all"
@@ -162,10 +164,16 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("controller manager: %w", err)
 	}
+	enabledExts, _ := all.Enabled(os.Getenv("SHPYRD_EXTENSIONS"))
+	var bindable []schema.GroupVersionKind
+	for _, t := range all.BindableTypes(enabledExts) {
+		bindable = append(bindable, schema.GroupVersionKind{Group: t.Group, Version: t.Version, Kind: t.Kind})
+	}
 	rec := &controller.AppReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("shpyrd"),
+		BindableTypes: bindable,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Recorder:      mgr.GetEventRecorderFor("shpyrd"),
 		Config: controller.Config{
 			Domain:          os.Getenv("SHPYRD_DOMAIN"),
 			HTTPSPort:       os.Getenv("SHPYRD_HTTPS_PORT"),
@@ -188,9 +196,8 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	if err := memberships.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("membership controller: %w", err)
 	}
-	extensions, _ := all.Enabled(os.Getenv("SHPYRD_EXTENSIONS"))
 	deps := ext.Deps{Kube: k, Client: mgr.GetClient(), SystemNamespace: k.Namespace, Vars: os.Getenv}
-	for _, x := range extensions {
+	for _, x := range enabledExts {
 		if err := x.Register(mgr, deps); err != nil {
 			return nil, fmt.Errorf("extension %s: %w", x.Name(), err)
 		}

@@ -8,6 +8,7 @@ import {
   Hammer,
   KeyRound,
   HardDrive,
+  Link2,
   Loader2,
   ScrollText,
   UsersRound,
@@ -20,7 +21,13 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { VolumeInfo, Member, AuditEntry } from "@/lib/api";
+import type { VolumeInfo, Member, AuditEntry, ResourceInfo } from "@/lib/api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { usePerms } from "@/lib/me";
 import { api, apiStream, type AppDetail, type BuildInfo } from "@/lib/api";
 import { ago, duration } from "@/lib/format";
@@ -1772,6 +1779,42 @@ function ResourcesCard({
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const removeResource = useMutation({
+    mutationFn: (r: ResourceInfo) =>
+      api.deleteResource(
+        app.namespace,
+        r.kind,
+        r.name,
+        r.attachedTo.length > 0,
+      ),
+    onSuccess: (_, r) => {
+      toast.success(`Deleted ${r.kind} ${r.name}`);
+      refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const attach = useMutation({
+    mutationFn: (r: ResourceInfo) =>
+      api.attach(app.namespace, app.name, { kind: r.kind, name: r.name }),
+    onSuccess: (_, r) => {
+      toast.success(
+        `Attached ${r.kind} ${r.name}: ${defaultPrefix(r.kind)}_URL and friends`,
+      );
+      refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const detach = useMutation({
+    mutationFn: (r: ResourceInfo) =>
+      api.detach(app.namespace, app.name, r.kind, r.name),
+    onSuccess: (_, r) => {
+      toast.success(`Detached ${r.kind} ${r.name}`);
+      refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const isAttached = (r: ResourceInfo) =>
+    !!app.spec.bindings?.some((b) => b.kind === r.kind && b.name === r.name);
   const list = resources.data ?? [];
   const volumeOf = (name: string) => volumes.data?.find((v) => v.name === name);
   const perms = usePerms(app.name);
@@ -1788,7 +1831,7 @@ function ResourcesCard({
             connection details as config vars.
           </CardDescription>
         </div>
-        {perms.resource && <VolumeDialog app={app} onDone={refresh} />}
+        {perms.resource && <AddResourceMenu app={app} onDone={refresh} />}
       </CardHeader>
       <CardContent>
         {resources.isLoading ? (
@@ -1845,20 +1888,72 @@ function ResourcesCard({
                           ]
                             .filter(Boolean)
                             .join(" · ")
-                        : [
-                            r.details?.capacity &&
-                            r.details.capacity !== r.details.size
-                              ? `${r.details.capacity} → ${r.details.size}`
-                              : r.details?.size,
-                            r.details?.mode,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
+                        : r.kind === "Volume"
+                          ? [
+                              r.details?.capacity &&
+                              r.details.capacity !== r.details.size
+                                ? `${r.details.capacity} → ${r.details.size}`
+                                : r.details?.size,
+                              r.details?.mode,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : [
+                              r.details?.engine,
+                              r.details?.version && `v${r.details.version}`,
+                              r.details?.size,
+                              r.details?.storage,
+                              r.details?.persistent === "true" && "persistent",
+                              r.details?.instances &&
+                                `${r.details.instances} instance(s)`,
+                              r.endpoint,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {r.attachedTo.length ? r.attachedTo.join(", ") : "-"}
                     </TableCell>
                     <TableCell className="text-right">
+                      {!vol && r.kind !== "App" && perms.resource && (
+                        <div className="flex justify-end gap-1">
+                          {r.bindable &&
+                            (isAttached(r) ? (
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={detach.isPending}
+                                onClick={() => detach.mutate(r)}
+                              >
+                                Detach
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={attach.isPending}
+                                title={`Adds ${defaultPrefix(r.kind)}_URL and friends to the app's config vars`}
+                                onClick={() => attach.mutate(r)}
+                              >
+                                <Link2 data-icon="inline-start" /> Attach
+                              </Button>
+                            ))}
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="text-destructive"
+                            disabled={removeResource.isPending}
+                            onClick={() => {
+                              const msg = r.attachedTo.length
+                                ? `${r.kind} ${r.name} is attached to ${r.attachedTo.join(", ")}. Delete it and its data anyway?`
+                                : `Delete ${r.kind} ${r.name} and its data?`;
+                              if (window.confirm(msg)) removeResource.mutate(r);
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      )}
                       {vol && perms.resource && (
                         <div className="flex justify-end gap-1">
                           <VolumeDialog
@@ -1891,12 +1986,11 @@ function ResourcesCard({
           </Table>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
-          Postgres and Redis resources arrive with RFC-0009 and RFC-0010;
-          volumes are created here or with{" "}
-          <code className="font-mono">
-            shpyrd volumes create data --size 5Gi
-          </code>
-          .
+          Attaching a database or cache injects its connection details as
+          read-only config vars and releases the app. From the CLI:{" "}
+          <code className="font-mono">shpyrd pg create db</code>,{" "}
+          <code className="font-mono">shpyrd redis create cache</code>,{" "}
+          <code className="font-mono">shpyrd attach db</code>.
         </p>
       </CardContent>
     </Card>
@@ -1907,12 +2001,23 @@ function VolumeDialog({
   app,
   onDone,
   resize,
+  open: openProp,
+  onOpenChange,
+  hideTrigger,
 }: {
   app: AppDetail;
   onDone: () => void;
   resize?: VolumeInfo;
+  open?: boolean;
+  onOpenChange?: (o: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (o: boolean) => {
+    setOpenState(o);
+    onOpenChange?.(o);
+  };
   const [name, setName] = useState("");
   const [size, setSize] = useState(resize?.size ?? "5Gi");
   const [shared, setShared] = useState(false);
@@ -1939,17 +2044,19 @@ function VolumeDialog({
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {resize ? (
-          <Button variant="ghost" size="xs">
-            Resize
-          </Button>
-        ) : (
-          <Button size="sm" variant="outline">
-            <Plus data-icon="inline-start" /> New volume
-          </Button>
-        )}
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          {resize ? (
+            <Button variant="ghost" size="xs">
+              Resize
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline">
+              <Plus data-icon="inline-start" /> New volume
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -2262,5 +2369,287 @@ function AuditCard({ app }: { app: AppDetail }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function defaultPrefix(kind: string) {
+  return kind === "Postgres"
+    ? "DATABASE"
+    : kind === "Redis"
+      ? "REDIS"
+      : kind.toUpperCase();
+}
+
+// AddResourceMenu offers the resource kinds the cluster provides.
+function AddResourceMenu({
+  app,
+  onDone,
+}: {
+  app: AppDetail;
+  onDone: () => void;
+}) {
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
+  const [kind, setKind] = useState<"Postgres" | "Redis" | null>(null);
+  const [volume, setVolume] = useState(false);
+  const has = (x: string) => config.data?.extensions?.includes(x);
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline">
+            <Plus data-icon="inline-start" /> Add resource
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setVolume(true)}>
+            Volume
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!has("postgres")}
+            onClick={() => setKind("Postgres")}
+          >
+            Postgres{" "}
+            {!has("postgres") && (
+              <span className="text-xs text-muted-foreground">
+                (enable the postgres extension)
+              </span>
+            )}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!has("redis")}
+            onClick={() => setKind("Redis")}
+          >
+            Redis / Valkey{" "}
+            {!has("redis") && (
+              <span className="text-xs text-muted-foreground">
+                (enable the redis extension)
+              </span>
+            )}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <VolumeDialog
+        app={app}
+        onDone={onDone}
+        open={volume}
+        onOpenChange={setVolume}
+        hideTrigger
+      />
+      {kind && (
+        <ResourceDialog
+          app={app}
+          kind={kind}
+          onDone={onDone}
+          onClose={() => setKind(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ResourceDialog creates a Postgres or a Redis with the few fields that matter.
+function ResourceDialog({
+  app,
+  kind,
+  onDone,
+  onClose,
+}: {
+  app: AppDetail;
+  kind: "Postgres" | "Redis";
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const catalog = useQuery({
+    queryKey: ["sizes"],
+    queryFn: api.sizes,
+    staleTime: 60_000,
+  });
+  const [name, setName] = useState(kind === "Postgres" ? "db" : "cache");
+  const [size, setSize] = useState("");
+  const [storage, setStorage] = useState(kind === "Postgres" ? "5Gi" : "1Gi");
+  const [version, setVersion] = useState(kind === "Postgres" ? "17" : "");
+  const [instances, setInstances] = useState("1");
+  const [engine, setEngine] = useState("valkey");
+  const [persistent, setPersistent] = useState(false);
+  const save = useMutation({
+    mutationFn: () => {
+      const spec: Record<string, unknown> = {};
+      if (size) spec.size = size;
+      if (kind === "Postgres") {
+        spec.version = version.trim();
+        spec.storage = storage.trim();
+        spec.instances = Number(instances) || 1;
+      } else {
+        spec.engine = engine;
+        spec.persistent = persistent;
+        if (persistent) spec.storage = storage.trim();
+      }
+      return api.createResource(app.namespace, {
+        kind,
+        name: name.trim(),
+        spec,
+      });
+    },
+    onSuccess: () => {
+      toast.success(
+        `Creating ${kind} ${name.trim()}; attach it once it is ready`,
+      );
+      onClose();
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            New{" "}
+            {kind === "Postgres"
+              ? "PostgreSQL database"
+              : "Redis-compatible store"}
+          </DialogTitle>
+          <DialogDescription>
+            {kind === "Postgres"
+              ? "A PostgreSQL cluster run by CloudNativePG in this project. Attach it to inject DATABASE_URL and friends."
+              : "Valkey (or Redis) in this project. A cache loses its data on restart; a persistent store keeps an append-only file on a volume. Attach it to inject REDIS_URL and friends."}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) save.mutate();
+          }}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="res-name">Name</Label>
+              <Input
+                id="res-name"
+                value={name}
+                onChange={(e) => setName(e.target.value.toLowerCase())}
+                autoFocus
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="res-size">Instance size</Label>
+              <Select
+                value={size || "default"}
+                onValueChange={(v) => setSize(v === "default" ? "" : v)}
+              >
+                <SelectTrigger id="res-size">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">
+                    default ({catalog.data?.default ?? "..."})
+                  </SelectItem>
+                  {catalog.data?.sizes.map((s) => (
+                    <SelectItem key={s.name} value={s.name}>
+                      {s.name} · {s.cpu} CPU · {s.memory}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {kind === "Postgres" ? (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-2">
+                <Label htmlFor="res-version">PostgreSQL</Label>
+                <Select value={version} onValueChange={setVersion}>
+                  <SelectTrigger id="res-version">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="17">17</SelectItem>
+                    <SelectItem value="16">16</SelectItem>
+                    <SelectItem value="15">15</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="res-storage">Storage</Label>
+                <Input
+                  id="res-storage"
+                  value={storage}
+                  onChange={(e) => setStorage(e.target.value)}
+                  placeholder="5Gi"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="res-instances">Instances</Label>
+                <Select value={instances} onValueChange={setInstances}>
+                  <SelectTrigger id="res-instances">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1</SelectItem>
+                    <SelectItem value="2">2 (HA)</SelectItem>
+                    <SelectItem value="3">3 (HA)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-2">
+                <Label htmlFor="res-engine">Engine</Label>
+                <Select value={engine} onValueChange={setEngine}>
+                  <SelectTrigger id="res-engine">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="valkey">Valkey (BSD)</SelectItem>
+                    <SelectItem value="redis">Redis</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="res-mode">Mode</Label>
+                <Select
+                  value={persistent ? "persistent" : "cache"}
+                  onValueChange={(v) => setPersistent(v === "persistent")}
+                >
+                  <SelectTrigger id="res-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cache">Cache (LRU eviction)</SelectItem>
+                    <SelectItem value="persistent">
+                      Persistent (queue)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {persistent && (
+                <div className="grid gap-2">
+                  <Label htmlFor="res-storage2">Storage</Label>
+                  <Input
+                    id="res-storage2"
+                    value={storage}
+                    onChange={(e) => setStorage(e.target.value)}
+                    placeholder="1Gi"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!name.trim() || save.isPending}>
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,0 +1,13 @@
+name: cnpg
+description: CloudNativePG operator, runs the PostgreSQL databases of projects (extension postgres)
+namespace: cnpg-system
+helm:
+  repo: https://cloudnative-pg.github.io/charts
+  chart: cloudnative-pg
+  version: 0.29.0
+  release: cnpg
+  values: [values.yaml]
+wait:
+  - deployment: cnpg-system/cnpg-cloudnative-pg
+  - crd: clusters.postgresql.cnpg.io
+timeout: 8m

@@ -1,6 +1,6 @@
 # RFC-0003 Projects and resources
 
-**Status:** implemented (resources list, bindings plumbing); attach/detach CLI arrives with the first bindable kind
+**Status:** implemented
 
 **Creation date:** 2026-09-22
 
@@ -116,5 +116,10 @@ still bound is refused until detached.
   App, a `Binder` registry per kind in the controller, the Secret `<app>-bindings` (owned by
   the App, `envFrom` after `<app>-env` so bound vars win, provider recorded per variable,
   part of `configHash`), releases record their bindings and rollback restores them, the
-  Config tab and `shpyrd secrets list` show bound vars read-only with their provider. No
-  kind registers a Binder yet; `shpyrd attach|detach` ship with Postgres (RFC-0009).
+  Config tab and `shpyrd secrets list` show bound vars read-only with their provider.
+- 2026-09-22: Postgres and Redis (RFC-0009, RFC-0010) register Binders; `shpyrd attach|detach`
+  (kind inferred from the name, `--prefix`), `POST/DELETE /api/apps/{ns}/{name}/bindings`,
+  generic `POST/DELETE /api/projects/{ns}/resources` and the dashboard's Attach/Detach and
+  "Add resource" forms. An app attaching a resource that is still provisioning waits
+  (phase Pending, "waiting for an attached resource") instead of failing, and the App
+  controller watches bindable kinds to re-render when they become ready.

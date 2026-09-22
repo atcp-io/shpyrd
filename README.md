@@ -98,10 +98,25 @@ images have one entrypoint, so process types other than `web` declare a
 `command`; see `examples/hello-docker`.
 
 `shpyrd projects info` and the project page list every resource of the project
-(the app, volumes, later databases and caches) with its status and what uses it.
+(the app, volumes, databases and caches) with its status and what uses it.
 Attaching a resource to the app injects its connection details as read-only
-config vars (`<PREFIX>_URL`, ...), recorded in the release like any config
-change; the first attachable kinds are Postgres and Redis (rfcs/0009, 0010).
+config vars, recorded in a release like any config change and restored by
+rollback:
+
+```sh
+shpyrd extensions enable postgres        # CloudNativePG operator
+shpyrd extensions enable redis           # Valkey/Redis run by the controller, no operator
+shpyrd pg create db --size shared-m --storage 10Gi --project shop
+shpyrd redis create cache --project shop   # or --persistent for a queue
+shpyrd attach db && shpyrd attach cache  # DATABASE_URL, DATABASE_HOST, ... and REDIS_URL, ...
+shpyrd pg psql db --project shop         # psql on the primary; shpyrd redis cli cache
+shpyrd detach db
+```
+
+Databases run one CloudNativePG cluster each (1 instance, or 2-3 for HA), with
+a memory floor of 256 MiB whatever the size; caches are single-instance Valkey
+(BSD) or Redis with LRU eviction, or persistent with an append-only file on a
+volume. Deleting a resource is refused while an app is attached to it.
 
 Volumes are persistent disks of a project (`shpyrd volumes create|list|resize|delete`,
 a `Volume` resource backed by a PersistentVolumeClaim it owns). A volume is

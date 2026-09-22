@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,6 +34,11 @@ import (
 // AppReconciler turns an App into a kpack Image plus one Deployment (and
 // Service) per process type and an Ingress for the web process.
 type AppReconciler struct {
+	// BindableTypes are resource kinds apps can attach (from enabled
+	// extensions); the controller watches them so an app is re-rendered
+	// when its database becomes ready.
+	BindableTypes []schema.GroupVersionKind
+
 	client.Client
 	// APIReader bypasses the cache for one-off reads (kpack Builds).
 	APIReader client.Reader
@@ -42,6 +49,38 @@ type AppReconciler struct {
 
 // SetupWithManager registers the controller and its watches.
 func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	b := r.builder(mgr)
+	for _, gvk := range r.BindableTypes {
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(gvk)
+		kind := gvk.Kind
+		b = b.Watches(obj, handler.EnqueueRequestsFromMapFunc(r.boundResourceToApps(kind)))
+	}
+	return b.Complete(r)
+}
+
+// boundResourceToApps maps a bindable resource to the apps attaching it.
+func (r *AppReconciler) boundResourceToApps(kind string) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		var apps shpyrdv1.AppList
+		if err := r.List(ctx, &apps, client.InNamespace(obj.GetNamespace())); err != nil {
+			return nil
+		}
+		var reqs []reconcile.Request
+		for _, app := range apps.Items {
+			for _, b := range app.Spec.Bindings {
+				if b.Kind == kind && b.Name == obj.GetName() {
+					reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&app)})
+					break
+				}
+			}
+		}
+		return reqs
+	}
+}
+
+// builder is the controller definition without the extension watches.
+func (r *AppReconciler) builder(mgr ctrl.Manager) *builder.Builder {
 	r.Config = r.Config.Defaults()
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
@@ -60,8 +99,7 @@ func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(envSecretToApp)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.sizesToAllApps)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(runPodToApp), builder.WithPredicates(isRunPod)).
-		Watches(&shpyrdv1.Volume{}, handler.EnqueueRequestsFromMapFunc(r.volumeToApps)).
-		Complete(r)
+		Watches(&shpyrdv1.Volume{}, handler.EnqueueRequestsFromMapFunc(r.volumeToApps))
 }
 
 // sizesToAllApps requeues every App when the size catalog changes so their
@@ -84,16 +122,7 @@ func (r *AppReconciler) sizesToAllApps(ctx context.Context, obj client.Object) [
 // catalog loads the size catalog from the cluster, falling back to the
 // built-in defaults when it is missing or invalid.
 func (r *AppReconciler) catalog(ctx context.Context) sizes.Catalog {
-	cm := &corev1.ConfigMap{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: r.Config.SystemNamespace, Name: sizes.ConfigMapName}, cm); err != nil {
-		return sizes.Defaults()
-	}
-	c, err := sizes.Parse([]byte(cm.Data[sizes.ConfigMapKey]))
-	if err != nil {
-		log.FromContext(ctx).Info("size catalog invalid, using defaults", "err", err.Error())
-		return sizes.Defaults()
-	}
-	return *c
+	return loadCatalog(ctx, r.Client, r.Config.SystemNamespace)
 }
 
 // envSecretToApp maps Secret <app>-env to its App in the same namespace.
@@ -202,9 +231,18 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 		}
 	}
 	sizeByProcess := r.processSizes(ctx, app)
-	// Attached resources contribute config vars through <app>-bindings.
+	// Attached resources contribute config vars through <app>-bindings. A
+	// resource that is still provisioning is not a failure: the app keeps
+	// its current release until the binding can be rendered.
 	bindings, err := r.reconcileBindings(ctx, app)
 	if err != nil {
+		var notReady *NotReadyError
+		if errors.As(err, &notReady) {
+			app.Status.Phase = shpyrdv1.PhasePending
+			app.Status.Message = "waiting for an attached resource: " + notReady.Msg
+			setCondition(app, shpyrdv1.ConditionReady, metav1.ConditionFalse, "WaitingForResource", app.Status.Message)
+			return requeue(15 * time.Second), nil
+		}
 		return outcome{}, err
 	}
 	hash := configHash(app, secret, sizeByProcess, bindings)
