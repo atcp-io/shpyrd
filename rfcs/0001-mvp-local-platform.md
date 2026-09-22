@@ -48,8 +48,8 @@ no dashboard.
   instead (see Design Details).
 - Heroku-style `git push shpyrd main` (needs a git server); fly-style `shpyrd deploy`
   ships source from the CLI. Can be added later on top of the same build path.
-- Dockerfile builds (kpack is buildpacks-only). `--local-build` covers it until a
-  BuildKit job is added.
+- Dockerfile builds (kpack is buildpacks-only): added in phase B as BuildKit Jobs,
+  see RFC-0004.
 - Add-ons (Postgres, Redis), autoscaling, cost, log aggregation (Loki) - later phases.
 
 ## Proposal
@@ -285,7 +285,7 @@ inherits as its own (build pods carry `shpyrd.io/app`; workloads are told apart 
 ```
 shpyrd cluster   create | init [--profile local --domain ...] | status | destroy | trust-ca | export
 shpyrd projects  create <name> [--save] | list | info <name> | destroy <name>
-shpyrd deploy    [--project <name>] [--working-tree] [--git <url> --ref <ref>] [--path <dir>] [--image <ref>] [--no-wait]
+shpyrd deploy    [--project <name>] [--working-tree] [--git <url> --ref <ref>] [--path <dir>] [--dockerfile [path]] [--image <ref>] [--no-wait]
 shpyrd secrets   set K=V ... | unset K | list            (names only; values are write-only)
 shpyrd scale     web=2 worker=1
 shpyrd resize    web=shared-m worker=dedicated-s          (instance sizes; `shpyrd sizes` manages the catalog)

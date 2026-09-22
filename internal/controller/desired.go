@@ -40,7 +40,12 @@ type Config struct {
 	// SystemNamespace holds cluster-wide configuration such as the size
 	// catalog.
 	SystemNamespace string
+	// BuildKitImage runs Dockerfile builds (rootless BuildKit).
+	BuildKitImage string
 }
+
+// DefaultBuildKitImage is the rootless BuildKit image used for Dockerfile builds.
+const DefaultBuildKitImage = "moby/buildkit:v0.32.2-rootless"
 
 // Defaults fills unset fields.
 func (c Config) Defaults() Config {
@@ -67,6 +72,9 @@ func (c Config) Defaults() Config {
 	}
 	if c.SystemNamespace == "" {
 		c.SystemNamespace = "shpyrd-system"
+	}
+	if c.BuildKitImage == "" {
+		c.BuildKitImage = DefaultBuildKitImage
 	}
 	return c
 }

@@ -1,8 +1,8 @@
 # shpyrd
 
 **Opensource Cloud PaaS.** Manage applications and agents stack from one
-place, from deploy to monitoring: cluster bootstrap, buildpack builds,
-releases and rollbacks, URLs with TLS, config vars, logs and metrics, from one
+place, from deploy to monitoring: cluster bootstrap, buildpack and Dockerfile
+builds, releases and rollbacks, URLs with TLS, config vars, logs and metrics, from one
 CLI and one dashboard on top of Kubernetes.
 
 Status: pre-alpha. The design and roadmap live in
@@ -67,13 +67,14 @@ shpyrd scale web=3                        # reload: the pod name changes
 Then your own code:
 
 ```sh
-cd my-service                       # any repo a Paketo buildpack understands (Go, Node, Java, Python, Ruby, .NET, static)
+cd my-service                       # any repo a Paketo buildpack understands (Go, Node, Java, Python, Ruby, .NET, static) or with a Dockerfile
 shpyrd projects create my-service --save   # namespace app-my-service, App resource, shpyrd.yaml
-shpyrd deploy                       # archive HEAD, build in-cluster with kpack, roll out
+shpyrd deploy                       # archive HEAD, build in-cluster (buildpacks, or the Dockerfile when there is one), roll out
 shpyrd deploy --working-tree        # ...or the directory as is, uncommitted changes included
 shpyrd open                         # https://my-service.127.0.0.1.nip.io
 
-shpyrd deploy --git https://github.com/org/repo --ref main --path services/api   # build from Git; new commits rebuild
+shpyrd deploy --git https://github.com/org/repo --ref main --path services/api   # build from Git; new commits rebuild (buildpacks)
+shpyrd deploy --git https://github.com/org/repo --dockerfile             # ...or build the repository's Dockerfile with BuildKit
 shpyrd secrets set DATABASE_URL=postgres://...   # config vars -> new release, rolling restart (values are never shown again)
 shpyrd scale web=2 worker=1         # process types come from the buildpack (Procfile / launch.toml)
 shpyrd resize web=shared-l          # sizes: shpyrd sizes list (shared = burstable CPU, dedicated = guaranteed)
@@ -85,8 +86,15 @@ shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its con
 
 A project is a namespace with its resources; today that is one app resource
 (`kubectl get apps -A`) that the controller in `shpyrd-server` turns into kpack
-builds, Deployments, Services and Ingresses with certificates. Databases,
-caches and volumes join as further resource types (see rfcs/0002).
+builds or rootless BuildKit Jobs, Deployments, Services and Ingresses with
+certificates. Databases, caches and volumes join as further resource types
+(see rfcs/0002).
+
+Dockerfile builds (`build.strategy: dockerfile` in `shpyrd.yaml`, detected
+automatically for local deploys) support multi-stage targets, build args
+(`build.env`), `.dockerignore` and a registry layer cache between builds. Their
+images have one entrypoint, so process types other than `web` declare a
+`command`; see `examples/hello-docker`.
 
 ## Dashboard
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -55,6 +56,7 @@ func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&networkingv1.Ingress{}).
 		Owns(kpackImage).
+		Owns(&batchv1.Job{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(envSecretToApp)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.sizesToAllApps)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(runPodToApp), builder.WithPredicates(isRunPod)).
@@ -122,6 +124,12 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	orig := app.DeepCopy()
 
 	out, err := r.reconcile(ctx, app)
+	if apierrors.IsConflict(err) {
+		// A stale cached object (typically a Deployment the deployment
+		// controller just touched): retry, this is not an app failure.
+		logger.V(1).Info("conflict during reconcile, retrying", "error", err.Error())
+		return ctrl.Result{Requeue: true}, nil
+	}
 	if err != nil {
 		logger.Error(err, "reconcile failed")
 		app.Status.Phase = shpyrdv1.PhaseFailed
@@ -195,22 +203,38 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	sizeByProcess := r.processSizes(ctx, app)
 	hash := configHash(app, secret, sizeByProcess)
 
-	// 2. Image: pinned, or produced by kpack from the source.
+	// 2. Image: pinned, or built from the source (kpack Image for
+	// buildpacks, BuildKit Job for Dockerfiles).
 	image := app.Spec.Image
 	var build buildState
 	var kpackBuild *unstructured.Unstructured
 	if app.HasSource() {
-		img, err := r.reconcileKpackImage(ctx, app)
-		if err != nil {
-			return outcome{}, err
+		if app.BuildStrategy() == shpyrdv1.StrategyDockerfile {
+			st, err := r.reconcileDockerfileBuild(ctx, app)
+			if err != nil {
+				return outcome{}, err
+			}
+			build = st
+			// A strategy switch leaves a kpack Image behind; drop it.
+			stale := r.Config.desiredKpackImage(app)
+			if err := r.Get(ctx, client.ObjectKeyFromObject(stale), stale); err == nil {
+				if err := r.deleteIfExists(ctx, stale); err != nil {
+					return outcome{}, err
+				}
+			}
+		} else {
+			img, err := r.reconcileKpackImage(ctx, app)
+			if err != nil {
+				return outcome{}, err
+			}
+			build = readBuildState(img)
+			if build.LatestBuild != "" {
+				kpackBuild = r.getBuild(ctx, app.Namespace, build.LatestBuild)
+			}
 		}
-		build = readBuildState(img)
 		app.Status.LatestBuild = build.LatestBuild
 		if image == "" {
 			image = build.LatestImage
-		}
-		if build.LatestBuild != "" {
-			kpackBuild = r.getBuild(ctx, app.Namespace, build.LatestBuild)
 		}
 		switch build.Ready {
 		case "True":
@@ -266,7 +290,11 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	if cur := app.CurrentRelease(); cur != nil && cur.Image == image && cur.ConfigHash != hash {
 		configDesc = r.describeConfigChangeSince(ctx, app, cur.Number, secret)
 	}
-	if recordRelease(app, image, hash, sourceID(app, kpackBuild), metav1.Now(), configDesc, sizeByProcess) {
+	source := sourceID(app, kpackBuild)
+	if build.Revision != "" && app.Spec.Source != nil && app.Spec.Source.Git != nil {
+		source = short(build.Revision)
+	}
+	if recordRelease(app, image, hash, source, metav1.Now(), configDesc, sizeByProcess) {
 		out.newRelease = app.CurrentRelease()
 		for _, p := range processes(app) {
 			out.newRelease.Processes = append(out.newRelease.Processes, p.Name)
@@ -392,6 +420,9 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 	catalog := r.catalog(ctx)
 	for _, p := range processes(app) {
 		wanted[p.Name] = true
+		if p.Name != "web" && len(p.Command) == 0 && app.BuildStrategy() == shpyrdv1.StrategyDockerfile {
+			return nil, fmt.Errorf("process %q needs a command: Dockerfile images have a single entrypoint (set processes.%s.command in shpyrd.yaml)", p.Name, p.Name)
+		}
 		res, sizeName, err := processResources(p, catalog)
 		if err != nil {
 			return nil, err

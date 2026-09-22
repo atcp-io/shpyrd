@@ -262,6 +262,22 @@ func TestSecretsAndCreateDeploy(t *testing.T) {
 	if got.Spec.Source == nil || got.Spec.Source.Git.Revision != "main" || got.Spec.Source.SubPath != "svc" || len(got.Spec.Processes) != 2 {
 		t.Errorf("deploy not applied: %+v", got.Spec)
 	}
+	if got.Spec.Build != nil && got.Spec.Build.Strategy != "" {
+		t.Errorf("no strategy requested must keep the app's setting: %+v", got.Spec.Build)
+	}
+	rec = do(t, s, "POST", "/api/apps/app-newapp/newapp/deploy", `{"git":{"url":"https://example.test/r"},"strategy":"dockerfile","dockerfile":"deploy/Dockerfile"}`, true)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("dockerfile deploy: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := cr.Get(context.Background(), types.NamespacedName{Namespace: "app-newapp", Name: "newapp"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Build == nil || got.Spec.Build.Strategy != shpyrdv1.StrategyDockerfile || got.Spec.Build.Dockerfile != "deploy/Dockerfile" {
+		t.Errorf("dockerfile strategy not applied: %+v", got.Spec.Build)
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-newapp/newapp/deploy", `{"git":{"url":"https://example.test/r"},"strategy":"magic"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown strategy: %d", rec.Code)
+	}
 	ns := &corev1.Namespace{}
 	if err := cr.Get(context.Background(), types.NamespacedName{Name: "app-newapp"}, ns); err != nil {
 		t.Errorf("namespace not created: %v", err)

@@ -65,8 +65,15 @@ spec:
                     description: Builder is the kpack ClusterBuilder to use. Defaults
                       to "shpyrd".
                     type: string
+                  dockerfile:
+                    description: |-
+                      Dockerfile is the path of the Dockerfile inside the source (after
+                      subPath). Defaults to "Dockerfile".
+                    type: string
                   env:
-                    description: Env are build-time variables (BP_*).
+                    description: |-
+                      Env are build-time variables: BP_* for buildpacks, build args for
+                      Dockerfiles.
                     items:
                       description: EnvVar represents an environment variable present
                         in a Container.
@@ -225,6 +232,15 @@ spec:
                       - name
                       type: object
                     type: array
+                  strategy:
+                    description: Strategy is "buildpacks" (default) or "dockerfile".
+                    enum:
+                    - buildpacks
+                    - dockerfile
+                    type: string
+                  target:
+                    description: Target is the multi-stage build target.
+                    type: string
                 type: object
               domains:
                 description: Domains served by the web process. Defaults to <name>.<cluster
@@ -409,7 +425,10 @@ spec:
                         type: string
                       type: array
                     command:
-                      description: Command overrides the buildpacks launcher (/cnb/process/<type>).
+                      description: |-
+                        Command overrides the buildpacks launcher (/cnb/process/<type>).
+                        Required for process types other than web with Dockerfile builds,
+                        whose images have a single entrypoint.
                       items:
                         type: string
                       type: array

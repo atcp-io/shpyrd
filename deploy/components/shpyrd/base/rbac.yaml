@@ -33,6 +33,10 @@ rules:
   - apiGroups: [apps]
     resources: [deployments/scale]
     verbs: [get, update, patch]
+  # Dockerfile builds run as Jobs in the project namespace.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [autoscaling]
     resources: [horizontalpodautoscalers]
     verbs: [get, list, watch, create, update, patch, delete]

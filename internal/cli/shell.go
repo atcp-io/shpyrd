@@ -338,7 +338,7 @@ exits (like 'heroku run'). Use it for migrations, consoles and scripts.
 				return err
 			}
 			tty := !detach && stdinIsTerminal()
-			pod := runPod(app, image, args, res, tty)
+			pod := runPod(app, image, args, res, tty, !detach)
 			created, err := ac.k.Kube.CoreV1().Pods(app.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 			if err != nil {
 				return fmt.Errorf("start one-off instance: %w", err)
@@ -397,14 +397,16 @@ func sizeLabel(size string, cat *sizes.Catalog) string {
 
 // runPod builds the one-off pod: the release image and config vars, the
 // command through the CNB launcher, stdin attached (a TTY when interactive).
-func runPod(app *shpyrdv1.App, image string, command []string, res corev1.ResourceRequirements, tty bool) *corev1.Pod {
+// StdinOnce keeps stdout/stderr attached after stdin reaches EOF; without
+// it the runtime detaches the session as soon as piped input ends.
+func runPod(app *shpyrdv1.App, image string, command []string, res corev1.ResourceRequirements, tty, attach bool) *corev1.Pod {
 	suffix := make([]byte, 3)
 	_, _ = rand.Read(suffix)
 	name := fmt.Sprintf("%s-run-%s", app.Name, hex.EncodeToString(suffix))
 	// "--" makes the launcher exec the command as-is instead of via bash -c.
 	cmd := append([]string{cnbLauncher, "--"}, command...)
-	if !app.HasSource() {
-		cmd = command // prebuilt images may not be buildpack images
+	if !app.UsesBuildpacks() {
+		cmd = command // Dockerfile and prebuilt images have no launcher
 	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -424,7 +426,8 @@ func runPod(app *shpyrdv1.App, image string, command []string, res corev1.Resour
 				Name:      "app",
 				Image:     image,
 				Command:   cmd,
-				Stdin:     true,
+				Stdin:     attach,
+				StdinOnce: attach,
 				TTY:       tty,
 				Resources: res,
 				Env:       append([]corev1.EnvVar{{Name: "SHPYRD_RUN", Value: "1"}}, app.Spec.Env...),

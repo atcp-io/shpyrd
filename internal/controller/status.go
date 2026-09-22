@@ -55,7 +55,8 @@ func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]strin
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-// buildState summarises a kpack Image status.
+// buildState summarises the build of an App, whichever strategy runs it
+// (kpack Image or Dockerfile Job).
 type buildState struct {
 	// LatestImage is the newest successfully built image (may be from an
 	// older source while a new build runs).
@@ -65,6 +66,8 @@ type buildState struct {
 	// Ready mirrors the kpack Ready condition: "True", "False" or "Unknown".
 	Ready   string
 	Message string
+	// Revision is the git commit the build resolved, when known.
+	Revision string
 }
 
 func readBuildState(img *unstructured.Unstructured) buildState {

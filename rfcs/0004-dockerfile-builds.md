@@ -1,6 +1,6 @@
 # RFC-0004 Dockerfile builds
 
-**Status:** implementable
+**Status:** implemented
 
 **Creation date:** 2026-09-22
 
@@ -94,4 +94,15 @@ build:
 
 ## Implementation History
 
-- 2026-09-22: RFC written; implementation starts with phase B.
+- 2026-09-22: RFC written.
+- 2026-09-22: Implemented. Differences from the proposal above: no `Build` CRD yet, the
+  Job itself is the build record (labels `shpyrd.io/build-number`, annotations with the
+  key, digest, revision or failure) and the API merges kpack Builds and Jobs into one
+  list; the source is fetched by an init container (archive download or `git clone`)
+  into an emptyDir and built as a local context, which also gives `--path` (subPath)
+  builds and the resolved git commit for the release description; build args come from
+  `build.env` instead of a separate `args` map; the pushed digest travels in the
+  container's termination message, the failure reason is the log tail
+  (`terminationMessagePolicy: FallbackToLogsOnError`). Git sources rebuild when the
+  configured revision or build settings change, not on new commits (kpack polls, the Job
+  does not); pass a commit or redeploy to rebuild a branch.

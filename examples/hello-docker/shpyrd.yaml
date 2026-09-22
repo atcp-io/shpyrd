@@ -1,0 +1,11 @@
+project: hello-docker
+build:
+  strategy: dockerfile          # optional: detected from the Dockerfile
+  target: runtime
+  env:
+    BUILT_WITH: "shpyrd + BuildKit"
+processes:
+  web: {}                       # runs the image CMD
+  worker:                       # Dockerfile images need a command per extra process
+    command: ["hello", "worker"]
+    size: shared-xs

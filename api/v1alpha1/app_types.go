@@ -25,6 +25,20 @@ const (
 	AnnotationRollbackTo = "shpyrd.io/rollback-to"
 	// LabelRelease marks per-release snapshots (config var Secrets).
 	LabelRelease = "shpyrd.io/release"
+	// LabelBuildNumber is set on Dockerfile build Jobs (1, 2, 3...).
+	LabelBuildNumber = "shpyrd.io/build-number"
+	// LabelBuild is set on build pods with the name of their build.
+	LabelBuild = "shpyrd.io/build"
+	// AnnotationBuildKey identifies what a build Job built (source and
+	// build settings); a different key means a new build is needed.
+	AnnotationBuildKey = "shpyrd.io/build-key"
+	// AnnotationBuildImage holds the pushed digest reference of a
+	// finished build Job.
+	AnnotationBuildImage = "shpyrd.io/build-image"
+	// AnnotationBuildRevision holds the git commit a build Job resolved.
+	AnnotationBuildRevision = "shpyrd.io/build-revision"
+	// AnnotationBuildFailure holds the failure summary of a build Job.
+	AnnotationBuildFailure = "shpyrd.io/build-failure"
 	// DefaultWebPort is the port web processes listen on ($PORT).
 	DefaultWebPort int32 = 8080
 	// EnvSecretSuffix: the Secret <app>-env holds config vars set with
@@ -111,14 +125,34 @@ type BlobSource struct {
 	Ref string `json:"ref,omitempty"`
 }
 
-// Build tunes the buildpacks build.
+// Build strategies.
+const (
+	// StrategyBuildpacks builds with Cloud Native Buildpacks through kpack.
+	StrategyBuildpacks = "buildpacks"
+	// StrategyDockerfile builds the source's Dockerfile with BuildKit.
+	StrategyDockerfile = "dockerfile"
+)
+
+// Build tunes how the source is turned into an image.
 type Build struct {
-	// Env are build-time variables (BP_*).
+	// Strategy is "buildpacks" (default) or "dockerfile".
+	// +optional
+	// +kubebuilder:validation:Enum=buildpacks;dockerfile
+	Strategy string `json:"strategy,omitempty"`
+	// Env are build-time variables: BP_* for buildpacks, build args for
+	// Dockerfiles.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// Builder is the kpack ClusterBuilder to use. Defaults to "shpyrd".
 	// +optional
 	Builder string `json:"builder,omitempty"`
+	// Dockerfile is the path of the Dockerfile inside the source (after
+	// subPath). Defaults to "Dockerfile".
+	// +optional
+	Dockerfile string `json:"dockerfile,omitempty"`
+	// Target is the multi-stage build target.
+	// +optional
+	Target string `json:"target,omitempty"`
 }
 
 // Process is one process type of the app.
@@ -132,6 +166,8 @@ type Process struct {
 	// +optional
 	Port *int32 `json:"port,omitempty"`
 	// Command overrides the buildpacks launcher (/cnb/process/<type>).
+	// Required for process types other than web with Dockerfile builds,
+	// whose images have a single entrypoint.
 	// +optional
 	Command []string `json:"command,omitempty"`
 	// Args are appended to the command.
@@ -260,6 +296,20 @@ func (a *App) ReleaseSnapshotName(n int) string { return fmt.Sprintf("%s-release
 // HasSource reports whether a build source is configured.
 func (a *App) HasSource() bool {
 	return a.Spec.Source != nil && (a.Spec.Source.Git != nil || a.Spec.Source.Blob != nil)
+}
+
+// BuildStrategy returns the effective build strategy.
+func (a *App) BuildStrategy() string {
+	if a.Spec.Build != nil && a.Spec.Build.Strategy == StrategyDockerfile {
+		return StrategyDockerfile
+	}
+	return StrategyBuildpacks
+}
+
+// UsesBuildpacks reports whether the running image was produced by
+// buildpacks, i.e. has the CNB launcher and /cnb/process/<type> entries.
+func (a *App) UsesBuildpacks() bool {
+	return a.HasSource() && a.BuildStrategy() == StrategyBuildpacks
 }
 
 // CurrentRelease returns the latest release or nil.

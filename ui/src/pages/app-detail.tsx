@@ -1,31 +1,76 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, ExternalLink, Hammer, KeyRound, Loader2, Minus, Plus, RefreshCw, Rocket, Trash2, Undo2, X } from 'lucide-react'
-import { toast } from 'sonner'
-import { api, apiStream, type AppDetail, type BuildInfo } from '@/lib/api'
-import { ago, duration } from '@/lib/format'
-import { PhaseBadge } from '@/components/phase-badge'
-import { ProcessChips } from '@/components/process-chips'
-import { MetricChart } from '@/components/metric-chart'
-import { AppLogView, TextLogView, useLogStream } from '@/components/log-view'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ExternalLink,
+  Hammer,
+  KeyRound,
+  Loader2,
+  Minus,
+  Plus,
+  RefreshCw,
+  Rocket,
+  Trash2,
+  Undo2,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+import { api, apiStream, type AppDetail, type BuildInfo } from "@/lib/api";
+import { ago, duration } from "@/lib/format";
+import { PhaseBadge } from "@/components/phase-badge";
+import { ProcessChips } from "@/components/process-chips";
+import { MetricChart } from "@/components/metric-chart";
+import { AppLogView, TextLogView, useLogStream } from "@/components/log-view";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export function AppDetailPage() {
-  const { ns = '', name = '' } = useParams()
-  const qc = useQueryClient()
-  const app = useQuery({ queryKey: ['app', ns, name], queryFn: () => api.app(ns, name), refetchInterval: 4000 })
+  const { ns = "", name = "" } = useParams();
+  const qc = useQueryClient();
+  const app = useQuery({
+    queryKey: ["app", ns, name],
+    queryFn: () => api.app(ns, name),
+    refetchInterval: 4000,
+  });
 
   if (app.isLoading) {
     return (
@@ -33,26 +78,31 @@ export function AppDetailPage() {
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-40 w-full" />
       </div>
-    )
+    );
   }
   if (app.error || !app.data) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Could not load project</AlertTitle>
-        <AlertDescription>{(app.error as Error)?.message ?? 'not found'}</AlertDescription>
+        <AlertDescription>
+          {(app.error as Error)?.message ?? "not found"}
+        </AlertDescription>
       </Alert>
-    )
+    );
   }
-  const a = app.data
-  const refresh = () => qc.invalidateQueries({ queryKey: ['app', ns, name] })
-  const building = a.status.phase === 'Building'
-  const busy = isBusy(a)
+  const a = app.data;
+  const refresh = () => qc.invalidateQueries({ queryKey: ["app", ns, name] });
+  const building = a.status.phase === "Building";
+  const busy = isBusy(a);
 
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
-          <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+          >
             <ArrowLeft className="size-3" /> Projects
           </Link>
           <div className="flex items-center gap-3">
@@ -62,8 +112,13 @@ export function AppDetailPage() {
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <ProcessChips processes={a.processes} />
             {a.status.url && (
-              <a href={a.status.url} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground hover:underline">
-                {a.status.url.replace(/^https:\/\//, '')}
+              <a
+                href={a.status.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-muted-foreground hover:underline"
+              >
+                {a.status.url.replace(/^https:\/\//, "")}
               </a>
             )}
           </div>
@@ -109,38 +164,43 @@ export function AppDetailPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }
 
 /** Streams a text endpoint into a lines state, batching updates (100 ms) so
  * long outputs do not re-render per line. Returns the effect cleanup. */
-function streamText(path: string, ac: AbortController, setLines: (f: (prev: string[]) => string[]) => void, onError?: (e: Error) => void) {
-  let first = true
-  let pending: string[] = []
-  let timer: ReturnType<typeof setTimeout> | null = null
+function streamText(
+  path: string,
+  ac: AbortController,
+  setLines: (f: (prev: string[]) => string[]) => void,
+  onError?: (e: Error) => void,
+) {
+  let first = true;
+  let pending: string[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
-    timer = null
-    if (pending.length === 0) return
-    const batch = pending
-    pending = []
+    timer = null;
+    if (pending.length === 0) return;
+    const batch = pending;
+    pending = [];
     setLines((prev) => {
-      const base = first ? [] : prev
-      first = false
-      return base.concat(batch)
-    })
-  }
+      const base = first ? [] : prev;
+      first = false;
+      return base.concat(batch);
+    });
+  };
   apiStream(path, ac.signal, (l) => {
-    pending.push(l)
-    if (!timer) timer = setTimeout(flush, 100)
+    pending.push(l);
+    if (!timer) timer = setTimeout(flush, 100);
   })
     .then(flush)
     .catch((e: Error) => {
-      if (e.name !== 'AbortError') onError?.(e)
-    })
+      if (e.name !== "AbortError") onError?.(e);
+    });
   return () => {
-    ac.abort()
-    if (timer) clearTimeout(timer)
-  }
+    ac.abort();
+    if (timer) clearTimeout(timer);
+  };
 }
 
 // ---- activity: what is happening right now ------------------------------------
@@ -148,45 +208,63 @@ function streamText(path: string, ac: AbortController, setLines: (f: (prev: stri
 /** A release is in flight: building or rolling out. Actions that would start
  * another release are disabled meanwhile. */
 function isBusy(app: AppDetail): boolean {
-  return app.status.phase === 'Building' || app.status.phase === 'Deploying'
+  return app.status.phase === "Building" || app.status.phase === "Deploying";
 }
 
-function ActivityPanel({ app, onChanged }: { app: AppDetail; onChanged: () => void }) {
-  const current = app.status.releases[app.status.releases.length - 1]
-  const previous = app.status.releases[app.status.releases.length - 2]
-  const phase = app.status.phase
-  const procs = Object.entries(app.processes ?? {}).sort(([a], [b]) => a.localeCompare(b))
+function ActivityPanel({
+  app,
+  onChanged,
+}: {
+  app: AppDetail;
+  onChanged: () => void;
+}) {
+  const current = app.status.releases[app.status.releases.length - 1];
+  const previous = app.status.releases[app.status.releases.length - 2];
+  const phase = app.status.phase;
+  const procs = Object.entries(app.processes ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
   const rollback = useMutation({
     mutationFn: (n: number) => api.rollback(app.namespace, app.name, n),
     onSuccess: (_, n) => {
-      toast.success(`Rolling back to v${n}`)
-      onChanged()
+      toast.success(`Rolling back to v${n}`);
+      onChanged();
     },
     onError: (e: Error) => toast.error(e.message),
-  })
+  });
 
-  if (phase === 'Pending') {
+  if (phase === "Pending") {
     return (
       <Alert>
         <Rocket className="size-4" />
         <AlertTitle>Nothing deployed yet</AlertTitle>
         <AlertDescription>
-          Use <strong>Deploy</strong> to build from a Git repository, or run <code className="font-mono text-xs">shpyrd deploy --project {app.name}</code>{' '}
+          Use <strong>Deploy</strong> to build from a Git repository, or run{" "}
+          <code className="font-mono text-xs">
+            shpyrd deploy --project {app.name}
+          </code>{" "}
           from a checkout.
         </AlertDescription>
       </Alert>
-    )
+    );
   }
-  if (phase === 'Deploying') {
+  if (phase === "Deploying") {
     return (
       <Card className="border-amber-500/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
             <Loader2 className="size-4 animate-spin text-amber-500" />
-            Rolling out {current ? `v${current.number}` : ''}
-            {current?.description && <span className="font-normal text-muted-foreground">— {current.description}</span>}
+            Rolling out {current ? `v${current.number}` : ""}
+            {current?.description && (
+              <span className="font-normal text-muted-foreground">
+                — {current.description}
+              </span>
+            )}
           </CardTitle>
-          <CardDescription>New instances start one by one; previous instances keep serving until the new ones are ready.</CardDescription>
+          <CardDescription>
+            New instances start one by one; previous instances keep serving
+            until the new ones are ready.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
           {procs.map(([name, p]) => (
@@ -194,94 +272,160 @@ function ActivityPanel({ app, onChanged }: { app: AppDetail; onChanged: () => vo
           ))}
         </CardContent>
       </Card>
-    )
+    );
   }
-  if (phase === 'Failed') {
+  if (phase === "Failed") {
     return (
       <Card className="border-red-500/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm text-red-500">
-            <AlertTriangle className="size-4" /> Release {current ? `v${current.number}` : ''} is not healthy
+            <AlertTriangle className="size-4" /> Release{" "}
+            {current ? `v${current.number}` : ""} is not healthy
           </CardTitle>
-          <CardDescription className="break-words">{app.status.message}</CardDescription>
+          <CardDescription className="break-words">
+            {app.status.message}
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
           {procs.map(([name, p]) => (
             <RolloutRow key={name} name={name} status={p} />
           ))}
           {previous && (
-            <Button size="sm" variant="outline" className="ml-auto" disabled={rollback.isPending} onClick={() => rollback.mutate(previous.number)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              disabled={rollback.isPending}
+              onClick={() => rollback.mutate(previous.number)}
+            >
               <Undo2 data-icon="inline-start" /> Roll back to v{previous.number}
             </Button>
           )}
         </CardContent>
       </Card>
-    )
+    );
   }
-  return null
+  return null;
 }
 
-function RolloutRow({ name, status }: { name: string; status: { desired: number; ready: number; updated?: number; failing?: number; reason?: string } }) {
-  const updated = status.updated ?? 0
-  const pct = status.desired ? Math.round((Math.min(updated, status.desired) / status.desired) * 100) : 100
-  const failing = (status.failing ?? 0) > 0
+function RolloutRow({
+  name,
+  status,
+}: {
+  name: string;
+  status: {
+    desired: number;
+    ready: number;
+    updated?: number;
+    failing?: number;
+    reason?: string;
+  };
+}) {
+  const updated = status.updated ?? 0;
+  const pct = status.desired
+    ? Math.round((Math.min(updated, status.desired) / status.desired) * 100)
+    : 100;
+  const failing = (status.failing ?? 0) > 0;
   return (
     <div className="grid min-w-56 flex-1 gap-1 text-xs">
       <div className="flex justify-between">
         <span className="font-medium">{name}</span>
-        <span className={cn('font-mono text-muted-foreground', failing && 'text-red-500')}>
-          {failing ? `${status.failing} failing` : `${updated}/${status.desired} on new release · ${status.ready} serving`}
+        <span
+          className={cn(
+            "font-mono text-muted-foreground",
+            failing && "text-red-500",
+          )}
+        >
+          {failing
+            ? `${status.failing} failing`
+            : `${updated}/${status.desired} on new release · ${status.ready} serving`}
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn('h-full rounded-full transition-all', failing ? 'bg-red-500' : 'bg-amber-500')} style={{ width: `${pct}%` }} />
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            failing ? "bg-red-500" : "bg-amber-500",
+          )}
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      {failing && status.reason && <span className="break-words text-[11px] text-red-500/80">{status.reason}</span>}
+      {failing && status.reason && (
+        <span className="break-words text-[11px] text-red-500/80">
+          {status.reason}
+        </span>
+      )}
     </div>
-  )
+  );
 }
 
 // ---- build banner (live build output while Building) -------------------------
 
 function BuildBanner({ app }: { app: AppDetail }) {
-  const build = app.status.latestBuild
-  const [lines, setLines] = useState<string[]>([])
+  const build = app.status.latestBuild;
+  const [lines, setLines] = useState<string[]>([]);
   useEffect(() => {
-    if (!build) return
-    const ac = new AbortController()
-    return streamText(api.buildLogsPath(app.namespace, app.name, build, true), ac, setLines)
-  }, [app.namespace, app.name, build])
+    if (!build) return;
+    const ac = new AbortController();
+    return streamText(
+      api.buildLogsPath(app.namespace, app.name, build, true),
+      ac,
+      setLines,
+    );
+  }, [app.namespace, app.name, build]);
   return (
     <Card className="border-sky-500/30">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm">
-          <Hammer className="size-4 animate-pulse text-sky-400" /> Building {build ? <span className="font-mono text-xs text-muted-foreground">{build}</span> : null}
+          <Hammer className="size-4 animate-pulse text-sky-400" /> Building{" "}
+          {build ? (
+            <span className="font-mono text-xs text-muted-foreground">
+              {build}
+            </span>
+          ) : null}
         </CardTitle>
         <CardDescription>{app.status.message}</CardDescription>
       </CardHeader>
       <CardContent>
-        <TextLogView lines={lines} className="h-64" empty={build ? 'Waiting for the build to start...' : 'Waiting for kpack to schedule the build...'} />
+        <TextLogView
+          lines={lines}
+          className="h-64"
+          empty={
+            build
+              ? "Waiting for the build to start..."
+              : "Waiting for kpack to schedule the build..."
+          }
+        />
       </CardContent>
     </Card>
-  )
+  );
 }
 
 // ---- overview -----------------------------------------------------------------
 
-function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void }) {
-  const processes = Object.keys({ ...(app.spec.processes ?? { web: {} }), ...(app.processes ?? {}) }).sort()
-  const releases = [...app.status.releases].reverse()
-  const current = releases[0]
-  const busy = isBusy(app)
+function Overview({
+  app,
+  onChanged,
+}: {
+  app: AppDetail;
+  onChanged: () => void;
+}) {
+  const processes = Object.keys({
+    ...(app.spec.processes ?? { web: {} }),
+    ...(app.processes ?? {}),
+  }).sort();
+  const releases = [...app.status.releases].reverse();
+  const current = releases[0];
+  const busy = isBusy(app);
 
   const rollback = useMutation({
     mutationFn: (n: number) => api.rollback(app.namespace, app.name, n),
     onSuccess: (_, n) => {
-      toast.success(`Rolling back to v${n} (build and config)`)
-      onChanged()
+      toast.success(`Rolling back to v${n} (build and config)`);
+      onChanged();
     },
     onError: (e: Error) => toast.error(e.message),
-  })
+  });
 
   return (
     <>
@@ -294,24 +438,60 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
             {app.spec.source?.git && (
               <>
                 <Row k="Git" v={app.spec.source.git.url} mono />
-                <Row k="Revision" v={app.spec.source.git.revision || 'main'} mono />
+                <Row
+                  k="Revision"
+                  v={app.spec.source.git.revision || "main"}
+                  mono
+                />
               </>
             )}
             {app.spec.source?.blob && (
               <>
-                <Row k="Archive" v={app.spec.source.blob.sha256?.slice(0, 12) ?? '-'} mono />
-                <Row k="Commit" v={app.spec.source.blob.ref || 'local checkout'} mono />
+                <Row
+                  k="Archive"
+                  v={app.spec.source.blob.sha256?.slice(0, 12) ?? "-"}
+                  mono
+                />
+                <Row
+                  k="Commit"
+                  v={app.spec.source.blob.ref || "local checkout"}
+                  mono
+                />
               </>
             )}
-            {app.spec.source?.subPath && <Row k="Directory" v={app.spec.source.subPath} mono />}
+            {app.spec.source?.subPath && (
+              <Row k="Directory" v={app.spec.source.subPath} mono />
+            )}
+            {app.spec.source && (
+              <Row
+                k="Build"
+                v={
+                  app.spec.build?.strategy === "dockerfile"
+                    ? `Dockerfile (${app.spec.build.dockerfile || "Dockerfile"})`
+                    : "Buildpacks"
+                }
+              />
+            )}
             {!app.spec.source && !app.spec.pinnedDigest && (
               <p className="text-muted-foreground">
-                No source yet. Use <strong>Deploy</strong> above or <code className="font-mono text-xs">shpyrd deploy --project {app.name}</code>.
+                No source yet. Use <strong>Deploy</strong> above or{" "}
+                <code className="font-mono text-xs">
+                  shpyrd deploy --project {app.name}
+                </code>
+                .
               </p>
             )}
-            {app.spec.pinnedDigest && <Row k="Pinned build" v={app.spec.pinnedDigest} mono />}
+            {app.spec.pinnedDigest && (
+              <Row k="Pinned build" v={app.spec.pinnedDigest} mono />
+            )}
             {app.spec.build?.env?.length ? (
-              <Row k="Build env" v={app.spec.build.env.map((e) => `${e.name}=${e.value ?? ''}`).join(' ')} mono />
+              <Row
+                k="Build env"
+                v={app.spec.build.env
+                  .map((e) => `${e.name}=${e.value ?? ""}`)
+                  .join(" ")}
+                mono
+              />
             ) : null}
           </CardContent>
         </Card>
@@ -320,9 +500,31 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
             <CardTitle className="text-sm">Release</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-1 text-sm">
-            <Row k="Current" v={current ? `v${current.number} · ${current.description ?? ''}` : '-'} />
-            <Row k="Build" v={current?.build ? `#${current.build}` : app.status.digest?.slice(0, 7) || '-'} mono />
-            <Row k="Domains" v={(app.spec.domains?.length ? app.spec.domains : [app.status.url?.replace(/^https:\/\//, '') ?? '-']).join(', ')} mono />
+            <Row
+              k="Current"
+              v={
+                current
+                  ? `v${current.number} · ${current.description ?? ""}`
+                  : "-"
+              }
+            />
+            <Row
+              k="Build"
+              v={
+                current?.build
+                  ? `#${current.build}`
+                  : app.status.digest?.slice(0, 7) || "-"
+              }
+              mono
+            />
+            <Row
+              k="Domains"
+              v={(app.spec.domains?.length
+                ? app.spec.domains
+                : [app.status.url?.replace(/^https:\/\//, "") ?? "-"]
+              ).join(", ")}
+              mono
+            />
           </CardContent>
         </Card>
         <ProcessesCard app={app} processes={processes} onChanged={onChanged} />
@@ -332,8 +534,9 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
         <CardHeader>
           <CardTitle>Releases</CardTitle>
           <CardDescription>
-            A release is a build plus its config vars. Deploys create new builds; config changes and rollbacks reuse existing ones. Rollback re-releases an
-            earlier release exactly as it was.
+            A release is a build plus its config vars. Deploys create new
+            builds; config changes and rollbacks reuse existing ones. Rollback
+            re-releases an earlier release exactly as it was.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -352,12 +555,16 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
               </TableHeader>
               <TableBody>
                 {releases.map((r, i) => {
-                  const currentProcs = Object.keys(app.spec.processes ?? { web: {} })
-                  const missing = r.processes ? currentProcs.filter((p) => !r.processes!.includes(p)) : []
+                  const currentProcs = Object.keys(
+                    app.spec.processes ?? { web: {} },
+                  );
+                  const missing = r.processes
+                    ? currentProcs.filter((p) => !r.processes!.includes(p))
+                    : [];
                   return (
                     <TableRow key={r.number}>
                       <TableCell className="font-mono text-xs">
-                        v{r.number}{' '}
+                        v{r.number}{" "}
                         {i === 0 && (
                           <Badge variant="secondary" className="ml-1">
                             current
@@ -368,18 +575,34 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
                         <ReleaseKind kind={r.kind} />
                         {r.description}
                         {r.processes && r.processes.length > 0 && (
-                          <span className="ml-2 font-mono text-[10px] text-muted-foreground">{r.processes.join(' · ')}</span>
+                          <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                            {r.processes.join(" · ")}
+                          </span>
                         )}
                         {i !== 0 && missing.length > 0 && (
-                          <span className="ml-2 text-[10px] text-amber-500" title={`This build has no ${missing.join(', ')} process; those instances would fail to start`}>
-                            no {missing.join(', ')} process
+                          <span
+                            className="ml-2 text-[10px] text-amber-500"
+                            title={`This build has no ${missing.join(", ")} process; those instances would fail to start`}
+                          >
+                            no {missing.join(", ")} process
                           </span>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground" title={r.digest ? `image digest ${r.digest}` : undefined}>
-                        {r.build ? `#${r.build}` : r.digest ? r.digest.slice(0, 7) : '-'}
+                      <TableCell
+                        className="font-mono text-xs text-muted-foreground"
+                        title={
+                          r.digest ? `image digest ${r.digest}` : undefined
+                        }
+                      >
+                        {r.build
+                          ? `#${r.build}`
+                          : r.digest
+                            ? r.digest.slice(0, 7)
+                            : "-"}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{ago(r.createdAt)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {ago(r.createdAt)}
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="outline"
@@ -387,11 +610,11 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
                           disabled={i === 0 || busy || rollback.isPending}
                           title={
                             i === 0
-                              ? 'Current release'
+                              ? "Current release"
                               : busy
-                                ? 'Wait for the current release to finish rolling out'
+                                ? "Wait for the current release to finish rolling out"
                                 : missing.length
-                                  ? `Re-release v${r.number}; its build has no ${missing.join(', ')} process`
+                                  ? `Re-release v${r.number}; its build has no ${missing.join(", ")} process`
                                   : `Re-release v${r.number}: its build and its config vars`
                           }
                           onClick={() => rollback.mutate(r.number)}
@@ -400,7 +623,7 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
                         </Button>
                       </TableCell>
                     </TableRow>
-                  )
+                  );
                 })}
               </TableBody>
             </Table>
@@ -408,109 +631,206 @@ function Overview({ app, onChanged }: { app: AppDetail; onChanged: () => void })
         </CardContent>
       </Card>
     </>
-  )
+  );
 }
 
 function ReleaseKind({ kind }: { kind: string }) {
   const cls =
-    kind === 'rollback'
-      ? 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-300'
-      : kind === 'config'
-        ? 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-300'
-        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+    kind === "rollback"
+      ? "border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-300"
+      : kind === "config"
+        ? "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
   return (
-    <Badge variant="outline" className={cn('mr-2 text-[10px] uppercase tracking-wide', cls)}>
+    <Badge
+      variant="outline"
+      className={cn("mr-2 text-[10px] uppercase tracking-wide", cls)}
+    >
       {kind}
     </Badge>
-  )
+  );
 }
 
 function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span className="shrink-0 text-muted-foreground">{k}</span>
-      <span className={cn('truncate text-right', mono && 'font-mono text-xs')} title={v}>
+      <span
+        className={cn("truncate text-right", mono && "font-mono text-xs")}
+        title={v}
+      >
         {v}
       </span>
     </div>
-  )
+  );
 }
 
-type ProcessDraft = { size: string; replicas: number }
+type ProcessDraft = { size: string; replicas: number };
 
 /** Sizes and instance counts are edited as a draft and applied together, so
  * a batch of changes yields one release and one rollout. */
-function ProcessesCard({ app, processes, onChanged }: { app: AppDetail; processes: string[]; onChanged: () => void }) {
-  const catalog = useQuery({ queryKey: ['sizes'], queryFn: api.sizes, staleTime: 60_000 })
+function ProcessesCard({
+  app,
+  processes,
+  onChanged,
+}: {
+  app: AppDetail;
+  processes: string[];
+  onChanged: () => void;
+}) {
+  const catalog = useQuery({
+    queryKey: ["sizes"],
+    queryFn: api.sizes,
+    staleTime: 60_000,
+  });
   const current = (p: string): ProcessDraft => ({
-    size: app.spec.processes?.[p]?.size || app.processes?.[p]?.size || catalog.data?.default || '',
-    replicas: app.spec.processes?.[p]?.replicas ?? app.processes?.[p]?.desired ?? 1,
-  })
-  const [draft, setDraft] = useState<Record<string, ProcessDraft>>({})
-  const value = (p: string): ProcessDraft => draft[p] ?? current(p)
+    size:
+      app.spec.processes?.[p]?.size ||
+      app.processes?.[p]?.size ||
+      catalog.data?.default ||
+      "",
+    replicas:
+      app.spec.processes?.[p]?.replicas ?? app.processes?.[p]?.desired ?? 1,
+  });
+  const [draft, setDraft] = useState<Record<string, ProcessDraft>>({});
+  const value = (p: string): ProcessDraft => draft[p] ?? current(p);
   const changes = Object.fromEntries(
     processes
       .map((p) => {
-        const cur = current(p)
-        const v = value(p)
-        const change: { size?: string; replicas?: number } = {}
-        if (v.size && v.size !== cur.size && v.size !== 'custom') change.size = v.size
-        if (v.replicas !== cur.replicas) change.replicas = v.replicas
-        return [p, change] as const
+        const cur = current(p);
+        const v = value(p);
+        const change: { size?: string; replicas?: number } = {};
+        if (v.size && v.size !== cur.size && v.size !== "custom")
+          change.size = v.size;
+        if (v.replicas !== cur.replicas) change.replicas = v.replicas;
+        return [p, change] as const;
       })
       .filter(([, ch]) => Object.keys(ch).length > 0),
-  )
-  const dirty = Object.keys(changes).length > 0
-  const busy = isBusy(app)
+  );
+  const dirty = Object.keys(changes).length > 0;
+  const busy = isBusy(app);
   const apply = useMutation({
     mutationFn: () => api.applyProcesses(app.namespace, app.name, changes),
     onSuccess: () => {
       const parts = Object.entries(changes).map(([p, ch]) =>
-        [p, ch.size ? `→ ${ch.size}` : '', ch.replicas !== undefined ? `×${ch.replicas}` : ''].filter(Boolean).join(' '),
-      )
-      toast.success(`Applying: ${parts.join(', ')}`)
-      setDraft({})
-      onChanged()
+        [
+          p,
+          ch.size ? `→ ${ch.size}` : "",
+          ch.replicas !== undefined ? `×${ch.replicas}` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      toast.success(`Applying: ${parts.join(", ")}`);
+      setDraft({});
+      onChanged();
     },
     onError: (e: Error) => toast.error(e.message),
-  })
+  });
 
   return (
-    <Card size="sm" className={cn(dirty && 'ring-primary/40')}>
+    <Card size="sm" className={cn(dirty && "ring-primary/40")}>
       <CardHeader>
         <CardTitle className="text-sm">Processes</CardTitle>
-        <CardDescription>Instances and size per process type. Edit, then apply everything at once.</CardDescription>
+        <CardDescription>
+          Instances and size per process type. Edit, then apply everything at
+          once.
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
         {processes.map((p) => {
-          const st = app.processes?.[p]
-          const spec = app.spec.processes?.[p]
-          const v = value(p)
-          const cur = current(p)
-          const ok = st ? st.ready >= st.desired && st.desired > 0 : false
-          const changed = draft[p] !== undefined && (v.size !== cur.size || v.replicas !== cur.replicas)
+          const st = app.processes?.[p];
+          const spec = app.spec.processes?.[p];
+          const v = value(p);
+          const cur = current(p);
+          const ok = st ? st.ready >= st.desired && st.desired > 0 : false;
+          const changed =
+            draft[p] !== undefined &&
+            (v.size !== cur.size || v.replicas !== cur.replicas);
           return (
-            <div key={p} className={cn('grid gap-1.5 rounded-md px-2 py-1.5 text-sm', changed && 'bg-primary/5')}>
+            <div
+              key={p}
+              className={cn(
+                "grid gap-1.5 rounded-md px-2 py-1.5 text-sm",
+                changed && "bg-primary/5",
+              )}
+            >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className={cn('size-2 rounded-full', !st || st.desired === 0 ? 'bg-muted-foreground' : ok ? 'bg-emerald-500' : 'animate-pulse bg-amber-500')} />
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      !st || st.desired === 0
+                        ? "bg-muted-foreground"
+                        : ok
+                          ? "bg-emerald-500"
+                          : "animate-pulse bg-amber-500",
+                    )}
+                  />
                   <span className="font-medium">{p}</span>
-                  {spec?.port && <span className="font-mono text-[10px] text-muted-foreground">:{spec.port}</span>}
-                  <span className="text-xs text-muted-foreground">{st ? `${st.ready} of ${st.desired} running` : 'not deployed'}</span>
+                  {spec?.port && (
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      :{spec.port}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {st
+                      ? `${st.ready} of ${st.desired} running`
+                      : "not deployed"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="outline" size="icon-xs" disabled={v.replicas <= 0 || busy} onClick={() => setDraft({ ...draft, [p]: { ...v, replicas: v.replicas - 1 } })}>
+                  <Button
+                    variant="outline"
+                    size="icon-xs"
+                    disabled={v.replicas <= 0 || busy}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        [p]: { ...v, replicas: v.replicas - 1 },
+                      })
+                    }
+                  >
                     <Minus />
                   </Button>
-                  <span className={cn('w-6 text-center font-mono text-xs', v.replicas !== cur.replicas && 'text-primary')}>{v.replicas}</span>
-                  <Button variant="outline" size="icon-xs" disabled={busy} onClick={() => setDraft({ ...draft, [p]: { ...v, replicas: v.replicas + 1 } })}>
+                  <span
+                    className={cn(
+                      "w-6 text-center font-mono text-xs",
+                      v.replicas !== cur.replicas && "text-primary",
+                    )}
+                  >
+                    {v.replicas}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon-xs"
+                    disabled={busy}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        [p]: { ...v, replicas: v.replicas + 1 },
+                      })
+                    }
+                  >
                     <Plus />
                   </Button>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-2 pl-4">
-                <Select value={v.size} onValueChange={(size) => setDraft({ ...draft, [p]: { ...v, size } })} disabled={busy || !catalog.data}>
-                  <SelectTrigger className={cn('h-7 w-44 text-xs', v.size !== cur.size && 'border-primary text-primary')} size="sm">
+                <Select
+                  value={v.size}
+                  onValueChange={(size) =>
+                    setDraft({ ...draft, [p]: { ...v, size } })
+                  }
+                  disabled={busy || !catalog.data}
+                >
+                  <SelectTrigger
+                    className={cn(
+                      "h-7 w-44 text-xs",
+                      v.size !== cur.size && "border-primary text-primary",
+                    )}
+                    size="sm"
+                  >
                     <SelectValue placeholder="size" />
                   </SelectTrigger>
                   <SelectContent>
@@ -522,25 +842,44 @@ function ProcessesCard({ app, processes, onChanged }: { app: AppDetail; processe
                         </span>
                       </SelectItem>
                     ))}
-                    {cur.size === 'custom' && <SelectItem value="custom">custom</SelectItem>}
+                    {cur.size === "custom" && (
+                      <SelectItem value="custom">custom</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
-                <span className="font-mono text-[11px] text-muted-foreground">{st?.cpu && st?.memory ? `${st.cpu} CPU · ${st.memory}` : ''}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {st?.cpu && st?.memory ? `${st.cpu} CPU · ${st.memory}` : ""}
+                </span>
               </div>
             </div>
-          )
+          );
         })}
         {dirty && (
           <div className="flex items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs">
             <span>
-              {Object.keys(changes).length} process{Object.keys(changes).length > 1 ? 'es' : ''} changed
-              {Object.values(changes).some((c) => c.size) ? ' · a new release will roll out' : ''}
+              {Object.keys(changes).length} process
+              {Object.keys(changes).length > 1 ? "es" : ""} changed
+              {Object.values(changes).some((c) => c.size)
+                ? " · a new release will roll out"
+                : ""}
             </span>
             <div className="flex gap-2">
-              <Button size="xs" variant="outline" onClick={() => setDraft({})} disabled={apply.isPending}>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => setDraft({})}
+                disabled={apply.isPending}
+              >
                 Cancel
               </Button>
-              <Button size="xs" onClick={() => apply.mutate()} disabled={busy || apply.isPending} title={busy ? 'Wait for the current release to finish' : undefined}>
+              <Button
+                size="xs"
+                onClick={() => apply.mutate()}
+                disabled={busy || apply.isPending}
+                title={
+                  busy ? "Wait for the current release to finish" : undefined
+                }
+              >
                 Apply
               </Button>
             </div>
@@ -548,34 +887,42 @@ function ProcessesCard({ app, processes, onChanged }: { app: AppDetail; processe
         )}
       </CardContent>
     </Card>
-  )
+  );
 }
 
 // ---- metrics ------------------------------------------------------------------
 
 function Metrics({ app }: { app: AppDetail }) {
-  const [range, setRange] = useState('1h')
-  const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 60_000 })
+  const [range, setRange] = useState("1h");
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
   const m = useQuery({
-    queryKey: ['metrics', app.namespace, app.name, range],
+    queryKey: ["metrics", app.namespace, app.name, range],
     queryFn: () => api.metrics(app.namespace, app.name, range),
     refetchInterval: 30_000,
     enabled: config.data?.metrics !== false,
-  })
+  });
   if (config.data && !config.data.metrics) {
     return (
       <Alert>
         <AlertTitle>Metrics disabled</AlertTitle>
-        <AlertDescription>The server has no Prometheus configured (install the monitoring component).</AlertDescription>
+        <AlertDescription>
+          The server has no Prometheus configured (install the monitoring
+          component).
+        </AlertDescription>
       </Alert>
-    )
+    );
   }
   return (
     <div className="grid gap-4">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Traffic measured at the edge; CPU and memory as a percentage of each process allocation. Orange dashed lines mark releases,
-          the red line is 100%.
+          Traffic measured at the edge; CPU and memory as a percentage of each
+          process allocation. Orange dashed lines mark releases, the red line is
+          100%.
         </p>
         <Select value={range} onValueChange={setRange}>
           <SelectTrigger className="w-32" size="sm">
@@ -597,26 +944,39 @@ function Metrics({ app }: { app: AppDetail }) {
       )}
       <div className="grid gap-4 md:grid-cols-2">
         {(m.data?.charts ?? []).map((c) => (
-          <MetricChart key={c.id} chart={c} range={range} releases={m.data?.releases} />
+          <MetricChart
+            key={c.id}
+            chart={c}
+            range={range}
+            releases={m.data?.releases}
+          />
         ))}
-        {m.isLoading && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-60 w-full" />)}
+        {m.isLoading &&
+          [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-60 w-full" />)}
       </div>
     </div>
-  )
+  );
 }
 
 // ---- logs ---------------------------------------------------------------------
 
 function Logs({ app }: { app: AppDetail }) {
-  const processes = Object.keys(app.processes ?? app.spec.processes ?? { web: {} }).sort()
-  const [process, setProcess] = useState<string>('all')
-  const [follow, setFollow] = useState(true)
-  const [filter, setFilter] = useState('')
+  const processes = Object.keys(
+    app.processes ?? app.spec.processes ?? { web: {} },
+  ).sort();
+  const [process, setProcess] = useState<string>("all");
+  const [follow, setFollow] = useState(true);
+  const [filter, setFilter] = useState("");
   const path = useMemo(
-    () => api.logsPath(app.namespace, app.name, { process: process === 'all' ? undefined : process, tail: 300, follow }),
+    () =>
+      api.logsPath(app.namespace, app.name, {
+        process: process === "all" ? undefined : process,
+        tail: 300,
+        follow,
+      }),
     [app.namespace, app.name, process, follow],
-  )
-  const { lines, error, restart } = useLogStream(path, [])
+  );
+  const { lines, error, restart } = useLogStream(path, []);
 
   return (
     <div className="grid gap-3">
@@ -634,46 +994,70 @@ function Logs({ app }: { app: AppDetail }) {
             ))}
           </SelectContent>
         </Select>
-        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter lines..." className="h-7 w-56 text-xs" />
-        <Button variant={follow ? 'default' : 'outline'} size="sm" onClick={() => setFollow((f) => !f)}>
-          {follow ? 'Live' : 'Paused'}
+        <Input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter lines..."
+          className="h-7 w-56 text-xs"
+        />
+        <Button
+          variant={follow ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFollow((f) => !f)}
+        >
+          {follow ? "Live" : "Paused"}
         </Button>
         <Button variant="outline" size="sm" onClick={restart}>
           <RefreshCw data-icon="inline-start" /> Reload
         </Button>
-        <span className="ml-auto text-xs text-muted-foreground">{lines.length} lines</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {lines.length} lines
+        </span>
       </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <AppLogView lines={lines} follow={follow} filter={filter} empty={error ? '' : 'Waiting for log lines...'} />
+      <AppLogView
+        lines={lines}
+        follow={follow}
+        filter={filter}
+        empty={error ? "" : "Waiting for log lines..."}
+      />
     </div>
-  )
+  );
 }
 
 // ---- builds -------------------------------------------------------------------
 
 function Builds({ app }: { app: AppDetail }) {
   const builds = useQuery({
-    queryKey: ['builds', app.namespace, app.name],
+    queryKey: ["builds", app.namespace, app.name],
     queryFn: () => api.builds(app.namespace, app.name),
-    refetchInterval: app.status.phase === 'Building' ? 5000 : 30_000,
-  })
-  const [selected, setSelected] = useState<string | null>(null)
-  const list = builds.data ?? []
-  const active = list.find((b) => b.name === selected) ?? list[0]
-  const [lines, setLines] = useState<string[]>([])
-  const activeName = active?.name
-  const activeStatus = active?.status
+    refetchInterval: app.status.phase === "Building" ? 5000 : 30_000,
+  });
+  const [selected, setSelected] = useState<string | null>(null);
+  const list = builds.data ?? [];
+  const active = list.find((b) => b.name === selected) ?? list[0];
+  const [lines, setLines] = useState<string[]>([]);
+  const activeName = active?.name;
+  const activeStatus = active?.status;
   useEffect(() => {
-    if (!activeName) return
-    const ac = new AbortController()
-    return streamText(api.buildLogsPath(app.namespace, app.name, activeName, activeStatus === 'Building'), ac, setLines, (e) =>
-      setLines([`(${e.message})`]),
-    )
-  }, [app.namespace, app.name, activeName, activeStatus])
+    if (!activeName) return;
+    const ac = new AbortController();
+    return streamText(
+      api.buildLogsPath(
+        app.namespace,
+        app.name,
+        activeName,
+        activeStatus === "Building",
+      ),
+      ac,
+      setLines,
+      (e) => setLines([`(${e.message})`]),
+    );
+  }, [app.namespace, app.name, activeName, activeStatus]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
@@ -681,18 +1065,23 @@ function Builds({ app }: { app: AppDetail }) {
         <CardHeader>
           <CardTitle className="text-sm">Builds</CardTitle>
           <CardDescription>
-            Each deploy compiles the source into a build; releases (including config changes and rollbacks) run one of these builds.
+            Each deploy compiles the source into a build; releases (including
+            config changes and rollbacks) run one of these builds.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1">
-          {list.length === 0 && <p className="text-sm text-muted-foreground">No builds yet.</p>}
+          {list.length === 0 && (
+            <p className="text-sm text-muted-foreground">No builds yet.</p>
+          )}
           {list.map((b) => (
             <BuildRow
               key={b.name}
               build={b}
               active={b.name === active?.name}
               onSelect={() => setSelected(b.name)}
-              releases={app.status.releases.filter((r) => r.build === b.number).map((r) => r.number)}
+              releases={app.status.releases
+                .filter((r) => r.build === b.number)
+                .map((r) => r.number)}
             />
           ))}
         </CardContent>
@@ -702,77 +1091,125 @@ function Builds({ app }: { app: AppDetail }) {
           <div className="flex items-center gap-2 text-sm">
             <span className="font-mono text-xs">{active.name}</span>
             <BuildStatus status={active.status} />
-            {active.reason && <span className="text-xs text-muted-foreground">reason: {active.reason.toLowerCase()}</span>}
-            {active.digest && <span className="ml-auto font-mono text-xs text-muted-foreground">build {active.digest}</span>}
+            {active.reason && (
+              <span className="text-xs text-muted-foreground">
+                reason: {active.reason.toLowerCase()}
+              </span>
+            )}
+            {active.digest && (
+              <span className="ml-auto font-mono text-xs text-muted-foreground">
+                build {active.digest}
+              </span>
+            )}
           </div>
         )}
-        <TextLogView lines={lines} follow={active?.status === 'Building'} empty={active ? 'Loading...' : 'Select a build'} />
+        <TextLogView
+          lines={lines}
+          follow={active?.status === "Building"}
+          empty={active ? "Loading..." : "Select a build"}
+        />
       </div>
     </div>
-  )
+  );
 }
 
-function BuildRow({ build, active, onSelect, releases }: { build: BuildInfo; active: boolean; onSelect: () => void; releases: number[] }) {
+function BuildRow({
+  build,
+  active,
+  onSelect,
+  releases,
+}: {
+  build: BuildInfo;
+  active: boolean;
+  onSelect: () => void;
+  releases: number[];
+}) {
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        'grid gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent',
-        active && 'border-primary/50 bg-accent',
+        "grid gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+        active && "border-primary/50 bg-accent",
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium">Build #{build.number}</span>
+        <span className="font-medium">
+          Build #{build.number}
+          {build.strategy === "dockerfile" && (
+            <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+              Dockerfile
+            </span>
+          )}
+        </span>
         <BuildStatus status={build.status} />
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>{build.source || '-'}</span>
+        <span>{build.source || "-"}</span>
         <span>
-          {ago(build.startedAt)} · {duration(build.startedAt, build.completedAt)}
+          {ago(build.startedAt)} ·{" "}
+          {duration(build.startedAt, build.completedAt)}
         </span>
       </div>
       {releases.length > 0 && (
-        <div className="text-[10px] text-muted-foreground">used by {releases.map((n) => `v${n}`).join(', ')}</div>
+        <div className="text-[10px] text-muted-foreground">
+          used by {releases.map((n) => `v${n}`).join(", ")}
+        </div>
       )}
     </button>
-  )
+  );
 }
 
-function BuildStatus({ status }: { status: BuildInfo['status'] }) {
+function BuildStatus({ status }: { status: BuildInfo["status"] }) {
   const cls =
-    status === 'Succeeded'
-      ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
-      : status === 'Failed'
-        ? 'bg-red-500/15 text-red-500 border-red-500/30'
-        : 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+    status === "Succeeded"
+      ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30"
+      : status === "Failed"
+        ? "bg-red-500/15 text-red-500 border-red-500/30"
+        : "bg-sky-500/15 text-sky-400 border-sky-500/30";
   return (
-    <Badge variant="outline" className={cn('text-[10px]', cls)}>
+    <Badge variant="outline" className={cn("text-[10px]", cls)}>
       {status}
     </Badge>
-  )
+  );
 }
 
 // ---- config (write-only config vars) -----------------------------------------
 
 function Config({ app }: { app: AppDetail }) {
-  const qc = useQueryClient()
-  const key = ['config-vars', app.namespace, app.name]
-  const vars = useQuery({ queryKey: key, queryFn: () => api.configVars(app.namespace, app.name), refetchInterval: 15_000 })
+  const qc = useQueryClient();
+  const key = ["config-vars", app.namespace, app.name];
+  const vars = useQuery({
+    queryKey: key,
+    queryFn: () => api.configVars(app.namespace, app.name),
+    refetchInterval: 15_000,
+  });
   const update = useMutation({
-    mutationFn: (body: { set?: Record<string, string>; unset?: string[]; dotenv?: string }) => api.updateConfigVars(app.namespace, app.name, body),
+    mutationFn: (body: {
+      set?: Record<string, string>;
+      unset?: string[];
+      dotenv?: string;
+    }) => api.updateConfigVars(app.namespace, app.name, body),
     onSuccess: (_, body) => {
-      const n = Object.keys(body.set ?? {}).length + (body.dotenv ? body.dotenv.split('\n').filter((l) => l.includes('=')).length : 0)
-      toast.success(body.unset?.length ? `Removed ${body.unset.join(', ')}` : `Saved ${n} config var${n === 1 ? '' : 's'}; restarting processes`)
-      qc.invalidateQueries({ queryKey: key })
+      const n =
+        Object.keys(body.set ?? {}).length +
+        (body.dotenv
+          ? body.dotenv.split("\n").filter((l) => l.includes("=")).length
+          : 0);
+      toast.success(
+        body.unset?.length
+          ? `Removed ${body.unset.join(", ")}`
+          : `Saved ${n} config var${n === 1 ? "" : "s"}; restarting processes`,
+      );
+      qc.invalidateQueries({ queryKey: key });
     },
     onError: (e: Error) => toast.error(e.message),
-  })
-  const [newName, setNewName] = useState('')
-  const [newValue, setNewValue] = useState('')
-  const [editing, setEditing] = useState<string | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const validName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName)
+  });
+  const [newName, setNewName] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const validName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
@@ -783,11 +1220,15 @@ function Config({ app }: { app: AppDetail }) {
               <KeyRound className="size-4" /> Config vars
             </CardTitle>
             <CardDescription>
-              Injected into every process as environment variables. Values are write-only: they can be replaced or removed but never
-              read back. Changing them creates a release and restarts the processes.
+              Injected into every process as environment variables. Values are
+              write-only: they can be replaced or removed but never read back.
+              Changing them creates a release and restarts the processes.
             </CardDescription>
           </div>
-          <BulkDialog onSubmit={(dotenv) => update.mutate({ dotenv })} pending={update.isPending} />
+          <BulkDialog
+            onSubmit={(dotenv) => update.mutate({ dotenv })}
+            pending={update.isPending}
+          />
         </CardHeader>
         <CardContent>
           <Table>
@@ -802,7 +1243,10 @@ function Config({ app }: { app: AppDetail }) {
             <TableBody>
               {(vars.data?.vars ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                  <TableCell
+                    colSpan={4}
+                    className="py-6 text-center text-sm text-muted-foreground"
+                  >
                     No config vars yet.
                   </TableCell>
                 </TableRow>
@@ -815,10 +1259,10 @@ function Config({ app }: { app: AppDetail }) {
                       <form
                         className="flex items-center gap-2"
                         onSubmit={(e) => {
-                          e.preventDefault()
-                          update.mutate({ set: { [v.name]: editValue } })
-                          setEditing(null)
-                          setEditValue('')
+                          e.preventDefault();
+                          update.mutate({ set: { [v.name]: editValue } });
+                          setEditing(null);
+                          setEditValue("");
                         }}
                       >
                         <Input
@@ -830,21 +1274,39 @@ function Config({ app }: { app: AppDetail }) {
                           placeholder="New value"
                           className="h-7 text-xs"
                         />
-                        <Button type="submit" size="xs" disabled={update.isPending}>
+                        <Button
+                          type="submit"
+                          size="xs"
+                          disabled={update.isPending}
+                        >
                           Save
                         </Button>
-                        <Button type="button" size="icon-xs" variant="ghost" onClick={() => setEditing(null)}>
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={() => setEditing(null)}
+                        >
                           <X />
                         </Button>
                       </form>
                     ) : (
-                      <span className="font-mono text-xs text-muted-foreground">••••••••</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        ••••••••
+                      </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{v.updatedAt ? ago(v.updatedAt) : '-'}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {v.updatedAt ? ago(v.updatedAt) : "-"}
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex gap-1">
-                      <Button size="xs" variant="outline" onClick={() => setEditing(v.name)} disabled={editing === v.name}>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => setEditing(v.name)}
+                        disabled={editing === v.name}
+                      >
                         Replace
                       </Button>
                       <Button
@@ -865,16 +1327,32 @@ function Config({ app }: { app: AppDetail }) {
           <form
             className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
             onSubmit={(e) => {
-              e.preventDefault()
-              if (!validName) return
-              update.mutate({ set: { [newName]: newValue } })
-              setNewName('')
-              setNewValue('')
+              e.preventDefault();
+              if (!validName) return;
+              update.mutate({ set: { [newName]: newValue } });
+              setNewName("");
+              setNewValue("");
             }}
           >
-            <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="NAME" className="font-mono text-xs" autoComplete="off" />
-            <Input type="password" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="value" autoComplete="off" />
-            <Button type="submit" size="sm" disabled={!validName || update.isPending}>
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="NAME"
+              className="font-mono text-xs"
+              autoComplete="off"
+            />
+            <Input
+              type="password"
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder="value"
+              autoComplete="off"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!validName || update.isPending}
+            >
               <Plus data-icon="inline-start" /> Add
             </Button>
           </form>
@@ -884,15 +1362,23 @@ function Config({ app }: { app: AppDetail }) {
       <Card size="sm">
         <CardHeader>
           <CardTitle className="text-sm">Plain environment</CardTitle>
-          <CardDescription>Non-secret variables from the app spec, plus PORT for processes with a port.</CardDescription>
+          <CardDescription>
+            Non-secret variables from the app spec, plus PORT for processes with
+            a port.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {app.spec.env?.length ? (
             <ul className="grid gap-1 font-mono text-xs">
               {app.spec.env.map((e) => (
-                <li key={e.name} className="flex justify-between rounded border px-2 py-1">
+                <li
+                  key={e.name}
+                  className="flex justify-between rounded border px-2 py-1"
+                >
                   <span>{e.name}</span>
-                  <span className="text-muted-foreground">{e.value ?? '(from ref)'}</span>
+                  <span className="text-muted-foreground">
+                    {e.value ?? "(from ref)"}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -902,12 +1388,18 @@ function Config({ app }: { app: AppDetail }) {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
 
-function BulkDialog({ onSubmit, pending }: { onSubmit: (dotenv: string) => void; pending: boolean }) {
-  const [open, setOpen] = useState(false)
-  const [text, setText] = useState('')
+function BulkDialog({
+  onSubmit,
+  pending,
+}: {
+  onSubmit: (dotenv: string) => void;
+  pending: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -918,13 +1410,16 @@ function BulkDialog({ onSubmit, pending }: { onSubmit: (dotenv: string) => void;
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add from .env</DialogTitle>
-          <DialogDescription>Paste KEY=VALUE lines. Existing names are replaced, others are kept. Nothing is echoed back.</DialogDescription>
+          <DialogDescription>
+            Paste KEY=VALUE lines. Existing names are replaced, others are kept.
+            Nothing is echoed back.
+          </DialogDescription>
         </DialogHeader>
         <textarea
           className="h-48 w-full rounded-md border bg-background p-2 font-mono text-xs"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={'DATABASE_URL=postgres://...\nREDIS_URL=redis://...'}
+          placeholder={"DATABASE_URL=postgres://...\nREDIS_URL=redis://..."}
           autoComplete="off"
           spellCheck={false}
         />
@@ -935,9 +1430,9 @@ function BulkDialog({ onSubmit, pending }: { onSubmit: (dotenv: string) => void;
           <Button
             disabled={!text.trim() || pending}
             onClick={() => {
-              onSubmit(text)
-              setText('')
-              setOpen(false)
+              onSubmit(text);
+              setText("");
+              setOpen(false);
             }}
           >
             Save
@@ -945,29 +1440,58 @@ function BulkDialog({ onSubmit, pending }: { onSubmit: (dotenv: string) => void;
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 // ---- deploy / destroy dialogs -------------------------------------------------
 
-function DeployDialog({ app, onDone, disabled }: { app: AppDetail; onDone: () => void; disabled?: boolean }) {
-  const [open, setOpen] = useState(false)
-  const [git, setGit] = useState(app.spec.source?.git?.url ?? '')
-  const [ref, setRef] = useState(app.spec.source?.git?.revision ?? '')
-  const [path, setPath] = useState(app.spec.source?.subPath ?? '')
+function DeployDialog({
+  app,
+  onDone,
+  disabled,
+}: {
+  app: AppDetail;
+  onDone: () => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [git, setGit] = useState(app.spec.source?.git?.url ?? "");
+  const [ref, setRef] = useState(app.spec.source?.git?.revision ?? "");
+  const [path, setPath] = useState(app.spec.source?.subPath ?? "");
+  const [strategy, setStrategy] = useState<"buildpacks" | "dockerfile">(
+    app.spec.build?.strategy ?? "buildpacks",
+  );
+  const [dockerfile, setDockerfile] = useState(
+    app.spec.build?.dockerfile ?? "",
+  );
   const deploy = useMutation({
-    mutationFn: () => api.deploy(app.namespace, app.name, { git: { url: git.trim(), revision: ref.trim() || 'main' }, subPath: path.trim() || undefined }),
+    mutationFn: () =>
+      api.deploy(app.namespace, app.name, {
+        git: { url: git.trim(), revision: ref.trim() || "main" },
+        subPath: path.trim() || undefined,
+        strategy,
+        dockerfile:
+          strategy === "dockerfile"
+            ? dockerfile.trim() || undefined
+            : undefined,
+      }),
     onSuccess: () => {
-      toast.success('Deploy requested; building')
-      setOpen(false)
-      onDone()
+      toast.success("Deploy requested; building");
+      setOpen(false);
+      onDone();
     },
     onError: (e: Error) => toast.error(e.message),
-  })
+  });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" disabled={disabled} title={disabled ? 'Wait for the current release to finish' : undefined}>
+        <Button
+          size="sm"
+          disabled={disabled}
+          title={
+            disabled ? "Wait for the current release to finish" : undefined
+          }
+        >
           <Rocket data-icon="inline-start" /> Deploy
         </Button>
       </DialogTrigger>
@@ -975,33 +1499,87 @@ function DeployDialog({ app, onDone, disabled }: { app: AppDetail; onDone: () =>
         <DialogHeader>
           <DialogTitle>Deploy from Git</DialogTitle>
           <DialogDescription>
-            Builds the repository with buildpacks and releases it. New commits on the branch rebuild automatically. To deploy a local
-            checkout use <code className="font-mono text-xs">shpyrd deploy</code>.
+            Builds the repository with buildpacks or its Dockerfile and releases
+            it. With buildpacks, new commits on the branch rebuild
+            automatically. To deploy a local checkout use{" "}
+            <code className="font-mono text-xs">shpyrd deploy</code>.
           </DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
           onSubmit={(e) => {
-            e.preventDefault()
-            if (git.trim()) deploy.mutate()
+            e.preventDefault();
+            if (git.trim()) deploy.mutate();
           }}
         >
           <div className="grid gap-2">
             <Label htmlFor="dep-git">Repository URL</Label>
-            <Input id="dep-git" value={git} onChange={(e) => setGit(e.target.value)} placeholder="https://github.com/org/repo" autoFocus />
+            <Input
+              id="dep-git"
+              value={git}
+              onChange={(e) => setGit(e.target.value)}
+              placeholder="https://github.com/org/repo"
+              autoFocus
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label htmlFor="dep-ref">Branch, tag or commit</Label>
-              <Input id="dep-ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="main" />
+              <Input
+                id="dep-ref"
+                value={ref}
+                onChange={(e) => setRef(e.target.value)}
+                placeholder="main"
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="dep-path">Directory</Label>
-              <Input id="dep-path" value={path} onChange={(e) => setPath(e.target.value)} placeholder="services/api" />
+              <Input
+                id="dep-path"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="services/api"
+              />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="dep-strategy">Build with</Label>
+              <Select
+                value={strategy}
+                onValueChange={(v) =>
+                  setStrategy(v as "buildpacks" | "dockerfile")
+                }
+              >
+                <SelectTrigger id="dep-strategy">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="buildpacks">
+                    Buildpacks (auto-detected stack)
+                  </SelectItem>
+                  <SelectItem value="dockerfile">Dockerfile</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {strategy === "dockerfile" && (
+              <div className="grid gap-2">
+                <Label htmlFor="dep-dockerfile">Dockerfile path</Label>
+                <Input
+                  id="dep-dockerfile"
+                  value={dockerfile}
+                  onChange={(e) => setDockerfile(e.target.value)}
+                  placeholder="Dockerfile"
+                />
+              </div>
+            )}
+          </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={!git.trim() || deploy.isPending}>
@@ -1011,27 +1589,31 @@ function DeployDialog({ app, onDone, disabled }: { app: AppDetail; onDone: () =>
         </form>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 function DestroyDialog({ app }: { app: AppDetail }) {
-  const navigate = useNavigate()
-  const qc = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [confirm, setConfirm] = useState('')
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState("");
   const destroy = useMutation({
     mutationFn: () => api.deleteApp(app.namespace, app.name),
     onSuccess: () => {
-      toast.success(`Deleting ${app.name}`)
-      qc.invalidateQueries({ queryKey: ['apps'] })
-      navigate('/')
+      toast.success(`Deleting ${app.name}`);
+      qc.invalidateQueries({ queryKey: ["apps"] });
+      navigate("/");
     },
     onError: (e: Error) => toast.error(e.message),
-  })
+  });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+        >
           <Trash2 data-icon="inline-start" /> Destroy
         </Button>
       </DialogTrigger>
@@ -1039,19 +1621,29 @@ function DestroyDialog({ app }: { app: AppDetail }) {
         <DialogHeader>
           <DialogTitle>Destroy {app.name}?</DialogTitle>
           <DialogDescription>
-            This deletes the project with all its resources: builds, releases, config vars and running processes. Type its name to confirm.
+            This deletes the project with all its resources: builds, releases,
+            config vars and running processes. Type its name to confirm.
           </DialogDescription>
         </DialogHeader>
-        <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={app.name} autoComplete="off" />
+        <Input
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder={app.name}
+          autoComplete="off"
+        />
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={() => destroy.mutate()} disabled={confirm !== app.name || destroy.isPending}>
+          <Button
+            variant="destructive"
+            onClick={() => destroy.mutate()}
+            disabled={confirm !== app.name || destroy.isPending}
+          >
             Destroy app
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

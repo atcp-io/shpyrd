@@ -27,6 +27,7 @@ func newDeployCmd(g *globalFlags) *cobra.Command {
 		image       string
 		noWait      bool
 		workingTree bool
+		dockerfile  string
 	)
 	cmd := &cobra.Command{
 		Use:   "deploy",
@@ -35,13 +36,18 @@ func newDeployCmd(g *globalFlags) *cobra.Command {
 
 By default the committed tree of the current directory (git HEAD, or the
 whole directory outside a repository) is archived, uploaded to the cluster
-and built with buildpacks by kpack; the resulting image is rolled out and
-exposed at https://<app>.<domain>.
+and built in-cluster: with the Dockerfile when the directory has one,
+otherwise with buildpacks. The resulting image is rolled out and exposed
+at https://<app>.<domain>.
 
   shpyrd deploy --project myapp               archive the committed tree and build in-cluster
   shpyrd deploy --working-tree                archive the directory as is, uncommitted changes included
-  shpyrd deploy --git https://github.com/o/r  build from a Git URL; new commits rebuild automatically
+  shpyrd deploy --git https://github.com/o/r  build from a Git URL; new commits rebuild automatically (buildpacks)
+  shpyrd deploy --git ... --dockerfile Dockerfile   build the repository's Dockerfile
   shpyrd deploy --image ghcr.io/o/r:tag       run a prebuilt image (no build)
+
+The build strategy can be pinned in shpyrd.yaml (build.strategy: buildpacks
+or dockerfile, plus build.dockerfile, build.target and build.env).
 
 The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -67,6 +73,23 @@ The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 				return err
 			}
 
+			// Build strategy: shpyrd.yaml wins, then --dockerfile, then the
+			// presence of a Dockerfile in the deployed directory.
+			if dockerfile != "" {
+				if project == nil {
+					project = &projectConfig{}
+				}
+				if project.Build == nil {
+					project.Build = &projectBuild{}
+				}
+				project.Build.Strategy = shpyrdv1.StrategyDockerfile
+				if dockerfile != "auto" {
+					project.Build.Dockerfile = dockerfile
+				}
+			}
+			if image == "" && gitURL == "" {
+				project = detectDockerfile(project, subPath)
+			}
 			var mutate func(*shpyrdv1.App) error
 			var note string
 			switch {
@@ -89,6 +112,11 @@ The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 				archive, ref, err := archiveSource(out, workingTree)
 				if err != nil {
 					return err
+				}
+				if b := project.Build; b != nil && b.Strategy == shpyrdv1.StrategyDockerfile {
+					fmt.Fprintf(out, "==> Building with Dockerfile (%s)\n", firstNonEmpty(b.Dockerfile, "Dockerfile"))
+				} else {
+					fmt.Fprintln(out, "==> Building with buildpacks")
 				}
 				fmt.Fprintf(out, "==> Uploading source (%s)\n", humanBytes(len(archive)))
 				info, err := ac.uploadSource(ctx, archive)
@@ -166,7 +194,31 @@ The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 	cmd.Flags().StringVar(&image, "image", "", "deploy a prebuilt image instead of building")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "return immediately instead of following the build and rollout")
 	cmd.Flags().BoolVar(&workingTree, "working-tree", false, "archive the directory as it is on disk instead of the committed HEAD")
+	cmd.Flags().StringVar(&dockerfile, "dockerfile", "", "build with this Dockerfile (path relative to the deployed directory) instead of buildpacks")
+	cmd.Flags().Lookup("dockerfile").NoOptDefVal = "auto"
 	return cmd
+}
+
+// detectDockerfile picks the dockerfile strategy for local deploys when the
+// deployed directory has a Dockerfile and shpyrd.yaml does not pin a
+// strategy. Buildpacks stay the default otherwise.
+func detectDockerfile(project *projectConfig, subPath string) *projectConfig {
+	if project != nil && project.Build != nil && project.Build.Strategy != "" {
+		return project
+	}
+	if project == nil {
+		project = &projectConfig{}
+	}
+	if project.Build == nil {
+		project.Build = &projectBuild{}
+	}
+	file := firstNonEmpty(project.Build.Dockerfile, "Dockerfile")
+	if _, err := os.Stat(filepath.Join(subPath, file)); err == nil {
+		project.Build.Strategy = shpyrdv1.StrategyDockerfile
+	} else {
+		project.Build.Strategy = shpyrdv1.StrategyBuildpacks
+	}
+	return project
 }
 
 // archiveSource returns a tar.gz of the current directory and a reference

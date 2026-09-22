@@ -154,6 +154,7 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 			ClusterIssuer:   os.Getenv("SHPYRD_CLUSTER_ISSUER"),
 			IngressClass:    os.Getenv("SHPYRD_INGRESS_CLASS"),
 			SystemNamespace: k.Namespace,
+			BuildKitImage:   os.Getenv("SHPYRD_BUILDKIT_IMAGE"),
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {

@@ -275,6 +275,11 @@ type DeployRequest struct {
 	Git     *shpyrdv1.GitSource `json:"git,omitempty"`
 	SubPath string              `json:"subPath,omitempty"`
 	Image   string              `json:"image,omitempty"`
+	// Strategy selects "buildpacks" or "dockerfile" for source deploys;
+	// empty keeps the app's current setting.
+	Strategy string `json:"strategy,omitempty"`
+	// Dockerfile is the path inside the directory (dockerfile strategy).
+	Dockerfile string `json:"dockerfile,omitempty"`
 }
 
 func (s *Server) deployApp(c *gin.Context) {
@@ -297,6 +302,19 @@ func (s *Server) deployApp(c *gin.Context) {
 			req.Git.Revision = "main"
 		}
 		a.Spec.Source = &shpyrdv1.Source{Git: req.Git, SubPath: req.SubPath}
+		switch req.Strategy {
+		case "":
+		case shpyrdv1.StrategyBuildpacks, shpyrdv1.StrategyDockerfile:
+			if a.Spec.Build == nil {
+				a.Spec.Build = &shpyrdv1.Build{}
+			}
+			a.Spec.Build.Strategy = req.Strategy
+			if req.Strategy == shpyrdv1.StrategyDockerfile {
+				a.Spec.Build.Dockerfile = req.Dockerfile
+			}
+		default:
+			return fmt.Errorf("strategy must be buildpacks or dockerfile")
+		}
 		return nil
 	})
 	if err != nil {

@@ -98,8 +98,16 @@ func (pp projectProcess) resources(cur corev1.ResourceRequirements) (corev1.Reso
 }
 
 type projectBuild struct {
+	// Strategy is "buildpacks" or "dockerfile"; empty means auto: dockerfile
+	// when the deployed directory has a Dockerfile, buildpacks otherwise.
+	Strategy string `json:"strategy,omitempty"`
+	// Env are build-time variables (BP_* for buildpacks, build args for Dockerfiles).
 	Env     map[string]string `json:"env,omitempty"`
 	Builder string            `json:"builder,omitempty"`
+	// Dockerfile path relative to the deployed directory (default "Dockerfile").
+	Dockerfile string `json:"dockerfile,omitempty"`
+	// Target is the multi-stage build target.
+	Target string `json:"target,omitempty"`
 }
 
 // applyTo writes the project settings into the App spec. Declared process
@@ -126,7 +134,15 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 		a.Spec.Processes = procs
 	}
 	if pc.Build != nil {
-		b := &shpyrdv1.Build{Builder: pc.Build.Builder}
+		switch pc.Build.Strategy {
+		case "", shpyrdv1.StrategyBuildpacks, shpyrdv1.StrategyDockerfile:
+		default:
+			return fmt.Errorf("shpyrd.yaml: build.strategy must be buildpacks or dockerfile, got %q", pc.Build.Strategy)
+		}
+		b := &shpyrdv1.Build{Strategy: pc.Build.Strategy, Builder: pc.Build.Builder, Dockerfile: pc.Build.Dockerfile, Target: pc.Build.Target}
+		if b.Strategy == "" && (b.Dockerfile != "" || b.Target != "") {
+			b.Strategy = shpyrdv1.StrategyDockerfile
+		}
 		keys := make([]string, 0, len(pc.Build.Env))
 		for k := range pc.Build.Env {
 			keys = append(keys, k)
@@ -282,16 +298,17 @@ func (a *appClient) waitForBuild(ctx context.Context, name, prev string, timeout
 	}
 }
 
-// followBuild streams the kpack build pod's steps to out, in order, and
-// returns an error when a step fails.
+// followBuild streams the build pod's steps to out, in order, and returns
+// an error when a step fails. kpack builds run their phases as init
+// containers; Dockerfile builds fetch the source in an init container and
+// build in the main one.
 func (a *appClient) followBuild(ctx context.Context, namespace, build string) error {
-	podName := build + "-build-pod"
 	pods := a.k.Kube.CoreV1().Pods(namespace)
 
 	var pod *corev1.Pod
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
-		p, err := pods.Get(ctx, podName, metav1.GetOptions{})
+		p, err := api.FindBuildPod(ctx, pods, build)
 		if err == nil {
 			pod = p
 			break
@@ -300,21 +317,23 @@ func (a *appClient) followBuild(ctx context.Context, namespace, build string) er
 			return err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("build pod %s did not appear", podName)
+			return fmt.Errorf("the pod of build %s did not appear", build)
 		}
 		if err := sleepCtx(ctx, 2*time.Second); err != nil {
 			return err
 		}
 	}
+	podName := pod.Name
 
-	for _, ic := range pod.Spec.InitContainers {
+	steps := append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...)
+	for _, ic := range steps {
 		// Wait for the step to start.
 		for {
 			p, err := pods.Get(ctx, podName, metav1.GetOptions{})
 			if err != nil {
 				return err
 			}
-			st := initStatus(p, ic.Name)
+			st := api.ContainerStatus(p, ic.Name)
 			if st != nil && (st.State.Running != nil || st.State.Terminated != nil) {
 				break
 			}
@@ -340,17 +359,8 @@ func (a *appClient) followBuild(ctx context.Context, namespace, build string) er
 		if err != nil {
 			return err
 		}
-		if st := initStatus(p, ic.Name); st != nil && st.State.Terminated != nil && st.State.Terminated.ExitCode != 0 {
+		if st := api.ContainerStatus(p, ic.Name); st != nil && st.State.Terminated != nil && st.State.Terminated.ExitCode != 0 {
 			return fmt.Errorf("build step %s failed (exit %d)", ic.Name, st.State.Terminated.ExitCode)
-		}
-	}
-	return nil
-}
-
-func initStatus(p *corev1.Pod, name string) *corev1.ContainerStatus {
-	for i := range p.Status.InitContainerStatuses {
-		if p.Status.InitContainerStatuses[i].Name == name {
-			return &p.Status.InitContainerStatuses[i]
 		}
 	}
 	return nil

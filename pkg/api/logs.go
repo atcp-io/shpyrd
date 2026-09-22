@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
@@ -157,10 +159,12 @@ func (s *Server) appLogs(c *gin.Context) {
 
 var kpackBuildGVK = schema.GroupVersionKind{Group: "kpack.io", Version: "v1alpha2", Kind: "Build"}
 
-// BuildInfo summarises a kpack Build.
+// BuildInfo summarises a build (kpack Build or Dockerfile Job).
 type BuildInfo struct {
-	Name        string     `json:"name"`
-	Number      int        `json:"number"`
+	Name   string `json:"name"`
+	Number int    `json:"number"`
+	// Strategy is "buildpacks" or "dockerfile".
+	Strategy    string     `json:"strategy"`
 	Status      string     `json:"status"` // Building, Succeeded, Failed
 	Reason      string     `json:"reason,omitempty"`
 	Message     string     `json:"message,omitempty"`
@@ -172,7 +176,7 @@ type BuildInfo struct {
 }
 
 func buildInfo(u unstructured.Unstructured) BuildInfo {
-	b := BuildInfo{Name: u.GetName(), Status: "Building", StartedAt: u.GetCreationTimestamp().Time}
+	b := BuildInfo{Name: u.GetName(), Strategy: shpyrdv1.StrategyBuildpacks, Status: "Building", StartedAt: u.GetCreationTimestamp().Time}
 	b.Number, _ = strconv.Atoi(u.GetLabels()["image.kpack.io/buildNumber"])
 	b.Reason = u.GetAnnotations()["image.kpack.io/reason"]
 	img, _, _ := unstructured.NestedString(u.Object, "status", "latestImage")
@@ -213,23 +217,96 @@ func buildInfo(u unstructured.Unstructured) BuildInfo {
 	return b
 }
 
+// jobBuildInfo summarises a Dockerfile build Job.
+func jobBuildInfo(j batchv1.Job) BuildInfo {
+	b := BuildInfo{Name: j.Name, Strategy: shpyrdv1.StrategyDockerfile, Status: "Building", StartedAt: j.CreationTimestamp.Time}
+	b.Number, _ = strconv.Atoi(j.Labels[shpyrdv1.LabelBuildNumber])
+	b.Digest = Digest(j.Annotations[shpyrdv1.AnnotationBuildImage])
+	if rev := j.Annotations[shpyrdv1.AnnotationBuildRevision]; rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		b.Source = rev
+	} else if len(j.Spec.Template.Spec.InitContainers) > 0 && strings.Contains(j.Spec.Template.Spec.InitContainers[0].Command[2], "wget") {
+		b.Source = "archive"
+	}
+	switch {
+	case b.Digest != "":
+		b.Status = "Succeeded"
+	case j.Annotations[shpyrdv1.AnnotationBuildFailure] != "":
+		b.Status, b.Message = "Failed", j.Annotations[shpyrdv1.AnnotationBuildFailure]
+	case j.Status.Failed > 0:
+		b.Status = "Failed"
+	}
+	if b.Status != "Building" {
+		if t := j.Status.CompletionTime; t != nil {
+			b.CompletedAt = &t.Time
+		} else {
+			for _, c := range j.Status.Conditions {
+				if c.Status == corev1.ConditionTrue && !c.LastTransitionTime.IsZero() {
+					t := c.LastTransitionTime.Time
+					b.CompletedAt = &t
+				}
+			}
+		}
+		b.Steps = []string{"fetch", "build"}
+	}
+	return b
+}
+
+// appBuilds lists the app's builds from both strategies, newest first.
+func (s *Server) appBuilds(ctx context.Context, app *shpyrdv1.App) ([]BuildInfo, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{Group: "kpack.io", Version: "v1alpha2", Kind: "BuildList"})
+	if err := s.apps.List(ctx, list, client.InNamespace(app.Namespace), client.MatchingLabels{"image.kpack.io/image": app.Name}); err != nil {
+		return nil, err
+	}
+	var jobs batchv1.JobList
+	if err := s.apps.List(ctx, &jobs, client.InNamespace(app.Namespace), client.MatchingLabels{shpyrdv1.LabelApp: app.Name}); err != nil {
+		return nil, err
+	}
+	out := make([]BuildInfo, 0, len(list.Items)+len(jobs.Items))
+	for _, u := range list.Items {
+		out = append(out, buildInfo(u))
+	}
+	for _, j := range jobs.Items {
+		if _, ok := j.Labels[shpyrdv1.LabelBuildNumber]; ok {
+			out = append(out, jobBuildInfo(j))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Number != out[j].Number {
+			return out[i].Number > out[j].Number
+		}
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
+	return out, nil
+}
+
 func (s *Server) listBuilds(c *gin.Context) {
 	app, ok := s.loadApp(c)
 	if !ok {
 		return
 	}
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(schema.GroupVersionKind{Group: "kpack.io", Version: "v1alpha2", Kind: "BuildList"})
-	if err := s.apps.List(c.Request.Context(), list, client.InNamespace(app.Namespace), client.MatchingLabels{"image.kpack.io/image": app.Name}); err != nil {
+	out, err := s.appBuilds(c.Request.Context(), app)
+	if err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	out := make([]BuildInfo, 0, len(list.Items))
-	for _, u := range list.Items {
-		out = append(out, buildInfo(u))
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Number > out[j].Number })
 	c.JSON(http.StatusOK, out)
+}
+
+// FindBuildPod locates the pod of a build: Dockerfile builds label their
+// pod with the build name, kpack names it <build>-build-pod.
+func FindBuildPod(ctx context.Context, pods typedcorev1.PodInterface, build string) (*corev1.Pod, error) {
+	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: shpyrdv1.LabelBuild + "=" + build})
+	if err == nil && len(list.Items) > 0 {
+		sort.Slice(list.Items, func(i, j int) bool {
+			return list.Items[i].CreationTimestamp.After(list.Items[j].CreationTimestamp.Time)
+		})
+		return &list.Items[0], nil
+	}
+	return pods.Get(ctx, build+"-build-pod", metav1.GetOptions{})
 }
 
 // buildLogs streams the steps of one build (or the latest with name
@@ -249,7 +326,6 @@ func (s *Server) buildLogs(c *gin.Context) {
 		return
 	}
 	follow := c.Query("follow") == "true" || c.Query("follow") == "1"
-	podName := build + "-build-pod"
 	pods := s.kube.Kube.CoreV1().Pods(app.Namespace)
 	ctx := c.Request.Context()
 	if follow {
@@ -258,10 +334,10 @@ func (s *Server) buildLogs(c *gin.Context) {
 		defer cancel()
 	}
 
-	// Wait for the pod when following (kpack creates it a moment after the Build).
+	// Wait for the pod when following (it is created a moment after the build).
 	var pod *corev1.Pod
 	for {
-		p, err := pods.Get(ctx, podName, metav1.GetOptions{})
+		p, err := FindBuildPod(ctx, pods, build)
 		if err == nil {
 			pod = p
 			break
@@ -271,7 +347,7 @@ func (s *Server) buildLogs(c *gin.Context) {
 			return
 		}
 		if !follow {
-			abort(c, http.StatusNotFound, fmt.Errorf("build pod %s is gone (kpack keeps a limited history)", podName))
+			abort(c, http.StatusNotFound, fmt.Errorf("the pod of build %s is gone (only a limited build history is kept)", build))
 			return
 		}
 		select {
@@ -280,6 +356,7 @@ func (s *Server) buildLogs(c *gin.Context) {
 		case <-time.After(2 * time.Second):
 		}
 	}
+	podName := pod.Name
 
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Header("X-Content-Type-Options", "nosniff")
@@ -287,7 +364,10 @@ func (s *Server) buildLogs(c *gin.Context) {
 	c.Status(http.StatusOK)
 	w := newLineWriter(c.Writer)
 
-	for _, ic := range pod.Spec.InitContainers {
+	// Steps are the init containers (kpack phases, the source fetch) followed
+	// by the regular containers (the BuildKit build, kpack's completion).
+	steps := append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...)
+	for _, ic := range steps {
 		if follow {
 			// Block until the step starts (or the pod fails before it).
 			for {
@@ -295,7 +375,7 @@ func (s *Server) buildLogs(c *gin.Context) {
 				if err != nil {
 					return
 				}
-				st := initStatus(p, ic.Name)
+				st := ContainerStatus(p, ic.Name)
 				if st != nil && (st.State.Running != nil || st.State.Terminated != nil) {
 					break
 				}
@@ -322,7 +402,7 @@ func (s *Server) buildLogs(c *gin.Context) {
 		_, _ = io.Copy(w, stream)
 		stream.Close()
 		if p, err := pods.Get(ctx, podName, metav1.GetOptions{}); err == nil {
-			if st := initStatus(p, ic.Name); st != nil && st.State.Terminated != nil && st.State.Terminated.ExitCode != 0 {
+			if st := ContainerStatus(p, ic.Name); st != nil && st.State.Terminated != nil && st.State.Terminated.ExitCode != 0 {
 				w.line(fmt.Sprintf("===> step %s failed (exit %d)", ic.Name, st.State.Terminated.ExitCode))
 				return
 			}
@@ -333,10 +413,16 @@ func (s *Server) buildLogs(c *gin.Context) {
 	}
 }
 
-func initStatus(p *corev1.Pod, name string) *corev1.ContainerStatus {
+// ContainerStatus finds the status of an init or regular container.
+func ContainerStatus(p *corev1.Pod, name string) *corev1.ContainerStatus {
 	for i := range p.Status.InitContainerStatuses {
 		if p.Status.InitContainerStatuses[i].Name == name {
 			return &p.Status.InitContainerStatuses[i]
+		}
+	}
+	for i := range p.Status.ContainerStatuses {
+		if p.Status.ContainerStatuses[i].Name == name {
+			return &p.Status.ContainerStatuses[i]
 		}
 	}
 	return nil
@@ -368,16 +454,14 @@ func (l *lineWriter) Write(p []byte) (int, error) {
 
 var _ = kpackBuildGVK
 
-// buildsByDigest maps image digests to kpack build numbers for this app.
+// buildsByDigest maps image digests to build numbers for this app.
 func (s *Server) buildsByDigest(ctx context.Context, app *shpyrdv1.App) map[string]int {
 	out := map[string]int{}
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(schema.GroupVersionKind{Group: "kpack.io", Version: "v1alpha2", Kind: "BuildList"})
-	if err := s.apps.List(ctx, list, client.InNamespace(app.Namespace), client.MatchingLabels{"image.kpack.io/image": app.Name}); err != nil {
+	builds, err := s.appBuilds(ctx, app)
+	if err != nil {
 		return out
 	}
-	for _, u := range list.Items {
-		b := buildInfo(u)
+	for _, b := range builds {
 		if b.Digest != "" {
 			out[b.Digest] = b.Number
 		}
