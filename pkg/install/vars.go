@@ -22,7 +22,26 @@ const (
 	VarSystemNS     = "SHPYRD_SYSTEM_NS"     // namespace of shpyrd's own components
 	VarHTTPPort     = "SHPYRD_HTTP_PORT"     // host port reaching ingress HTTP (URLs only)
 	VarHTTPSPort    = "SHPYRD_HTTPS_PORT"    // host port reaching ingress HTTPS (URLs only)
+	// Derived variables, computed by the engine (see derivedVars).
+	VarExtensions   = "SHPYRD_EXTENSIONS"    // enabled extensions, comma separated
+	VarDashboardURL = "SHPYRD_DASHBOARD_URL" // external dashboard URL
+	VarAuthURL      = "SHPYRD_AUTH_URL"      // external URL of the login issuer (auth.<domain>)
 )
+
+// derivedVars computes the variables manifests may use but nobody sets by
+// hand: external URLs and the enabled extensions.
+func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]string {
+	base := BaseURL(vars)
+	names := make([]string, 0, len(exts))
+	for _, x := range exts {
+		names = append(names, x.Extension)
+	}
+	return map[string]string{
+		VarDashboardURL: base("shpyrd"),
+		VarAuthURL:      base("auth"),
+		VarExtensions:   strings.Join(names, ","),
+	}
+}
 
 // BaseURL returns a function building https URLs for <name>.<domain>,
 // including the port when it is not 443.

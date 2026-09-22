@@ -50,7 +50,10 @@ func newTestServer(t *testing.T, prom *PromClient, crObjs []client.Object, kubeO
 	}
 	cs := kubefake.NewSimpleClientset(toRuntime(runtimeObjs)...)
 	k := &kube.Client{Kube: cs, Namespace: "shpyrd-system"}
-	s := newServer(k, Options{Token: testToken, Apps: cr, Prometheus: prom, Public: PublicConfig{Domain: "example.test"}}, nil)
+	s, err := newServer(k, Options{Token: testToken, Apps: cr, Prometheus: prom, Public: PublicConfig{Domain: "example.test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return s, cr
 }
 

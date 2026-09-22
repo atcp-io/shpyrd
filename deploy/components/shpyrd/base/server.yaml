@@ -41,6 +41,12 @@ spec:
               value: ${SHPYRD_VERSION}
             - name: SHPYRD_HTTPS_PORT
               value: "${SHPYRD_HTTPS_PORT}"
+            - name: SHPYRD_DASHBOARD_URL
+              value: ${SHPYRD_DASHBOARD_URL}
+            - name: SHPYRD_AUTH_URL
+              value: ${SHPYRD_AUTH_URL}
+            - name: SHPYRD_EXTENSIONS
+              value: "${SHPYRD_EXTENSIONS}"
             - name: SHPYRD_CLUSTER_ISSUER
               value: shpyrd-ca
             - name: SHPYRD_DATA_DIR

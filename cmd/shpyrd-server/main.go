@@ -22,6 +22,8 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/internal/controller"
 	"shpyrd/pkg/api"
+	"shpyrd/pkg/ext"
+	"shpyrd/pkg/ext/all"
 	"shpyrd/pkg/kube"
 	"shpyrd/pkg/version"
 	"shpyrd/ui"
@@ -88,17 +90,33 @@ func run(o runOptions, logger *slog.Logger) error {
 	if u := envOr("SHPYRD_PROMETHEUS_URL", "http://monitoring-prometheus.monitoring.svc:9090"); u != "" && u != "off" {
 		prom = api.NewPromClient(u)
 	}
+	dashboard := envOr("SHPYRD_DASHBOARD_URL", "https://shpyrd."+domain)
+	if os.Getenv("SHPYRD_DASHBOARD_URL") == "" && httpsPort != "443" {
+		dashboard += ":" + httpsPort
+	}
+	// Extensions enabled on this cluster (RFC-0002): recorded by the
+	// installer in SHPYRD_EXTENSIONS.
+	extensions, unknown := all.Enabled(os.Getenv("SHPYRD_EXTENSIONS"))
+	for _, name := range unknown {
+		logger.Warn("unknown extension in SHPYRD_EXTENSIONS, ignored", "extension", name)
+	}
+	if len(extensions) > 0 {
+		logger.Info("extensions enabled", "extensions", ext.Names(extensions))
+	}
 	srv, err := api.New(k, api.Options{
-		Addr:       o.addr,
-		UI:         ui.Dist(),
-		Sources:    &api.SourceStore{Dir: o.dataDir, BaseURL: internalURL},
-		Token:      strings.TrimSpace(os.Getenv("SHPYRD_ADMIN_TOKEN")),
-		Prometheus: prom,
+		Addr:           o.addr,
+		UI:             ui.Dist(),
+		Sources:        &api.SourceStore{Dir: o.dataDir, BaseURL: internalURL},
+		Token:          strings.TrimSpace(os.Getenv("SHPYRD_ADMIN_TOKEN")),
+		Prometheus:     prom,
+		Extensions:     extensions,
+		IngressService: envOr("SHPYRD_INGRESS_SERVICE", "ingress-nginx-controller.ingress-nginx.svc:443"),
 		Public: api.PublicConfig{
-			Version:    version.Version,
-			Domain:     domain,
-			HTTPSPort:  httpsPort,
-			GrafanaURL: grafana,
+			Version:      version.Version,
+			Domain:       domain,
+			HTTPSPort:    httpsPort,
+			GrafanaURL:   grafana,
+			DashboardURL: dashboard,
 		},
 		Logger: logger,
 	})
@@ -163,6 +181,13 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	volumes := &controller.VolumeReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("shpyrd")}
 	if err := volumes.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("volume controller: %w", err)
+	}
+	extensions, _ := all.Enabled(os.Getenv("SHPYRD_EXTENSIONS"))
+	deps := ext.Deps{Kube: k, Client: mgr.GetClient(), SystemNamespace: k.Namespace, Vars: os.Getenv}
+	for _, x := range extensions {
+		if err := x.Register(mgr, deps); err != nil {
+			return nil, fmt.Errorf("extension %s: %w", x.Name(), err)
+		}
 	}
 	return mgr, nil
 }

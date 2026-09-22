@@ -33,6 +33,8 @@ type initFlags struct {
 	set       []string
 	skip      []string
 	only      []string
+	enable    []string
+	disable   []string
 	yes       bool
 	httpPort  int
 	httpsPort int
@@ -44,6 +46,8 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
+	cmd.Flags().StringSliceVar(&f.enable, "enable", nil, "extensions to enable, e.g. --enable auth-local (see `shpyrd extensions list`)")
+	cmd.Flags().StringSliceVar(&f.disable, "disable", nil, "extensions to stop installing (their components are left in place; use `shpyrd extensions disable` to remove them)")
 	cmd.Flags().BoolVarP(&f.yes, "yes", "y", false, "do not ask for confirmation")
 }
 
@@ -282,16 +286,26 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if err != nil {
 		return err
 	}
+	// Extensions already enabled on the cluster stay enabled.
+	extNames := mergeExtensions(recordedExtensions(ctx, k), flags.enable, flags.disable)
+	extComps, err := extensionComponents(extNames)
+	if err != nil {
+		return err
+	}
 	eng, err := install.New(k, install.Options{
-		Profile:  flags.profile,
-		Vars:     vars,
-		Skip:     flags.skip,
-		Only:     flags.only,
-		Version:  Version,
-		Reporter: &consoleReporter{out: out},
+		Profile:    flags.profile,
+		Vars:       vars,
+		Skip:       flags.skip,
+		Only:       flags.only,
+		Version:    Version,
+		Extensions: extComps,
+		Reporter:   &consoleReporter{out: out},
 	})
 	if err != nil {
 		return err
+	}
+	if len(extNames) > 0 {
+		fmt.Fprintf(out, "Extensions: %s\n", strings.Join(extNames, ", "))
 	}
 
 	fmt.Fprintf(out, "Installing shpyrd base stack (profile %s) on context %s\n", eng.Profile().Name, contextName)
@@ -330,7 +344,11 @@ func newClusterStatusCmd(g *globalFlags) *cobra.Command {
 			if profile == "" {
 				profile = info.Profile
 			}
-			eng, err := install.New(k, install.Options{Profile: profile, Vars: info.Vars, Version: info.Version, Reporter: &quietReporter{}})
+			extComps, err := extensionComponents(splitList(info.Vars[install.VarExtensions]))
+			if err != nil {
+				return err
+			}
+			eng, err := install.New(k, install.Options{Profile: profile, Vars: info.Vars, Version: info.Version, Extensions: extComps, Reporter: &quietReporter{}})
 			if err != nil {
 				return err
 			}

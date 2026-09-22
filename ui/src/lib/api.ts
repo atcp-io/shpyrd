@@ -7,8 +7,29 @@ export type PublicConfig = {
   domain: string;
   httpsPort: string;
   grafanaUrl: string;
+  dashboardUrl?: string;
   authRequired: boolean;
   metrics: boolean;
+  auth: { token: boolean; providers: { id: string; label: string }[] };
+  extensions: string[];
+};
+
+export type Identity = {
+  subject: string;
+  email?: string;
+  name?: string;
+  groups?: string[];
+  provider: string;
+  admin: boolean;
+};
+
+export type LocalUser = { email: string; name?: string; createdAt: string };
+
+export type ExtensionInfo = {
+  name: string;
+  description: string;
+  enabled: boolean;
+  component?: string;
 };
 
 export type ProcessStatus = {
@@ -177,6 +198,7 @@ export type ClusterSummary = {
     updatedAt: string;
   };
   components: { name: string; version?: string; appliedAt: string }[];
+  extensions: ExtensionInfo[];
   nodes: {
     name: string;
     ready: boolean;
@@ -236,7 +258,15 @@ function headers(extra?: HeadersInit): Headers {
   const h = new Headers(extra);
   const tok = getToken();
   if (tok) h.set("Authorization", `Bearer ${tok}`);
+  // Cookie sessions prove intent with the CSRF cookie echoed as a header.
+  const csrf = readCookie("shpyrd_csrf");
+  if (csrf) h.set("X-Shpyrd-CSRF", csrf);
   return h;
+}
+
+function readCookie(name: string): string | null {
+  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 async function handle(res: Response): Promise<Response> {
@@ -302,6 +332,22 @@ const app = (ns: string, name: string) =>
 
 export const api = {
   config: () => request<PublicConfig>("/api/config"),
+  me: () => request<Identity>("/api/me"),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  loginUrl: (provider: string, next: string) =>
+    `/api/auth/login?provider=${encodeURIComponent(provider)}&next=${encodeURIComponent(next)}`,
+  users: () => request<LocalUser[]>("/api/users"),
+  createUser: (body: { email: string; name?: string; password: string }) =>
+    request<LocalUser>("/api/users", json("POST", body)),
+  setUserPassword: (email: string, password: string) =>
+    request<void>(
+      `/api/users/${encodeURIComponent(email)}/password`,
+      json("PUT", { password }),
+    ),
+  deleteUser: (email: string) =>
+    request<void>(`/api/users/${encodeURIComponent(email)}`, {
+      method: "DELETE",
+    }),
   apps: () => request<AppSummary[]>("/api/apps"),
   createApp: (body: {
     name: string;

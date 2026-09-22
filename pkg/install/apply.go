@@ -231,3 +231,25 @@ func qualifiedName(o *unstructured.Unstructured) string {
 	}
 	return o.GetName()
 }
+
+// deleteAll removes objects in reverse apply order, ignoring the ones that
+// are already gone. Cluster-scoped objects such as CRDs go last so nothing
+// depends on them when they disappear.
+func (a *applier) deleteAll(ctx context.Context, objs []*unstructured.Unstructured, defaultNS string) error {
+	sortObjects(objs)
+	for i := len(objs) - 1; i >= 0; i-- {
+		o := objs[i]
+		ri, err := a.resourceFor(o, defaultNS)
+		if err != nil {
+			if meta.IsNoMatchError(err) {
+				continue // its CRD is gone already
+			}
+			return err
+		}
+		policy := metav1.DeletePropagationBackground
+		if err := ri.Delete(ctx, o.GetName(), metav1.DeleteOptions{PropagationPolicy: &policy}); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete %s %s: %w", o.GetKind(), o.GetName(), err)
+		}
+	}
+	return nil
+}

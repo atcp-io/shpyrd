@@ -1,6 +1,6 @@
 # RFC-0007 Authentication
 
-**Status:** provisional
+**Status:** implemented (3.1 local users); 3.2/3.3 pending
 
 **Creation date:** 2026-09-22
 
@@ -90,3 +90,18 @@ out by design.
 ## Implementation History
 
 - 2026-09-22: RFC written; phase C implements the relying party and `auth-local`.
+- 2026-09-22: Implemented step 3.1. Server: OIDC relying party (go-oidc; authorization code
+  with PKCE and nonce, discovery reached through the ingress controller service with the
+  cluster CA so issuers on the cluster domain resolve inside the cluster), sessions in
+  memory mirrored into Secret `shpyrd-sessions` (identity only, 12h idle / 7d absolute),
+  `shpyrd_session` HttpOnly cookie plus `shpyrd_csrf` double-submit cookie checked on
+  mutations, `/api/auth/{providers,login,callback,logout}` and `/api/me`, identity on the
+  request context for extensions and the coming audit log; the admin token stays.
+  `auth-local`: Dex component (kubernetes CRD storage, `enablePasswordDB`, static client
+  from the hook-generated `shpyrd-oidc-client` Secret, `https://auth.<domain>` behind the
+  ingress with a cluster-issuer certificate); accounts are Dex `Password` objects managed
+  by the server (`/api/users`) and `shpyrd users add|list|passwd|rm` (bcrypt, Dex's object
+  naming), so no Dex API client is needed and accounts survive disable/enable. Dashboard:
+  provider buttons on the login page, session gate, user menu with sign-out, Users page.
+  Not done: `shpyrd login` for the CLI (kubeconfig remains its identity), rate limiting of
+  the callback, and steps 3.2/3.3.

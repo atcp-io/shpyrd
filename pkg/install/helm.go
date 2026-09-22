@@ -204,3 +204,18 @@ func (h *helmClient) template(ctx context.Context, spec *HelmSpec, namespace str
 	}
 	return decodeObjects(raw)
 }
+
+// uninstall removes a release; a missing release is not an error.
+func (h *helmClient) uninstall(spec *HelmSpec, namespace string, timeout time.Duration) error {
+	cfg, err := h.config(namespace)
+	if err != nil {
+		return err
+	}
+	un := action.NewUninstall(cfg)
+	un.Wait = false
+	un.Timeout = timeout
+	if _, err := un.Run(spec.Release); err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
+		return fmt.Errorf("helm uninstall %s: %w", spec.Release, err)
+	}
+	return nil
+}

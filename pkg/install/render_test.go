@@ -11,9 +11,17 @@ import (
 )
 
 func TestLocalProfileRenders(t *testing.T) {
-	eng, err := New(nil, Options{Profile: "local", Vars: map[string]string{VarDomain: "example.test"}, Reporter: &quiet{}})
+	// Extension components render with the same profile.
+	exts := []ExtensionComponent{{Extension: "auth-local", Component: "dex", Runlevel: "rc3"}}
+	eng, err := New(nil, Options{Profile: "local", Vars: map[string]string{VarDomain: "example.test", VarHTTPSPort: "8443"}, Extensions: exts, Reporter: &quiet{}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	if got := eng.vars[VarExtensions]; got != "auth-local" {
+		t.Errorf("SHPYRD_EXTENSIONS = %q", got)
+	}
+	if got := eng.vars[VarAuthURL]; got != "https://auth.example.test:8443" {
+		t.Errorf("SHPYRD_AUTH_URL = %q", got)
 	}
 	comps, err := eng.profile.Components(deploy.FS)
 	if err != nil {
@@ -21,6 +29,12 @@ func TestLocalProfileRenders(t *testing.T) {
 	}
 	if len(comps) == 0 {
 		t.Fatal("profile has no components")
+	}
+	if eng.components["dex"] == nil {
+		t.Error("extension component dex must join the profile")
+	}
+	if _, err := New(nil, Options{Profile: "local", Extensions: []ExtensionComponent{{Extension: "x", Component: "dex", Runlevel: "rc9"}}, Reporter: &quiet{}}); err == nil {
+		t.Error("unknown runlevel must be refused")
 	}
 	for _, c := range comps {
 		if c.Helm == nil && c.Kustomize == nil {

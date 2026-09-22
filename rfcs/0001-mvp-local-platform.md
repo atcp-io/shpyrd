@@ -294,6 +294,8 @@ shpyrd shell     [--process web | --instance web.2] [-- cmd...]   (RFC-0005)
 shpyrd run       [--size shared-l] [--detach] <cmd...>            (RFC-0005)
 shpyrd releases  | rollback [n]
 shpyrd volumes   create <name> --size 5Gi [--shared] | list | resize | delete   (RFC-0006)
+shpyrd extensions list | enable <name> | disable <name>                          (RFC-0002)
+shpyrd users     add <email> | list | passwd <email> | rm <email>               (RFC-0007, auth-local)
 shpyrd open
 ```
 

@@ -1,23 +1,37 @@
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, LogOut, Monitor, Moon, Sun } from 'lucide-react'
-import { api } from '@/lib/api'
-import { setToken } from '@/lib/auth'
-import { useTheme, type Theme } from '@/lib/theme'
-import { LogoMark, Wordmark } from '@/components/brand'
-import { Button } from '@/components/ui/button'
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ExternalLink,
+  LogOut,
+  Monitor,
+  Moon,
+  Sun,
+  UserRound,
+} from "lucide-react";
+import { api } from "@/lib/api";
+import { getToken, setToken } from "@/lib/auth";
+import { useTheme, type Theme } from "@/lib/theme";
+import { LogoMark, Wordmark } from "@/components/brand";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { cn } from '@/lib/utils'
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 export function Layout() {
-  const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 60_000 })
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
+  const usersEnabled = config.data?.extensions?.includes("auth-local");
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -30,22 +44,27 @@ export function Layout() {
           <nav className="flex items-center gap-1 text-sm">
             <NavItem to="/">Projects</NavItem>
             <NavItem to="/cluster">Cluster</NavItem>
+            {usersEnabled && <NavItem to="/users">Users</NavItem>}
           </nav>
           <div className="ml-auto flex items-center gap-1 text-sm text-muted-foreground">
             {config.data?.grafanaUrl && (
               <Button variant="ghost" size="sm" asChild>
-                <a href={config.data.grafanaUrl} target="_blank" rel="noreferrer">
+                <a
+                  href={config.data.grafanaUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   Grafana <ExternalLink data-icon="inline-end" />
                 </a>
               </Button>
             )}
             <ThemeToggle />
-            {config.data?.version && <span className="hidden font-mono text-xs sm:inline">{config.data.version}</span>}
-            {config.data?.authRequired && (
-              <Button variant="ghost" size="sm" onClick={() => setToken(null)} title="Sign out">
-                <LogOut />
-              </Button>
+            {config.data?.version && (
+              <span className="hidden font-mono text-xs sm:inline">
+                {config.data.version}
+              </span>
             )}
+            {config.data?.authRequired && <UserMenu />}
           </div>
         </div>
       </header>
@@ -53,29 +72,83 @@ export function Layout() {
         <Outlet />
       </main>
     </div>
-  )
+  );
+}
+
+// UserMenu shows who is signed in (a user through a login provider, or the
+// admin token) and signs out.
+function UserMenu() {
+  const me = useQuery({
+    queryKey: ["me"],
+    queryFn: api.me,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const signOut = async () => {
+    if (getToken()) {
+      setToken(null);
+      return;
+    }
+    try {
+      await api.logout();
+    } finally {
+      window.location.href = "/";
+    }
+  };
+  const label = me.data?.email || me.data?.name || "admin token";
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" title={label}>
+          <UserRound />
+          <span className="hidden max-w-40 truncate md:inline">{label}</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel className="font-normal">
+          <div className="text-sm font-medium">{me.data?.name || label}</div>
+          {me.data?.email && (
+            <div className="text-xs text-muted-foreground">{me.data.email}</div>
+          )}
+          <div className="text-xs text-muted-foreground">
+            {me.data?.provider === "token"
+              ? "admin token"
+              : `signed in with ${me.data?.provider ?? "..."}`}
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={signOut}>
+          <LogOut /> Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'System', icon: Monitor },
-]
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+];
 
 /** Theme selector like the website's: Light, Dark or System. */
 export function ThemeToggle() {
-  const [theme, setTheme] = useTheme()
-  const current = themes.find((t) => t.value === theme) ?? themes[2]
+  const [theme, setTheme] = useTheme();
+  const current = themes.find((t) => t.value === theme) ?? themes[2];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" aria-label="Theme">
-          <current.icon /> <span className="hidden md:inline">{current.label}</span>
+          <current.icon />{" "}
+          <span className="hidden md:inline">{current.label}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Theme</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+        <DropdownMenuRadioGroup
+          value={theme}
+          onValueChange={(v) => setTheme(v as Theme)}
+        >
           {themes.map((t) => (
             <DropdownMenuRadioItem key={t.value} value={t.value}>
               <t.icon className="mr-2 size-4" /> {t.label}
@@ -84,22 +157,25 @@ export function ThemeToggle() {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }
 
 function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
-  const { pathname } = useLocation()
+  const { pathname } = useLocation();
   // "Projects" owns both the list and the project pages.
-  const active = to === '/' ? pathname === '/' || pathname.startsWith('/apps/') : pathname.startsWith(to)
+  const active =
+    to === "/"
+      ? pathname === "/" || pathname.startsWith("/apps/")
+      : pathname.startsWith(to);
   return (
     <NavLink
       to={to}
       className={cn(
-        'rounded-md px-3 py-1.5 transition-colors hover:bg-accent hover:text-accent-foreground',
-        active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
+        "rounded-md px-3 py-1.5 transition-colors hover:bg-accent hover:text-accent-foreground",
+        active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
       )}
     >
       {children}
     </NavLink>
-  )
+  );
 }

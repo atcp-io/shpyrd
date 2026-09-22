@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dex
+---
+# Dex keeps its state (auth requests, refresh tokens, local passwords) in
+# custom resources it creates at startup.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-dex
+rules:
+  - apiGroups: [dex.coreos.com]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: shpyrd-dex
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: shpyrd-dex
+subjects:
+  - kind: ServiceAccount
+    name: dex
+    namespace: shpyrd-system
+---
+# The shpyrd server manages local accounts (Password objects) while the
+# extension is enabled; the permission comes and goes with the component.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shpyrd-server-local-users
+rules:
+  - apiGroups: [dex.coreos.com]
+    resources: [passwords]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shpyrd-server-local-users
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shpyrd-server-local-users
+subjects:
+  - kind: ServiceAccount
+    name: shpyrd-server
+    namespace: shpyrd-system

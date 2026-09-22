@@ -43,9 +43,23 @@ type Options struct {
 	CADir string
 	// Tree overrides the embedded manifests (tests, development).
 	Tree fs.FS
+	// Extensions are the enabled extensions' components, appended to the
+	// profile's runlevels (RFC-0002). Their names are recorded as
+	// SHPYRD_EXTENSIONS for the server.
+	Extensions []ExtensionComponent
 	// Reporter receives progress; defaults to a slog based reporter.
 	Reporter Reporter
 	Logger   *slog.Logger
+}
+
+// ExtensionComponent is a component an enabled extension adds to a runlevel.
+type ExtensionComponent struct {
+	// Extension is the extension's name (recorded in SHPYRD_EXTENSIONS).
+	Extension string
+	// Component is the directory under components/ (may be empty when the
+	// extension has no cluster component); Runlevel is where it goes.
+	Component string
+	Runlevel  string
 }
 
 // Reporter receives installer progress. Implementations must be safe for
@@ -94,6 +108,9 @@ func New(k *kube.Client, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := profile.addExtensions(opts.Extensions); err != nil {
+		return nil, err
+	}
 	comps, err := profile.Components(opts.Tree)
 	if err != nil {
 		return nil, err
@@ -115,6 +132,7 @@ func New(k *kube.Client, opts Options) (*Engine, error) {
 		VarCluster:  "shpyrd",
 	}, profile.Vars)
 	vars = mergeVars(vars, opts.Vars)
+	vars = mergeVars(vars, derivedVars(vars, opts.Extensions))
 
 	hc, err := newHelmClient(k, opts.Logger)
 	if err != nil {
@@ -146,6 +164,33 @@ func (e *Engine) Profile() *Profile { return e.profile }
 
 // SystemNamespace is where the install record lives.
 func (e *Engine) SystemNamespace() string { return e.vars[VarSystemNS] }
+
+// addExtensions appends the enabled extensions' components to the runlevels
+// they name; a component already in the profile is left where it is.
+func (p *Profile) addExtensions(exts []ExtensionComponent) error {
+	present := map[string]bool{}
+	for _, name := range p.componentNames() {
+		present[name] = true
+	}
+	for _, x := range exts {
+		if x.Component == "" || present[x.Component] {
+			continue
+		}
+		found := false
+		for i := range p.Runlevels {
+			if p.Runlevels[i].Name == x.Runlevel {
+				p.Runlevels[i].Components = append(p.Runlevels[i].Components, x.Component)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("extension %s: profile %s has no runlevel %q", x.Extension, p.Name, x.Runlevel)
+		}
+		present[x.Component] = true
+	}
+	return nil
+}
 
 func (p *Profile) componentNames() []string {
 	var names []string
@@ -441,6 +486,41 @@ func (e *Engine) Status(ctx context.Context) ([]ComponentStatus, error) {
 		}
 	}
 	return out, nil
+}
+
+// Remove deletes a component from the cluster: the Helm release, the
+// rendered Kustomize objects and its install record entry. Used when an
+// extension is disabled.
+func (e *Engine) Remove(ctx context.Context, name string) error {
+	c, ok := e.components[name]
+	if !ok {
+		return fmt.Errorf("unknown component %q", name)
+	}
+	start := time.Now()
+	if c.Kustomize != nil {
+		objs, err := e.renderComponent(c)
+		if err != nil {
+			return err
+		}
+		e.rep.Step(c.Name, fmt.Sprintf("deleting %d objects", len(objs)))
+		if err := e.applier.deleteAll(ctx, objs, c.Namespace); err != nil {
+			return err
+		}
+	}
+	if c.Helm != nil {
+		e.rep.Step(c.Name, "uninstalling Helm release "+c.Helm.Release)
+		if err := e.helm.uninstall(c.Helm, c.Namespace, c.Timeout.Duration); err != nil {
+			return err
+		}
+	}
+	// Dropping the record key: apply an empty ConfigMap as this component's
+	// field manager, so server-side apply removes the field it owned.
+	cm := e.recordObject(map[string]interface{}{})
+	if err := e.applier.applyOneAs(ctx, cm, e.SystemNamespace(), false, fieldManager+"-record-"+c.Name); err != nil {
+		return err
+	}
+	e.rep.Done(c.Name, time.Since(start))
+	return nil
 }
 
 // ComponentRecord is one entry of the install record ConfigMap.

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"shpyrd/pkg/ext/all"
 	"shpyrd/pkg/version"
 )
 
@@ -50,6 +51,12 @@ func New() *cobra.Command {
 	root.AddCommand(newResizeCmd(g))
 	root.AddCommand(newSizesCmd(g))
 	root.AddCommand(newVolumesCmd(g))
+	root.AddCommand(newExtensionsCmd(g))
+	// Commands contributed by extensions (they explain themselves when the
+	// extension is not enabled on the cluster).
+	for _, x := range all.All() {
+		root.AddCommand(x.CLI(g)...)
+	}
 	root.AddCommand(newLogsCmd(g))
 	root.AddCommand(newShellCmd(g))
 	root.AddCommand(newRunCmd(g))

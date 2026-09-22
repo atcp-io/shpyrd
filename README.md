@@ -124,7 +124,31 @@ build history, logs from every instance (`web.1`, `worker.2`...) with level
 highlighting, filtering and live tail, and the config var names. Config var
 values are write-only: they can be added, replaced or removed but never read
 back, in the UI or the CLI. The cluster page shows capacity: CPU and memory used
-versus reserved by pod requests, per node and in total.
+versus reserved by pod requests, per node and in total, plus the installed
+components and the available extensions.
+
+## Extensions and sign-in
+
+Optional capabilities are **extensions** compiled into shpyrd and switched on
+per cluster (`shpyrd extensions list|enable|disable`; rfcs/0002). Enabling
+installs the extension's component with the same runlevel installer and
+restarts the server with it; disabling removes the component and is refused
+while resources of the extension exist.
+
+The first extension is `auth-local` (rfcs/0007): a bundled [Dex](https://dexidp.io)
+issuer at `https://auth.<domain>` with local email/password accounts. The server
+is an OpenID Connect relying party (authorization code with PKCE, session
+cookie, CSRF protection), so any OIDC provider can follow as configuration.
+
+```sh
+shpyrd extensions enable auth-local
+shpyrd users add you@example.com          # prompts for the password; also from the Users page
+shpyrd users list | passwd | rm
+```
+
+The dashboard then offers "Sign in with email and password" next to the admin
+token, which stays for automation (`shpyrd cluster dashboard`, CI). Every
+account is an administrator until teams and roles arrive (rfcs/0008).
 
 ## Instance sizes
 
@@ -152,9 +176,11 @@ pkg/install           runlevel installer: embedded Kustomize + Helm SDK + server
 pkg/kind              kind cluster provisioning
 pkg/localca           development root CA
 pkg/configvars        config vars (names + metadata, values are write-only)
-deploy/               components and profiles embedded in the binary
+pkg/ext               extension interfaces; pkg/ext/all the registry; pkg/ext/authlocal the first extension
+pkg/api               HTTP API, OIDC relying party and sessions, dashboard serving
+deploy/               components and profiles embedded in the binary (incl. extension components such as dex)
 ui/                   dashboard (Vite + React 19 + Tailwind 4 + shadcn/ui)
-examples/hello        example app (Go, web + worker)
+examples/hello        example app (Go, web + worker); examples/hello-docker the Dockerfile variant
 rfcs/                 design documents
 ```
 

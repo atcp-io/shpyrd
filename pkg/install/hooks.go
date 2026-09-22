@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"shpyrd/pkg/kube"
 	"shpyrd/pkg/localca"
 	"shpyrd/pkg/sizes"
 )
@@ -23,6 +24,13 @@ type Hook func(ctx context.Context, e *Engine, c *Component) error
 // LocalCASecretName is the Secret holding the local root CA for cert-manager.
 const LocalCASecretName = "shpyrd-root-ca"
 
+// CABundleName is the ConfigMap trust-manager distributes to every namespace
+// with the cluster CA (key CABundleKey).
+const (
+	CABundleName = "shpyrd-ca-bundle"
+	CABundleKey  = "ca-certificates.crt"
+)
+
 // AdminTokenSecretName holds the dashboard/API admin token (key "token").
 const AdminTokenSecretName = "shpyrd-admin-token"
 
@@ -30,6 +38,59 @@ var hooks = map[string]Hook{
 	"local-ca":      localCAHook,
 	"admin-token":   adminTokenHook,
 	"default-sizes": defaultSizesHook,
+	"oidc-client":   oidcClientHook,
+}
+
+// RegisterHook lets extensions add hooks their components reference.
+func RegisterHook(name string, h Hook) { hooks[name] = h }
+
+// Kube exposes the cluster client to hooks.
+func (e *Engine) Kube() *kube.Client { return e.kube }
+
+// Report prints a progress line for a component.
+func (e *Engine) Report(component, message string) { e.rep.Step(component, message) }
+
+// ApplyObject applies one object with server-side apply (for hooks).
+func (e *Engine) ApplyObject(ctx context.Context, obj *unstructured.Unstructured, namespace string) error {
+	return e.applier.applyOne(ctx, obj, namespace, false)
+}
+
+// OIDCClientSecretName holds the OpenID Connect client the dashboard uses at
+// the login issuer (keys "client-id" and "client-secret"); created by the
+// oidc-client hook and read by the server and by Dex.
+const OIDCClientSecretName = "shpyrd-oidc-client"
+
+// oidcClientHook generates the dashboard's OIDC client secret once.
+func oidcClientHook(ctx context.Context, e *Engine, c *Component) error {
+	ns := e.SystemNamespace()
+	existing, err := e.kube.Kube.CoreV1().Secrets(ns).Get(ctx, OIDCClientSecretName, metav1.GetOptions{})
+	if err == nil && len(existing.Data["client-secret"]) > 0 {
+		e.rep.Step(c.Name, "keeping existing OIDC client secret")
+		return nil
+	}
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("oidc client: %w", err)
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return err
+	}
+	secret := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"type":       "Opaque",
+		"metadata": map[string]interface{}{
+			"name":      OIDCClientSecretName,
+			"namespace": ns,
+			"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": fieldManager},
+		},
+		"stringData": map[string]interface{}{"client-id": "shpyrd", "client-secret": hex.EncodeToString(raw)},
+	}}
+	if err := e.applier.applyOne(ctx, secret, ns, false); err != nil {
+		return fmt.Errorf("secret %s/%s: %w", ns, OIDCClientSecretName, err)
+	}
+	e.rep.Step(c.Name, "generated OIDC client secret")
+	return nil
 }
 
 // defaultSizesHook seeds the instance size catalog on first install and

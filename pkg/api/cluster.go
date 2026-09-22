@@ -10,6 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/ext"
+	"shpyrd/pkg/ext/all"
 	"shpyrd/pkg/install"
 )
 
@@ -21,6 +23,16 @@ type ClusterSummary struct {
 	Apps       int               `json:"apps"`
 	Phases     map[string]int    `json:"phases"`
 	Vars       map[string]string `json:"vars,omitempty"`
+	// Extensions known to this build, with their state on the cluster.
+	Extensions []ExtensionInfo `json:"extensions"`
+}
+
+// ExtensionInfo is one optional capability (RFC-0002).
+type ExtensionInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+	Component   string `json:"component,omitempty"`
 }
 
 // InstallInfo mirrors the profile level install record.
@@ -58,6 +70,14 @@ func (s *Server) clusterSummary(c *gin.Context) {
 	if info, err := install.ReadInstallInfo(ctx, s.kube, ""); err == nil {
 		out.Install = &InstallInfo{Profile: info.Profile, Version: info.Version, Domain: info.Vars[install.VarDomain], UpdatedAt: info.UpdatedAt}
 		out.Vars = info.Vars
+	}
+	out.Extensions = []ExtensionInfo{}
+	for _, x := range all.All() {
+		info := ExtensionInfo{Name: x.Name(), Description: x.Description(), Enabled: ext.Find(s.opts.Extensions, x.Name()) != nil}
+		if c := x.Component(); c != nil {
+			info.Component = c.Name
+		}
+		out.Extensions = append(out.Extensions, info)
 	}
 	if recs, err := install.ReadRecords(ctx, s.kube, ""); err == nil {
 		for _, r := range recs {

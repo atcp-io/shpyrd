@@ -1,6 +1,6 @@
 # RFC-0002 Extension model
 
-**Status:** provisional
+**Status:** implemented (framework); disable-while-in-use and per-extension RBAC per component
 
 **Creation date:** 2026-09-22
 
@@ -107,3 +107,16 @@ message, conditions, endpoint) so the dashboard renders them generically.
 ## Implementation History
 
 - 2026-09-22: RFC written (split from the earlier extensions draft). Phase C in RFC-0007 introduces `pkg/ext` with the first extension (local authentication).
+- 2026-09-22: Implemented `pkg/ext` (`Extension`, `ComponentRef`, `ResourceType`, `Router`,
+  `Deps`, `AuthRegistry`/`OIDCProvider`, `Identity`), the static registry `pkg/ext/all`, and
+  the lifecycle: the installer appends enabled extensions' components (named directories
+  under `deploy/components`) to their runlevel, derives `SHPYRD_EXTENSIONS`,
+  `SHPYRD_DASHBOARD_URL` and `SHPYRD_AUTH_URL`, records the set in the install record so
+  `cluster init` and `cluster status` keep it; `shpyrd extensions list|enable|disable` and
+  `cluster init --enable`; `Engine.Remove` deletes a component (Kustomize objects, Helm
+  release, record key). The server mounts extension routes, hands them `Deps`, registers
+  their controllers and lists them in `/api/config` and on the Cluster page; the CLI adds
+  their commands. Differences from the sketch: `Component()` returns a name/runlevel
+  reference instead of a full component (the installer resolves it from the embedded tree),
+  extension RBAC ships inside the component manifests (Dex grants the server access to
+  `passwords`), and the per-type JSON schema form is not built yet.
