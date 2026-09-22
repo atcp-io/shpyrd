@@ -1,38 +1,32 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+import { useToken } from '@/lib/auth'
+import { Layout } from '@/components/layout'
+import { LoginPage } from '@/pages/login'
+import { AppsPage } from '@/pages/apps'
+import { AppDetailPage } from '@/pages/app-detail'
+import { ClusterPage } from '@/pages/cluster'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const token = useToken()
+  const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 60_000 })
+
+  // Until we know whether the server wants a token, render nothing to
+  // avoid flashing the login screen.
+  if (config.isLoading) return null
+  if (config.data?.authRequired && !token) return <LoginPage />
 
   return (
-    <>
-      <div>
-        <a href="https://vitejs.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React + Eu2</h1>
-      <h1 className="text-3xl font-bold underline">
-        Hello world!!!
-      </h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<AppsPage />} />
+          <Route path="/apps/:ns/:name" element={<AppDetailPage />} />
+          <Route path="/cluster" element={<ClusterPage />} />
+          <Route path="*" element={<AppsPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   )
 }
-
-export default App
