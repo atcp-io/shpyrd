@@ -6,6 +6,7 @@ labels:
       app.kubernetes.io/part-of: shpyrd
 resources:
   - crds/shpyrd.io_apps.yaml
+  - crds/shpyrd.io_volumes.yaml
   - rbac.yaml
   - storage.yaml
   - server.yaml

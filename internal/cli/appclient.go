@@ -66,6 +66,8 @@ type projectProcess struct {
 	Replicas *int32   `json:"replicas,omitempty"`
 	Command  []string `json:"command,omitempty"`
 	Args     []string `json:"args,omitempty"`
+	// Volumes mounts project volumes: [{name: data, path: /data}].
+	Volumes []shpyrdv1.VolumeMount `json:"volumes,omitempty"`
 	// Size names an instance size from the cluster catalog (`shpyrd sizes
 	// list`), e.g. shared-m or dedicated-s. Empty means the catalog default.
 	Size string `json:"size,omitempty"`
@@ -125,7 +127,12 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 			if err != nil {
 				return fmt.Errorf("shpyrd.yaml: process %s: %w", name, err)
 			}
-			proc := shpyrdv1.Process{Replicas: cur.Replicas, Port: pp.Port, Command: pp.Command, Args: pp.Args, Size: firstNonEmpty(pp.Size, cur.Size), Resources: res}
+			for _, m := range pp.Volumes {
+				if m.Name == "" || m.Path == "" {
+					return fmt.Errorf("shpyrd.yaml: process %s: volumes need name and path", name)
+				}
+			}
+			proc := shpyrdv1.Process{Replicas: cur.Replicas, Port: pp.Port, Command: pp.Command, Args: pp.Args, Size: firstNonEmpty(pp.Size, cur.Size), Resources: res, Volumes: pp.Volumes}
 			if pp.Replicas != nil {
 				proc.Replicas = pp.Replicas
 			}

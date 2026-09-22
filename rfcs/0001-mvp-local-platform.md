@@ -293,6 +293,7 @@ shpyrd logs      [-f] [--process web] [--tail n] [--build]
 shpyrd shell     [--process web | --instance web.2] [-- cmd...]   (RFC-0005)
 shpyrd run       [--size shared-l] [--detach] <cmd...>            (RFC-0005)
 shpyrd releases  | rollback [n]
+shpyrd volumes   create <name> --size 5Gi [--shared] | list | resize | delete   (RFC-0006)
 shpyrd open
 ```
 

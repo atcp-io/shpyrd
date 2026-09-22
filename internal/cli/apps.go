@@ -12,6 +12,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	shpyrdv1 "shpyrd/api/v1alpha1"
 )
 
@@ -205,6 +207,15 @@ func newAppsDestroyCmd(g *globalFlags) *cobra.Command {
 			}
 			if _, err := ac.getApp(ctx, name); err != nil {
 				return err
+			}
+			var vols shpyrdv1.VolumeList
+			_ = ac.c.List(ctx, &vols, client.InNamespace(appNamespace(name)))
+			if len(vols.Items) > 0 {
+				var names []string
+				for _, v := range vols.Items {
+					names = append(names, fmt.Sprintf("%s (%s)", v.Name, v.Spec.Size.String()))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: this deletes the data on volume(s) %s.\n", strings.Join(names, ", "))
 			}
 			if !yes {
 				fmt.Fprintf(cmd.OutOrStdout(), "Delete project %q with all its resources? [y/N] ", name)

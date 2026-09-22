@@ -125,6 +125,14 @@ type BlobSource struct {
 	Ref string `json:"ref,omitempty"`
 }
 
+// VolumeMount mounts a project Volume into a process.
+type VolumeMount struct {
+	// Name of the Volume resource.
+	Name string `json:"name"`
+	// Path inside the container.
+	Path string `json:"path"`
+}
+
 // Build strategies.
 const (
 	// StrategyBuildpacks builds with Cloud Native Buildpacks through kpack.
@@ -177,6 +185,10 @@ type Process struct {
 	// dedicated-m, ...). Empty means the catalog default.
 	// +optional
 	Size string `json:"size,omitempty"`
+	// Volumes mounts Volume resources of the project. A ReadWriteOnce
+	// volume pins the process to one instance with Recreate rollouts.
+	// +optional
+	Volumes []VolumeMount `json:"volumes,omitempty"`
 	// Resources override the size (cpu/memory limits); rarely needed.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -253,6 +265,9 @@ type ProcessStatus struct {
 	CPU string `json:"cpu,omitempty"`
 	// +optional
 	Memory string `json:"memory,omitempty"`
+	// Pinned explains a fixed instance count ("single-instance volume data").
+	// +optional
+	Pinned string `json:"pinned,omitempty"`
 }
 
 // App is an application managed by shpyrd. It lives in the namespace that

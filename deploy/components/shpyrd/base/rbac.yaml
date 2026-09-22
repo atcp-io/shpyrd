@@ -12,7 +12,14 @@ metadata:
   name: shpyrd-server
 rules:
   - apiGroups: [""]
-    resources: [namespaces, nodes, events, persistentvolumeclaims]
+    resources: [namespaces, nodes, events]
+    verbs: [get, list, watch]
+  # Volumes are PersistentVolumeClaims owned by Volume resources.
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
     verbs: [get, list, watch]
   # App namespaces are created by `apps create` and removed by destroy.
   - apiGroups: [""]

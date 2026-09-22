@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Hammer,
   KeyRound,
+  HardDrive,
   Loader2,
   Minus,
   Plus,
@@ -17,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { VolumeInfo } from "@/lib/api";
 import { api, apiStream, type AppDetail, type BuildInfo } from "@/lib/api";
 import { ago, duration } from "@/lib/format";
 import { PhaseBadge } from "@/components/phase-badge";
@@ -530,6 +532,8 @@ function Overview({
         <ProcessesCard app={app} processes={processes} onChanged={onChanged} />
       </div>
 
+      <VolumesCard app={app} onChanged={onChanged} />
+
       <Card>
         <CardHeader>
           <CardTitle>Releases</CardTitle>
@@ -804,7 +808,14 @@ function ProcessesCard({
                   <Button
                     variant="outline"
                     size="icon-xs"
-                    disabled={busy}
+                    disabled={
+                      busy || (!!app.processes?.[p]?.pinned && v.replicas >= 1)
+                    }
+                    title={
+                      app.processes?.[p]?.pinned
+                        ? `${app.processes[p].pinned}: one instance`
+                        : undefined
+                    }
                     onClick={() =>
                       setDraft({
                         ...draft,
@@ -1643,6 +1654,274 @@ function DestroyDialog({ app }: { app: AppDetail }) {
             Destroy app
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---- volumes -------------------------------------------------------------------
+
+function VolumesCard({
+  app,
+  onChanged,
+}: {
+  app: AppDetail;
+  onChanged: () => void;
+}) {
+  const qc = useQueryClient();
+  const volumes = useQuery({
+    queryKey: ["volumes", app.namespace],
+    queryFn: () => api.volumes(app.namespace),
+    refetchInterval: 5000,
+  });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["volumes", app.namespace] });
+    onChanged();
+  };
+  const remove = useMutation({
+    mutationFn: (v: VolumeInfo) =>
+      api.deleteVolume(app.namespace, v.name, v.mountedBy.length > 0),
+    onSuccess: (_, v) => {
+      toast.success(`Deleted volume ${v.name}`);
+      refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const list = volumes.data ?? [];
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <HardDrive className="size-4" /> Volumes
+          </CardTitle>
+          <CardDescription>
+            Persistent disks mounted by processes (
+            <code className="font-mono text-xs">processes.web.volumes</code> in
+            shpyrd.yaml). Single-instance volumes pin their process to one
+            instance with Recreate rollouts; shared volumes need a ReadWriteMany
+            provisioner.
+          </CardDescription>
+        </div>
+        <VolumeDialog app={app} onDone={refresh} />
+      </CardHeader>
+      <CardContent>
+        {volumes.isLoading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : list.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No volumes. Create one here or with{" "}
+            <code className="font-mono text-xs">
+              shpyrd volumes create data --size 5Gi --project {app.name}
+            </code>
+            .
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Size</TableHead>
+                <TableHead>Mode</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Mounted by</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {list.map((v) => (
+                <TableRow key={v.name}>
+                  <TableCell className="font-medium">{v.name}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {v.capacity && v.capacity !== v.size
+                      ? `${v.capacity} → ${v.size}`
+                      : v.size}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {v.shared ? "shared" : "single-instance"}
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className={cn(
+                        "text-xs",
+                        v.phase === "Bound" && "text-emerald-500",
+                        v.phase === "Failed" && "text-destructive",
+                        v.phase === "Pending" && "text-muted-foreground",
+                      )}
+                      title={v.message}
+                    >
+                      {v.phase}
+                      {v.message && v.phase !== "Bound"
+                        ? ` · ${v.message}`
+                        : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {v.mountedBy.length ? v.mountedBy.join(", ") : "-"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <VolumeDialog app={app} onDone={refresh} resize={v} />
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="text-destructive"
+                        disabled={remove.isPending}
+                        onClick={() => {
+                          const mounted = v.mountedBy.length > 0;
+                          const msg = mounted
+                            ? `Volume ${v.name} is mounted by ${v.mountedBy.join(", ")}. Delete it and ALL its data anyway?`
+                            : `Delete volume ${v.name} and all its data (${v.size})?`;
+                          if (window.confirm(msg)) remove.mutate(v);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VolumeDialog({
+  app,
+  onDone,
+  resize,
+}: {
+  app: AppDetail;
+  onDone: () => void;
+  resize?: VolumeInfo;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [size, setSize] = useState(resize?.size ?? "5Gi");
+  const [shared, setShared] = useState(false);
+  const save = useMutation({
+    mutationFn: () =>
+      resize
+        ? api.resizeVolume(app.namespace, resize.name, size.trim())
+        : api.createVolume(app.namespace, {
+            name: name.trim(),
+            size: size.trim(),
+            shared,
+          }),
+    onSuccess: () => {
+      toast.success(
+        resize
+          ? `Resizing ${resize.name} to ${size}`
+          : `Created volume ${name}; mount it in shpyrd.yaml and deploy`,
+      );
+      setOpen(false);
+      setName("");
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {resize ? (
+          <Button variant="ghost" size="xs">
+            Resize
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline">
+            <Plus data-icon="inline-start" /> New volume
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {resize ? `Resize ${resize.name}` : "New volume"}
+          </DialogTitle>
+          <DialogDescription>
+            {resize
+              ? "Volumes only grow, and only when the storage class allows expansion."
+              : "A persistent disk for this project. Mount it from shpyrd.yaml: processes.<type>.volumes: [{name, path}]."}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          {!resize && (
+            <div className="grid gap-2">
+              <Label htmlFor="vol-name">Name</Label>
+              <Input
+                id="vol-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="data"
+                autoFocus
+              />
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="vol-size">Size</Label>
+              <Input
+                id="vol-size"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                placeholder="5Gi"
+              />
+            </div>
+            {!resize && (
+              <div className="grid gap-2">
+                <Label htmlFor="vol-mode">Mode</Label>
+                <Select
+                  value={shared ? "shared" : "single"}
+                  onValueChange={(v) => setShared(v === "shared")}
+                >
+                  <SelectTrigger id="vol-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="single">
+                      Single-instance (block storage)
+                    </SelectItem>
+                    <SelectItem value="shared">
+                      Shared (needs ReadWriteMany)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          {!resize && shared && (
+            <p className="text-xs text-muted-foreground">
+              Shared volumes are unsafe for SQLite (file locking over a network
+              filesystem); use Postgres for databases.
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                save.isPending || !size.trim() || (!resize && !name.trim())
+              }
+            >
+              {resize ? "Resize" : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

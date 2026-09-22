@@ -20,6 +20,20 @@ export type ProcessStatus = {
   size?: string;
   cpu?: string;
   memory?: string;
+  pinned?: string;
+};
+
+export type VolumeInfo = {
+  name: string;
+  namespace: string;
+  size: string;
+  capacity?: string;
+  shared: boolean;
+  storageClass?: string;
+  phase: "Pending" | "Bound" | "Failed" | string;
+  message?: string;
+  mountedBy: string[];
+  createdAt: string;
 };
 
 export type InstanceSize = {
@@ -69,6 +83,7 @@ export type ProcessSpec = {
   command?: string[];
   args?: string[];
   size?: string;
+  volumes?: { name: string; path: string }[];
 };
 
 export type AppDetail = {
@@ -232,6 +247,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await handle(
     await fetch(path, { ...init, headers: headers(init.headers) }),
   );
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -348,6 +364,26 @@ export const api = {
     request<SizeCatalog>("/api/sizes", json("PUT", catalog)),
   rollback: (ns: string, name: string, release: number) =>
     request<AppSummary>(`${app(ns, name)}/rollback`, json("POST", { release })),
+  volumes: (ns: string) => request<VolumeInfo[]>(`/api/projects/${ns}/volumes`),
+  createVolume: (
+    ns: string,
+    body: {
+      name: string;
+      size: string;
+      storageClass?: string;
+      shared?: boolean;
+    },
+  ) => request<VolumeInfo>(`/api/projects/${ns}/volumes`, json("POST", body)),
+  resizeVolume: (ns: string, name: string, size: string) =>
+    request<VolumeInfo>(
+      `/api/projects/${ns}/volumes/${name}`,
+      json("PUT", { size }),
+    ),
+  deleteVolume: (ns: string, name: string, force = false) =>
+    request<void>(
+      `/api/projects/${ns}/volumes/${name}${force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
   cluster: () => request<ClusterSummary>("/api/cluster"),
   clusterMetrics: (range: string) =>
     request<ClusterMetrics>(`/api/cluster/metrics?range=${range}`),

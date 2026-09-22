@@ -42,7 +42,7 @@ func newTestServer(t *testing.T, prom *PromClient, crObjs []client.Object, kubeO
 	if err != nil {
 		t.Fatal(err)
 	}
-	cr := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(crObjs...).WithStatusSubresource(&shpyrdv1.App{}).Build()
+	cr := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(crObjs...).WithStatusSubresource(&shpyrdv1.App{}, &shpyrdv1.Volume{}).Build()
 	var runtimeObjs []runtimeObject
 	for _, o := range kubeObjs {
 		runtimeObjs = append(runtimeObjs, o.(runtimeObject))
@@ -463,5 +463,78 @@ func TestApplyProcesses(t *testing.T) {
 	}
 	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"nope"}}}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown size: %d", rec.Code)
+	}
+}
+
+func TestVolumesAPIAndScaleRefusal(t *testing.T) {
+	app := &shpyrdv1.App{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "app-demo"},
+		Spec: shpyrdv1.AppSpec{Processes: map[string]shpyrdv1.Process{
+			"web": {Volumes: []shpyrdv1.VolumeMount{{Name: "data", Path: "/data"}}},
+		}},
+	}
+	s, cr := newTestServer(t, nil, []client.Object{app})
+
+	if rec := do(t, s, "GET", "/api/projects/app-demo/volumes", "", true); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("empty list: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := do(t, s, "POST", "/api/projects/app-demo/volumes", `{"name":"data","size":"5Gi"}`, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var view VolumeView
+	_ = json.Unmarshal(rec.Body.Bytes(), &view)
+	if view.Size != "5Gi" || view.Shared || view.Phase != "Pending" || view.MountedBy == nil {
+		t.Errorf("view = %+v", view)
+	}
+	if rec := do(t, s, "POST", "/api/projects/app-demo/volumes", `{"name":"data","size":"5Gi"}`, true); rec.Code != http.StatusConflict {
+		t.Errorf("duplicate: %d", rec.Code)
+	}
+	for _, bad := range []string{`{"name":"Data","size":"5Gi"}`, `{"name":"x","size":"five"}`, `{"name":"x","size":"-1Gi"}`} {
+		if rec := do(t, s, "POST", "/api/projects/app-demo/volumes", bad, true); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", bad, rec.Code)
+		}
+	}
+	if rec := do(t, s, "POST", "/api/projects/app-demo/volumes", `{"name":"assets","size":"1Gi","shared":true,"storageClass":"nfs"}`, true); rec.Code != http.StatusCreated {
+		t.Errorf("shared create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Resize: grow ok, shrink refused.
+	if rec := do(t, s, "PUT", "/api/projects/app-demo/volumes/data", `{"size":"10Gi"}`, true); rec.Code != http.StatusOK {
+		t.Errorf("grow: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "PUT", "/api/projects/app-demo/volumes/data", `{"size":"1Gi"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("shrink: %d", rec.Code)
+	}
+	if rec := do(t, s, "PUT", "/api/projects/app-demo/volumes/nope", `{"size":"1Gi"}`, true); rec.Code != http.StatusNotFound {
+		t.Errorf("missing: %d", rec.Code)
+	}
+
+	// Scaling web past 1 is refused because "data" is single-instance.
+	if rec := do(t, s, "POST", "/api/apps/app-demo/demo/scale", `{"process":"web","replicas":3}`, true); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "single-instance volume") {
+		t.Errorf("scale: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-demo/demo/processes", `{"processes":{"web":{"replicas":2}}}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("batch scale: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/apps/app-demo/demo/scale", `{"process":"web","replicas":1}`, true); rec.Code != http.StatusOK {
+		t.Errorf("scale to 1: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Delete: mounted volumes need force.
+	vol := &shpyrdv1.Volume{}
+	_ = cr.Get(context.Background(), types.NamespacedName{Namespace: "app-demo", Name: "data"}, vol)
+	vol.Status.MountedBy = []string{"demo/web"}
+	if err := cr.Status().Update(context.Background(), vol); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/data", "", true); rec.Code != http.StatusConflict {
+		t.Errorf("delete mounted: %d", rec.Code)
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/data?force=true", "", true); rec.Code != http.StatusNoContent {
+		t.Errorf("force delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/assets", "", true); rec.Code != http.StatusNoContent {
+		t.Errorf("delete: %d", rec.Code)
 	}
 }

@@ -360,6 +360,9 @@ func (s *Server) scaleApp(c *gin.Context) {
 		if !ok && req.Process != "web" {
 			return fmt.Errorf("unknown process %q", req.Process)
 		}
+		if err := s.checkScale(c.Request.Context(), a, req.Process, *req.Replicas); err != nil {
+			return err
+		}
 		p.Replicas = ptr.To(*req.Replicas)
 		a.Spec.Processes[req.Process] = p
 		return nil

@@ -238,7 +238,7 @@ func processResources(p namedProcess, catalog sizes.Catalog) (corev1.ResourceReq
 }
 
 // mutateDeployment sets the fields shpyrd owns on a process Deployment.
-func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, configHash string, res corev1.ResourceRequirements, d *appsv1.Deployment) {
+func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, configHash string, res corev1.ResourceRequirements, mounts []resolvedMount, d *appsv1.Deployment) {
 	labels := processLabels(app, p.Name)
 	d.Labels = mergeMaps(d.Labels, labels)
 	if d.Spec.Selector == nil {
@@ -286,6 +286,7 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 	})
 	d.Spec.Template.Spec.EnableServiceLinks = ptr.To(false)
 	d.Spec.Template.Spec.Containers = []corev1.Container{container}
+	applyMounts(d, mounts)
 }
 
 // mutateService sets the fields shpyrd owns on a process Service.

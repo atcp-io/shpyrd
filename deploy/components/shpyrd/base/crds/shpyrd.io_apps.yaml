@@ -508,6 +508,24 @@ spec:
                         Size names an instance size from the cluster catalog (shared-s,
                         dedicated-m, ...). Empty means the catalog default.
                       type: string
+                    volumes:
+                      description: |-
+                        Volumes mounts Volume resources of the project. A ReadWriteOnce
+                        volume pins the process to one instance with Recreate rollouts.
+                      items:
+                        description: VolumeMount mounts a project Volume into a process.
+                        properties:
+                          name:
+                            description: Name of the Volume resource.
+                            type: string
+                          path:
+                            description: Path inside the container.
+                            type: string
+                        required:
+                        - name
+                        - path
+                        type: object
+                      type: array
                   type: object
                 description: |-
                   Processes maps process types (web, worker, ...) to their settings.
@@ -650,6 +668,10 @@ spec:
                       format: int32
                       type: integer
                     memory:
+                      type: string
+                    pinned:
+                      description: Pinned explains a fixed instance count ("single-instance
+                        volume data").
                       type: string
                     ready:
                       format: int32

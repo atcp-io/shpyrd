@@ -191,7 +191,11 @@ func newScaleCmd(g *globalFlags) *cobra.Command {
 				if a.Spec.Processes == nil {
 					a.Spec.Processes = map[string]shpyrdv1.Process{"web": {}}
 				}
+				pinned := ac.singleInstanceVolumes(ctx, a)
 				for proc, n := range changes {
+					if v, ok := pinned[proc]; ok && n > 1 {
+						return fmt.Errorf("%s mounts single-instance volume %q and can run 1 instance (a shared volume allows more)", proc, v)
+					}
 					p := a.Spec.Processes[proc]
 					p.Replicas = ptr.To(n)
 					a.Spec.Processes[proc] = p

@@ -187,6 +187,9 @@ func (s *Server) applyProcesses(c *gin.Context) {
 				p.Resources = corev1.ResourceRequirements{}
 			}
 			if ch.Replicas != nil {
+				if err := s.checkScale(c.Request.Context(), a, name, *ch.Replicas); err != nil {
+					return err
+				}
 				p.Replicas = ch.Replicas
 			}
 			a.Spec.Processes[name] = p

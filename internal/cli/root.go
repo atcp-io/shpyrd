@@ -49,6 +49,7 @@ func New() *cobra.Command {
 	root.AddCommand(newScaleCmd(g))
 	root.AddCommand(newResizeCmd(g))
 	root.AddCommand(newSizesCmd(g))
+	root.AddCommand(newVolumesCmd(g))
 	root.AddCommand(newLogsCmd(g))
 	root.AddCommand(newShellCmd(g))
 	root.AddCommand(newRunCmd(g))

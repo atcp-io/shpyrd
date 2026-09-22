@@ -82,6 +82,7 @@ shpyrd logs -f --process web
 shpyrd shell --instance web.2       # bash in a running instance, with the buildpack environment
 shpyrd run rails db:migrate         # one-off instance of the current release; exit code passes through
 shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its config vars
+shpyrd volumes create data --size 5Gi    # persistent disk; mount with processes.web.volumes: [{name: data, path: /data}]
 ```
 
 A project is a namespace with its resources; today that is one app resource
@@ -95,6 +96,14 @@ automatically for local deploys) support multi-stage targets, build args
 (`build.env`), `.dockerignore` and a registry layer cache between builds. Their
 images have one entrypoint, so process types other than `web` declare a
 `command`; see `examples/hello-docker`.
+
+Volumes are persistent disks of a project (`shpyrd volumes create|list|resize|delete`,
+a `Volume` resource backed by a PersistentVolumeClaim it owns). A volume is
+single-instance by default: the process mounting it runs one instance with
+Recreate rollouts, and scaling it up is refused with an explanation. `--shared`
+volumes (ReadWriteMany) can be mounted by many instances but need a provisioner
+that offers it. Data survives deploys, scaling and crashes; only `volumes
+delete` and `projects destroy` remove it (on kind, `cluster destroy` too).
 
 ## Dashboard
 

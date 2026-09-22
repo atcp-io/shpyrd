@@ -178,6 +178,11 @@ func (s *Server) routes() {
 	api.POST("/apps/:ns/:name/resize", s.resizeApp)
 	api.POST("/apps/:ns/:name/processes", s.applyProcesses)
 	api.POST("/apps/:ns/:name/rollback", s.rollbackApp)
+	// Project resources (RFC-0003/0006): volumes live in the project namespace.
+	api.GET("/projects/:ns/volumes", s.listVolumes)
+	api.POST("/projects/:ns/volumes", s.createVolume)
+	api.PUT("/projects/:ns/volumes/:name", s.resizeVolume)
+	api.DELETE("/projects/:ns/volumes/:name", s.deleteVolume)
 
 	if s.opts.UI != nil {
 		s.engine.NoRoute(s.serveUI())

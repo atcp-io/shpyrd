@@ -60,6 +60,7 @@ func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(envSecretToApp)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.sizesToAllApps)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(runPodToApp), builder.WithPredicates(isRunPod)).
+		Watches(&shpyrdv1.Volume{}, handler.EnqueueRequestsFromMapFunc(r.volumeToApps)).
 		Complete(r)
 }
 
@@ -418,6 +419,10 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 	wanted := map[string]bool{}
 
 	catalog := r.catalog(ctx)
+	mounts, err := r.resolveMounts(ctx, app)
+	if err != nil {
+		return nil, err
+	}
 	for _, p := range processes(app) {
 		wanted[p.Name] = true
 		if p.Name != "web" && len(p.Command) == 0 && app.BuildStrategy() == shpyrdv1.StrategyDockerfile {
@@ -429,7 +434,7 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 		}
 		d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: workloadName(app, p.Name), Namespace: app.Namespace}}
 		op, err := controllerutil.CreateOrUpdate(ctx, r.Client, d, func() error {
-			r.Config.mutateDeployment(app, p, image, hash, res, d)
+			r.Config.mutateDeployment(app, p, image, hash, res, mounts[p.Name], d)
 			return controllerutil.SetControllerReference(app, d, r.Scheme)
 		})
 		if err != nil {
@@ -451,6 +456,7 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 		ps.Size = sizeName
 		ps.CPU = res.Requests.Cpu().String()
 		ps.Memory = res.Requests.Memory().String()
+		ps.Pinned = singleInstanceNote(mounts[p.Name])
 		status[p.Name] = ps
 
 		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: workloadName(app, p.Name), Namespace: app.Namespace}}

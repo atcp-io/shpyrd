@@ -1,6 +1,6 @@
 # RFC-0006 Persistent volumes
 
-**Status:** implementable
+**Status:** implemented (RWO); `storage-rwx` extension pending
 
 **Creation date:** 2026-09-22
 
@@ -92,3 +92,12 @@ destroy` deletes them - the one local caveat, documented.
 ## Implementation History
 
 - 2026-09-22: RFC written; RWO volumes in phase B, `storage-rwx` extension in phase E.
+- 2026-09-22: Implemented: `Volume` CRD and controller (claim `vol-<name>` owned by the
+  Volume, growth through expansion when the storage class allows it, shrink/mode/class
+  changes refused, status with capacity and mountedBy), `processes.<type>.volumes` in the
+  App (Recreate + 1 instance for ReadWriteOnce, conflicts and over-scaling refused with
+  explanations in the controller, API and CLI), `shpyrd volumes create|list|resize|delete`,
+  `/api/projects/:ns/volumes` and a Volumes card in the dashboard. Shared (RWX) volumes
+  are accepted when the cluster has a provisioner; the local `storage-rwx` extension is
+  not written yet. kind's `standard` class does not allow expansion, so resize fails
+  there with the explanation.

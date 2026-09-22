@@ -85,13 +85,20 @@ process type with --process; the default is the first web instance.`,
 }
 
 // pickInstance chooses a running pod of the project by process/instance.
+// Without --process it takes web when the app has one (and reports when it
+// is not running rather than silently attaching to another process type).
 func (a *appClient) pickInstance(ctx context.Context, app *shpyrdv1.App, process, instance string) (*corev1.Pod, string, error) {
-	selector := shpyrdv1.LabelApp + "=" + app.Name + "," + shpyrdv1.LabelProcess
 	if instance != "" {
 		process = strings.SplitN(instance, ".", 2)[0]
 	}
+	if process == "" {
+		if _, hasWeb := app.Spec.Processes["web"]; hasWeb || len(app.Spec.Processes) == 0 {
+			process = "web"
+		}
+	}
+	selector := shpyrdv1.LabelApp + "=" + app.Name + "," + shpyrdv1.LabelProcess
 	if process != "" {
-		selector = shpyrdv1.LabelApp + "=" + app.Name + "," + shpyrdv1.LabelProcess + "=" + process
+		selector += "=" + process
 	}
 	list, err := a.k.Kube.CoreV1().Pods(app.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
@@ -105,6 +112,12 @@ func (a *appClient) pickInstance(ctx context.Context, app *shpyrdv1.App, process
 		}
 	}
 	if len(running) == 0 {
+		if process != "" && len(list.Items) > 0 {
+			return nil, "", fmt.Errorf("no running %s instance yet (%s is %s); try again in a moment", process, names[list.Items[0].Name], list.Items[0].Status.Phase)
+		}
+		if process != "" {
+			return nil, "", fmt.Errorf("no running %s instance found (is the project deployed?)", process)
+		}
 		return nil, "", errors.New("no running instance found (is the project deployed?)")
 	}
 	sort.Slice(running, func(i, j int) bool { return names[running[i].Name] < names[running[j].Name] })
@@ -115,14 +128,6 @@ func (a *appClient) pickInstance(ctx context.Context, app *shpyrdv1.App, process
 			}
 		}
 		return nil, "", fmt.Errorf("instance %q not found; running: %s", instance, joinInstances(running, names))
-	}
-	if process == "" {
-		// Prefer web, then the alphabetically first process.
-		for i := range running {
-			if running[i].Labels[shpyrdv1.LabelProcess] == "web" {
-				return &running[i], names[running[i].Name], nil
-			}
-		}
 	}
 	return &running[0], names[running[0].Name], nil
 }

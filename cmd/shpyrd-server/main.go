@@ -160,6 +160,10 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	if err := rec.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("app controller: %w", err)
 	}
+	volumes := &controller.VolumeReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("shpyrd")}
+	if err := volumes.SetupWithManager(mgr); err != nil {
+		return nil, fmt.Errorf("volume controller: %w", err)
+	}
 	return mgr, nil
 }
 

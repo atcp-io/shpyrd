@@ -5,7 +5,10 @@ build:
   env:
     BUILT_WITH: "shpyrd + BuildKit"
 processes:
-  web: {}                       # runs the image CMD
+  web:                          # runs the image CMD
+    volumes:
+      - name: data              # shpyrd volumes create data --size 1Gi
+        path: /data
   worker:                       # Dockerfile images need a command per extra process
     command: ["hello", "worker"]
     size: shared-xs
