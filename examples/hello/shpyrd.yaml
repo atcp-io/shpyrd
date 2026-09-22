@@ -1,0 +1,18 @@
+# shpyrd project file (the fly.toml equivalent). `shpyrd deploy` reads it.
+app: hello-world
+
+# Process types. The Go buildpack creates one per build target below; the
+# controller runs each as its own Deployment. Only "web" gets a URL.
+processes:
+  web:
+    port: 8080
+    # Size (limits). Defaults: 1 CPU, 512Mi.
+    # cpu: "500m"
+    # memory: 256Mi
+  worker: {}
+
+build:
+  env:
+    # Paketo Go: build both commands; process types are named after the
+    # target directories (web, worker). The first one is the default.
+    BP_GO_TARGETS: ./cmd/web:./cmd/worker

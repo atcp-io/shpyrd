@@ -1,6 +1,140 @@
 # shpyrd
 
-### TODO:
+Make infrastructure easy again. shpyrd is an open source platform that manages
+the whole application stack on Kubernetes: cluster bootstrap, image builds,
+deploys, ingress/TLS and monitoring, from one CLI and one dashboard.
 
-Implement semantic versioning and conventional commits:
-https://medium.com/opensight-ch/git-semantic-versioning-and-conventional-commits-564aece418a0
+Status: pre-alpha. The design and roadmap live in
+[RFC-0001](rfcs/0001-mvp-local-platform.md). Website: https://shpyrd.io
+
+## Quick start (local)
+
+Requirements: Docker (Docker Desktop with 6-8 GB of memory) and Go 1.27 to
+build the CLI until binaries are published.
+
+```sh
+make cli
+./bin/shpyrd cluster create          # kind cluster + base stack (10-20 min first time)
+./bin/shpyrd cluster trust-ca        # trust the development CA (asks for sudo)
+./bin/shpyrd cluster status
+./bin/shpyrd cluster dashboard       # opens https://shpyrd.127.0.0.1.nip.io signed in
+```
+
+`cluster create` runs [kind](https://kind.sigs.k8s.io) through its Go library
+and installs the base stack in dependency-ordered runlevels:
+
+| Level | Components |
+|-------|------------|
+| rc0 | Prometheus Operator CRDs |
+| rc1 | cert-manager |
+| rc2 | development CA `ClusterIssuer`, trust-manager, ingress-nginx (host ports 80/443), in-cluster registry |
+| rc3 | kpack (Paketo buildpacks builder), kube-prometheus-stack + Grafana |
+| rc4 | shpyrd server (API, controller, dashboard) |
+
+Everything is reachable under a wildcard domain that resolves to your machine
+(`127.0.0.1.nip.io` by default, `--domain` to change it):
+
+- `https://shpyrd.127.0.0.1.nip.io` dashboard
+- `https://grafana.127.0.0.1.nip.io` Grafana (admin / shpyrd on the local profile)
+- `localhost:30050` registry (in-cluster address `10.96.0.50:5000`)
+
+Useful commands:
+
+```sh
+shpyrd cluster create --http-port 8080 --https-port 8443   # when 80/443 are taken
+shpyrd cluster init --only shpyrd            # re-apply one component
+shpyrd cluster init --skip monitoring        # lighter install
+shpyrd cluster export -o ./gitops            # render everything for Flux / Argo CD
+shpyrd cluster destroy
+```
+
+Docker Desktop must use cgroup v2 (the default). With the deprecated cgroup v1
+setting enabled the CLI applies a kubelet override and warns.
+
+## Deploying apps
+
+Try the bundled example first (a Go HTTP server rendering an HTML "Hello world"):
+
+```sh
+shpyrd apps create hello-world
+cd examples/hello && shpyrd deploy  # shpyrd.yaml names the app; ~1 min for the first build
+shpyrd open                         # https://hello-world.127.0.0.1.nip.io
+shpyrd secrets set GREETING="Olá mundo"   # the page picks it up
+shpyrd scale web=3                        # reload: the pod name changes
+```
+
+Then your own code:
+
+```sh
+cd my-service                       # any repo a Paketo buildpack understands (Go, Node, Java, Python, Ruby, .NET, static)
+shpyrd apps create my-service --save   # namespace app-my-service, App resource, shpyrd.yaml
+shpyrd deploy                       # archive HEAD, build in-cluster with kpack, roll out
+shpyrd deploy --working-tree        # ...or the directory as is, uncommitted changes included
+shpyrd open                         # https://my-service.127.0.0.1.nip.io
+
+shpyrd deploy --git https://github.com/org/repo --ref main --path services/api   # build from Git; new commits rebuild
+shpyrd secrets set DATABASE_URL=postgres://...   # config vars -> new release, rolling restart (values are never shown again)
+shpyrd scale web=2 worker=1         # process types come from the buildpack (Procfile / launch.toml)
+shpyrd logs -f --process web
+shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its config vars
+```
+
+Apps are `App` resources (`kubectl get apps -A`); the controller in `shpyrd-server`
+turns them into kpack builds, Deployments, Services and Ingresses with certificates.
+
+## Dashboard
+
+`shpyrd cluster dashboard` opens the web UI signed in with the admin token
+(`shpyrd cluster token` prints it). Apps are listed as projects. From the UI you can create them, deploy
+them from a Git repository, scale processes, roll back (build and config), edit
+config vars and destroy apps. Per app it shows: metrics modelled on Heroku/Fly
+(throughput by status class, p50/p95/p99 response time, instances, CPU and
+memory as a percentage of each process' allocation, network, with release
+markers), a live build log while building, the
+build history, logs from every instance (`web.1`, `worker.2`...) with level
+highlighting, filtering and live tail, and the config var names. Config var
+values are write-only: they can be added, replaced or removed but never read
+back, in the UI or the CLI. The cluster page shows capacity: CPU and memory used
+versus reserved by pod requests, per node and in total. Processes default to 1 CPU
+and 512 MiB; set `cpu`/`memory` per process in `shpyrd.yaml` to change it.
+
+The API behind the dashboard (`/api/...`) requires the token; only `/api/healthz`,
+`/api/config` and content-addressed source archives are public.
+
+## Layout
+
+```
+cmd/shpyrd            CLI
+cmd/shpyrd-server     in-cluster server (API + App controller + embedded UI)
+api/v1alpha1          App CRD types (kubebuilder layout; `make generate`)
+internal/controller   App reconciler
+pkg/install           runlevel installer: embedded Kustomize + Helm SDK + server-side apply
+pkg/kind              kind cluster provisioning
+pkg/localca           development root CA
+pkg/configvars        config vars (names + metadata, values are write-only)
+deploy/               components and profiles embedded in the binary
+ui/                   dashboard (Vite + React 19 + Tailwind 4 + shadcn/ui)
+examples/hello        example app (Go, web + worker)
+rfcs/                 design documents
+```
+
+## Developing
+
+```sh
+make dev-cluster     # cluster with everything except the shpyrd server
+make dev-deploy      # build the server image, load it into kind, apply the shpyrd component
+make test vet
+```
+
+The UI can be developed against a local server: `go run ./cmd/shpyrd-server`
+in one terminal, `cd ui && npm run dev` in another (Vite proxies `/api`).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Commits follow
+[Conventional Commits](https://www.conventionalcommits.org) and need a DCO
+sign-off (`git commit -s`).
+
+## License
+
+[MPL-2.0](LICENSE)
