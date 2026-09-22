@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
+import { usePerms } from "@/lib/me";
 import { useTheme, type Theme } from "@/lib/theme";
 import { LogoMark, Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,9 @@ export function Layout() {
     queryFn: api.config,
     staleTime: 60_000,
   });
-  const usersEnabled = config.data?.extensions?.includes("auth-local");
+  const perms = usePerms();
+  const usersEnabled =
+    config.data?.extensions?.includes("auth-local") && perms.clusterAdmin;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -43,7 +46,10 @@ export function Layout() {
           </Link>
           <nav className="flex items-center gap-1 text-sm">
             <NavItem to="/">Projects</NavItem>
-            <NavItem to="/cluster">Cluster</NavItem>
+            {perms.clusterView && <NavItem to="/cluster">Cluster</NavItem>}
+            {perms.clusterAdmin && config.data?.authRequired && (
+              <NavItem to="/teams">Teams</NavItem>
+            )}
             {usersEnabled && <NavItem to="/users">Users</NavItem>}
           </nav>
           <div className="ml-auto flex items-center gap-1 text-sm text-muted-foreground">

@@ -98,6 +98,7 @@ func newVolumesCreateCmd(g *globalFlags) *cobra.Command {
 				kind = "shared"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created %s volume %s (%s) in project %s\n", kind, args[0], qty.String(), name)
+			ac.audit(ctx, name, "volume.create", args[0], qty.String()+" "+kind)
 			fmt.Fprintf(cmd.OutOrStdout(), "Mount it in shpyrd.yaml under processes.<type>.volumes: [{name: %s, path: /data}] and deploy.\n", args[0])
 			if shared {
 				fmt.Fprintln(cmd.OutOrStdout(), "Note: shared volumes need a ReadWriteMany provisioner and are unsafe for SQLite.")
@@ -266,6 +267,7 @@ func newVolumesDeleteCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleted volume %s from project %s\n", args[0], name)
+			ac.audit(ctx, name, "volume.delete", args[0], "")
 			return nil
 		},
 	}

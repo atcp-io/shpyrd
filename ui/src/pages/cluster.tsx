@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type ClusterMetrics } from "@/lib/api";
+import { usePerms } from "@/lib/me";
 import { ago, bytes } from "@/lib/format";
 import { MetricChart } from "@/components/metric-chart";
 import { SizesEditor } from "@/components/sizes-editor";
@@ -48,6 +49,7 @@ export function ClusterPage() {
     queryFn: api.config,
     staleTime: 60_000,
   });
+  const perms = usePerms();
   const metrics = useQuery({
     queryKey: ["cluster-metrics", range],
     queryFn: () => api.clusterMetrics(range),
@@ -157,7 +159,7 @@ export function ClusterPage() {
         </CardContent>
       </Card>
 
-      <SizesEditor />
+      <SizesEditor readOnly={!perms.clusterAdmin} />
 
       <Card>
         <CardHeader>

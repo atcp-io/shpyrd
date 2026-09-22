@@ -19,6 +19,8 @@ import (
 	"golang.org/x/oauth2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/install"
 )
@@ -342,13 +344,41 @@ func (s *Server) authLogout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// me returns the caller's identity.
+// Me is the caller's identity with the roles the dashboard hides actions by.
+type Me struct {
+	ext.Identity
+	Roles authz.Roles `json:"roles"`
+}
+
+// me returns the caller's identity and roles.
 func (s *Server) me(c *gin.Context) {
 	id, ok := ext.IdentityFrom(c)
 	if !ok {
 		id = ext.Identity{Subject: "anonymous", Provider: "none", Admin: true}
 	}
-	c.JSON(http.StatusOK, id)
+	roles, err := s.rolesOf(c)
+	if err != nil {
+		abort(c, http.StatusBadGateway, err)
+		return
+	}
+	id.Admin = roles.Platform == shpyrdv1.RolePlatformAdmin
+	c.JSON(http.StatusOK, Me{Identity: id, Roles: roles})
+}
+
+// securityHeaders hardens every response (RFC-0008). The dashboard is a
+// same-origin SPA: scripts and styles come from this server only.
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h := c.Writer.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		if !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		}
+		c.Next()
+	}
 }
 
 // sessionAuth tries the session cookie: on success the identity is set and
@@ -398,4 +428,56 @@ func (s *Server) clusterCA(ctx context.Context) []byte {
 		}
 	}
 	return nil
+}
+
+// rateLimiter is a per-client token bucket for the login endpoints: it
+// slows down credential stuffing and callback replay without a store.
+type rateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	rate    float64 // tokens per second
+	burst   float64
+	now     func() time.Time
+}
+
+type bucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newRateLimiter(perMinute int) *rateLimiter {
+	return &rateLimiter{buckets: map[string]*bucket{}, rate: float64(perMinute) / 60, burst: float64(perMinute), now: time.Now}
+}
+
+// allow takes a token for key, reporting whether one was available.
+func (r *rateLimiter) allow(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	b, ok := r.buckets[key]
+	if !ok {
+		if len(r.buckets) > 10000 {
+			r.buckets = map[string]*bucket{} // crude but bounded
+		}
+		b = &bucket{tokens: r.burst, last: now}
+		r.buckets[key] = b
+	}
+	b.tokens = min(r.burst, b.tokens+now.Sub(b.last).Seconds()*r.rate)
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+func (r *rateLimiter) middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !r.allow(c.ClientIP()) {
+			c.Header("Retry-After", "60")
+			abort(c, http.StatusTooManyRequests, errors.New("too many sign-in attempts; try again in a minute"))
+			return
+		}
+		c.Next()
+	}
 }

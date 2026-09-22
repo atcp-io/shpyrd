@@ -208,7 +208,10 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 		return outcome{}, err
 	}
 	hash := configHash(app, secret, sizeByProcess, bindings)
-	if err := r.ensureProjectLabel(ctx, app); err != nil {
+	if err := r.ensureNamespaceLabels(ctx, app); err != nil {
+		return outcome{}, err
+	}
+	if err := r.reconcileIsolation(ctx, app); err != nil {
 		return outcome{}, err
 	}
 
@@ -514,21 +517,6 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 		}
 	}
 	return status, nil
-}
-
-// ensureProjectLabel marks the namespace as this project (RFC-0003); older
-// namespaces were created without the label.
-func (r *AppReconciler) ensureProjectLabel(ctx context.Context, app *shpyrdv1.App) error {
-	ns := &corev1.Namespace{}
-	if err := r.Get(ctx, types.NamespacedName{Name: app.Namespace}, ns); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	if ns.Labels[shpyrdv1.LabelProject] == app.Name || ns.Labels[shpyrdv1.LabelManagedBy] != "shpyrd" {
-		return nil
-	}
-	patch := client.MergeFrom(ns.DeepCopy())
-	ns.Labels = mergeMaps(ns.Labels, map[string]string{shpyrdv1.LabelProject: app.Name})
-	return r.Patch(ctx, ns, patch)
 }
 
 func (r *AppReconciler) deleteIfExists(ctx context.Context, obj client.Object) error {

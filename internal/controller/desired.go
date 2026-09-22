@@ -42,6 +42,13 @@ type Config struct {
 	SystemNamespace string
 	// BuildKitImage runs Dockerfile builds (rootless BuildKit).
 	BuildKitImage string
+	// PodCIDR, when known, lets the project network policy block egress to
+	// pods of other projects while allowing the internet.
+	PodCIDR string
+	// IngressNamespace and MonitoringNamespace may reach project pods
+	// (traffic from the URL, metrics scraping).
+	IngressNamespace    string
+	MonitoringNamespace string
 }
 
 // DefaultBuildKitImage is the rootless BuildKit image used for Dockerfile builds.
@@ -75,6 +82,12 @@ func (c Config) Defaults() Config {
 	}
 	if c.BuildKitImage == "" {
 		c.BuildKitImage = DefaultBuildKitImage
+	}
+	if c.IngressNamespace == "" {
+		c.IngressNamespace = "ingress-nginx"
+	}
+	if c.MonitoringNamespace == "" {
+		c.MonitoringNamespace = "monitoring"
 	}
 	return c
 }
@@ -249,14 +262,12 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 	d.Spec.RevisionHistoryLimit = ptr.To[int32](3)
 
 	container := corev1.Container{
-		Name:      "app",
-		Image:     image,
-		Command:   p.Command,
-		Args:      p.Args,
-		Resources: res,
-		SecurityContext: &corev1.SecurityContext{
-			AllowPrivilegeEscalation: ptr.To(false),
-		},
+		Name:            "app",
+		Image:           image,
+		Command:         p.Command,
+		Args:            p.Args,
+		Resources:       res,
+		SecurityContext: hardenedSecurityContext(),
 		// Config vars, then the vars of attached resources: with envFrom the
 		// last source wins, so bound vars take precedence (RFC-0003).
 		EnvFrom: []corev1.EnvFromSource{
@@ -291,6 +302,7 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 		shpyrdv1.AnnotationConfigHash: configHash,
 	})
 	d.Spec.Template.Spec.EnableServiceLinks = ptr.To(false)
+	d.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}
 	d.Spec.Template.Spec.Containers = []corev1.Container{container}
 	applyMounts(d, mounts)
 }
@@ -354,4 +366,17 @@ func shortImage(ref string) string {
 		return ref[:i] + "@" + ref[i+1:i+8+12]
 	}
 	return ref
+}
+
+// hardenedSecurityContext is the restricted Pod Security Standard for app
+// containers (RFC-0008): non-root, no privilege escalation, no capabilities,
+// the runtime's default seccomp profile. Buildpack images already run as a
+// non-root user; Dockerfile images need a USER.
+func hardenedSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		RunAsNonRoot:             ptr.To(true),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
 }

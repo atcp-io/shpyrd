@@ -9,6 +9,8 @@ import {
   KeyRound,
   HardDrive,
   Loader2,
+  ScrollText,
+  UsersRound,
   Minus,
   Plus,
   RefreshCw,
@@ -18,7 +20,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { VolumeInfo } from "@/lib/api";
+import type { VolumeInfo, Member, AuditEntry } from "@/lib/api";
+import { usePerms } from "@/lib/me";
 import { api, apiStream, type AppDetail, type BuildInfo } from "@/lib/api";
 import { ago, duration } from "@/lib/format";
 import { PhaseBadge } from "@/components/phase-badge";
@@ -73,6 +76,7 @@ export function AppDetailPage() {
     queryFn: () => api.app(ns, name),
     refetchInterval: 4000,
   });
+  const perms = usePerms(name);
 
   if (app.isLoading) {
     return (
@@ -133,8 +137,10 @@ export function AppDetailPage() {
               </a>
             </Button>
           )}
-          <DeployDialog app={a} onDone={refresh} disabled={busy} />
-          <DestroyDialog app={a} />
+          {perms.deploy && (
+            <DeployDialog app={a} onDone={refresh} disabled={busy} />
+          )}
+          {perms.destroy && <DestroyDialog app={a} />}
         </div>
       </div>
 
@@ -220,6 +226,7 @@ function ActivityPanel({
   app: AppDetail;
   onChanged: () => void;
 }) {
+  const perms = usePerms(app.name);
   const current = app.status.releases[app.status.releases.length - 1];
   const previous = app.status.releases[app.status.releases.length - 2];
   const phase = app.status.phase;
@@ -297,7 +304,7 @@ function ActivityPanel({
               size="sm"
               variant="outline"
               className="ml-auto"
-              disabled={rollback.isPending}
+              disabled={rollback.isPending || !perms.deploy}
               onClick={() => rollback.mutate(previous.number)}
             >
               <Undo2 data-icon="inline-start" /> Roll back to v{previous.number}
@@ -419,6 +426,7 @@ function Overview({
   const releases = [...app.status.releases].reverse();
   const current = releases[0];
   const busy = isBusy(app);
+  const perms = usePerms(app.name);
 
   const rollback = useMutation({
     mutationFn: (n: number) => api.rollback(app.namespace, app.name, n),
@@ -534,6 +542,11 @@ function Overview({
 
       <ResourcesCard app={app} onChanged={onChanged} />
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        {perms.members && <MembersCard app={app} />}
+        <AuditCard app={app} />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Releases</CardTitle>
@@ -611,15 +624,22 @@ function Overview({
                         <Button
                           variant="outline"
                           size="xs"
-                          disabled={i === 0 || busy || rollback.isPending}
+                          disabled={
+                            i === 0 ||
+                            busy ||
+                            rollback.isPending ||
+                            !perms.deploy
+                          }
                           title={
-                            i === 0
-                              ? "Current release"
-                              : busy
-                                ? "Wait for the current release to finish rolling out"
-                                : missing.length
-                                  ? `Re-release v${r.number}; its build has no ${missing.join(", ")} process`
-                                  : `Re-release v${r.number}: its build and its config vars`
+                            !perms.deploy
+                              ? "Your role cannot roll back"
+                              : i === 0
+                                ? "Current release"
+                                : busy
+                                  ? "Wait for the current release to finish rolling out"
+                                  : missing.length
+                                    ? `Re-release v${r.number}; its build has no ${missing.join(", ")} process`
+                                    : `Re-release v${r.number}: its build and its config vars`
                           }
                           onClick={() => rollback.mutate(r.number)}
                         >
@@ -1189,6 +1209,7 @@ function BuildStatus({ status }: { status: BuildInfo["status"] }) {
 
 function Config({ app }: { app: AppDetail }) {
   const qc = useQueryClient();
+  const perms = usePerms(app.name);
   const key = ["config-vars", app.namespace, app.name];
   const vars = useQuery({
     queryKey: key,
@@ -1236,10 +1257,12 @@ function Config({ app }: { app: AppDetail }) {
               Changing them creates a release and restarts the processes.
             </CardDescription>
           </div>
-          <BulkDialog
-            onSubmit={(dotenv) => update.mutate({ dotenv })}
-            pending={update.isPending}
-          />
+          {perms.config && (
+            <BulkDialog
+              onSubmit={(dotenv) => update.mutate({ dotenv })}
+              pending={update.isPending}
+            />
+          )}
         </CardHeader>
         <CardContent>
           <Table>
@@ -1316,7 +1339,7 @@ function Config({ app }: { app: AppDetail }) {
                         size="xs"
                         variant="outline"
                         onClick={() => setEditing(v.name)}
-                        disabled={editing === v.name}
+                        disabled={editing === v.name || !perms.config}
                       >
                         Replace
                       </Button>
@@ -1325,7 +1348,7 @@ function Config({ app }: { app: AppDetail }) {
                         variant="ghost"
                         className="text-destructive hover:text-destructive"
                         onClick={() => update.mutate({ unset: [v.name] })}
-                        disabled={update.isPending}
+                        disabled={update.isPending || !perms.config}
                       >
                         Remove
                       </Button>
@@ -1378,7 +1401,12 @@ function Config({ app }: { app: AppDetail }) {
             <Button
               type="submit"
               size="sm"
-              disabled={!validName || update.isPending}
+              disabled={!validName || update.isPending || !perms.config}
+              title={
+                !perms.config
+                  ? "Your role cannot change config vars"
+                  : undefined
+              }
             >
               <Plus data-icon="inline-start" /> Add
             </Button>
@@ -1746,6 +1774,7 @@ function ResourcesCard({
   });
   const list = resources.data ?? [];
   const volumeOf = (name: string) => volumes.data?.find((v) => v.name === name);
+  const perms = usePerms(app.name);
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
@@ -1759,7 +1788,7 @@ function ResourcesCard({
             connection details as config vars.
           </CardDescription>
         </div>
-        <VolumeDialog app={app} onDone={refresh} />
+        {perms.resource && <VolumeDialog app={app} onDone={refresh} />}
       </CardHeader>
       <CardContent>
         {resources.isLoading ? (
@@ -1830,7 +1859,7 @@ function ResourcesCard({
                       {r.attachedTo.length ? r.attachedTo.join(", ") : "-"}
                     </TableCell>
                     <TableCell className="text-right">
-                      {vol && (
+                      {vol && perms.resource && (
                         <div className="flex justify-end gap-1">
                           <VolumeDialog
                             app={app}
@@ -2009,5 +2038,229 @@ function VolumeDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---- members and audit -----------------------------------------------------
+
+const roleHelp: Record<string, string> = {
+  viewer: "sees everything, changes nothing",
+  developer: "deploys, rolls back, scales, edits config vars, opens shells",
+  admin: "also manages members and resources, and can destroy the project",
+};
+
+function MembersCard({ app }: { app: AppDetail }) {
+  const qc = useQueryClient();
+  const members = useQuery({
+    queryKey: ["members", app.namespace],
+    queryFn: () => api.members(app.namespace),
+    retry: false,
+  });
+  const teams = useQuery({
+    queryKey: ["teams"],
+    queryFn: api.teams,
+    retry: false,
+  });
+  const [kind, setKind] = useState<"user" | "team">("user");
+  const [subject, setSubject] = useState("");
+  const [role, setRole] = useState<"viewer" | "developer" | "admin">(
+    "developer",
+  );
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["members", app.namespace] });
+    qc.invalidateQueries({ queryKey: ["me"] });
+  };
+  const add = useMutation({
+    mutationFn: () =>
+      api.addMember(app.namespace, {
+        role,
+        user: kind === "user" ? subject.trim() : undefined,
+        team: kind === "team" ? subject.trim() : undefined,
+      }),
+    onSuccess: () => {
+      toast.success(`${subject.trim()} is now ${role} on ${app.name}`);
+      setSubject("");
+      refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: (m: Member) => api.removeMember(app.namespace, m.name),
+    onSuccess: refresh,
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <UsersRound className="size-4" /> Members
+        </CardTitle>
+        <CardDescription>
+          Who can do what on this project. Platform admins have access
+          everywhere; roles here add to that.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {members.error && (
+          <p className="text-xs text-destructive">
+            {(members.error as Error).message}
+          </p>
+        )}
+        {(members.data ?? []).length === 0 && !members.error && (
+          <p className="text-sm text-muted-foreground">
+            No roles granted yet. Until the cluster has a team or a member,
+            every signed-in user is an administrator.
+          </p>
+        )}
+        {(members.data ?? []).length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Who</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead className="text-right"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.data?.map((m) => (
+                <TableRow key={m.name}>
+                  <TableCell className="font-mono text-xs">
+                    {m.user ?? (
+                      <>
+                        <span className="text-muted-foreground">team </span>
+                        {m.team}
+                      </>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs" title={roleHelp[m.role]}>
+                    {m.role}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="text-destructive"
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(m)}
+                    >
+                      Remove
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <form
+          className="grid gap-2 sm:grid-cols-[auto_1fr_auto_auto]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (subject.trim()) add.mutate();
+          }}
+        >
+          <Select
+            value={kind}
+            onValueChange={(v) => setKind(v as "user" | "team")}
+          >
+            <SelectTrigger className="h-8 w-24 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="user">User</SelectItem>
+              <SelectItem value="team">Team</SelectItem>
+            </SelectContent>
+          </Select>
+          {kind === "team" && (teams.data ?? []).length > 0 ? (
+            <Select value={subject} onValueChange={setSubject}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="team" />
+              </SelectTrigger>
+              <SelectContent>
+                {teams.data?.map((t) => (
+                  <SelectItem key={t.name} value={t.name}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder={kind === "user" ? "email" : "team name"}
+              className="h-8 text-xs"
+              autoComplete="off"
+            />
+          )}
+          <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+            <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="viewer">viewer</SelectItem>
+              <SelectItem value="developer">developer</SelectItem>
+              <SelectItem value="admin">admin</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!subject.trim() || add.isPending}
+          >
+            <Plus data-icon="inline-start" /> Grant
+          </Button>
+        </form>
+        <p className="text-[11px] text-muted-foreground">{roleHelp[role]}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AuditCard({ app }: { app: AppDetail }) {
+  const audit = useQuery({
+    queryKey: ["audit", app.namespace, app.name],
+    queryFn: () => api.audit(app.namespace, app.name, 30),
+    refetchInterval: 15_000,
+    retry: false,
+  });
+  const entries: AuditEntry[] = audit.data ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <ScrollText className="size-4" /> Recent actions
+        </CardTitle>
+        <CardDescription>
+          Who did what on this project, from the dashboard, the API and the CLI.
+          Kept as cluster events (about an hour) until durable storage arrives.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing recorded recently.
+          </p>
+        ) : (
+          <ul className="grid gap-1.5 text-sm">
+            {entries.map((e, i) => (
+              <li key={i} className="flex items-baseline gap-2">
+                <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                  {ago(e.time)}
+                </span>
+                <span className="font-medium">{e.actor}</span>
+                <span className="text-muted-foreground">
+                  {e.action}
+                  {e.target && e.target !== app.name ? ` ${e.target}` : ""}
+                  {e.detail ? ` · ${e.detail}` : ""}
+                </span>
+                <span className="ml-auto text-[10px] uppercase text-muted-foreground">
+                  {e.via}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

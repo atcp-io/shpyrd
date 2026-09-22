@@ -8,6 +8,7 @@ import { AppsPage } from "@/pages/apps";
 import { AppDetailPage } from "@/pages/app-detail";
 import { ClusterPage } from "@/pages/cluster";
 import { UsersPage } from "@/pages/users";
+import { TeamsPage } from "@/pages/teams";
 
 export default function App() {
   const token = useToken();
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/apps/:ns/:name" element={<AppDetailPage />} />
           <Route path="/cluster" element={<ClusterPage />} />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/teams" element={<TeamsPage />} />
           <Route path="*" element={<AppsPage />} />
         </Route>
       </Routes>

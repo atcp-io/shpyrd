@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
@@ -81,6 +82,7 @@ type Server struct {
 	sources *SourceStore
 	prom    *PromClient
 	rp      *relyingParty
+	authz   *authz.Resolver
 }
 
 // New wires the routes.
@@ -129,8 +131,9 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 		opts.Logger.Warn("API authentication disabled: no admin token configured")
 	}
 	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus}
+	s.authz = &authz.Resolver{Client: opts.Apps}
 	s.engine = gin.New()
-	s.engine.Use(gin.Recovery(), s.requestLogger())
+	s.engine.Use(gin.Recovery(), s.requestLogger(), securityHeaders())
 	_ = s.engine.SetTrustedProxies(nil)
 
 	// Sessions and login providers (RFC-0007). Sessions are mirrored into a
@@ -213,41 +216,52 @@ func (s *Server) routes() error {
 	pub.GET("/sources/:name", s.serveSource)
 	// Sign-in (RFC-0007): the issuer redirects back to /api/auth/callback.
 	pub.GET("/auth/providers", s.authProviders)
-	pub.GET("/auth/login", s.authLogin)
-	pub.GET("/auth/callback", s.authCallback)
+	login := newRateLimiter(30).middleware()
+	pub.GET("/auth/login", login, s.authLogin)
+	pub.GET("/auth/callback", login, s.authCallback)
 
+	// Every protected route names the action it performs (RFC-0008); the
+	// caller's roles decide.
 	api := s.engine.Group("/api", s.auth())
 	api.GET("/me", s.me)
 	api.POST("/auth/logout", s.authLogout)
-	api.GET("/namespaces", s.listNamespaces)
-	api.GET("/helm/releases", s.listHelmReleases)
-	api.GET("/cluster", s.clusterSummary)
-	api.GET("/cluster/metrics", s.clusterMetrics)
-	api.GET("/sizes", s.getSizes)
-	api.PUT("/sizes", s.putSizes)
-	api.POST("/sources", s.uploadSource)
+	api.GET("/namespaces", s.require(authz.ClusterView), s.listNamespaces)
+	api.GET("/helm/releases", s.require(authz.ClusterView), s.listHelmReleases)
+	api.GET("/cluster", s.require(authz.ClusterView), s.clusterSummary)
+	api.GET("/cluster/metrics", s.require(authz.ClusterView), s.clusterMetrics)
+	api.GET("/sizes", s.getSizes) // any signed-in user: the size selector needs it
+	api.PUT("/sizes", s.require(authz.ClusterAdmin), s.putSizes)
+	api.POST("/sources", s.uploadSource) // deploys check the project right when the App is updated
+	api.GET("/teams", s.require(authz.ClusterAdmin), s.listTeams)
+	api.POST("/teams", s.require(authz.ClusterAdmin), s.putTeam)
+	api.PUT("/teams/:name", s.require(authz.ClusterAdmin), s.putTeam)
+	api.DELETE("/teams/:name", s.require(authz.ClusterAdmin), s.deleteTeam)
 
-	api.GET("/apps", s.listApps)
-	api.POST("/apps", s.createApp)
-	api.GET("/apps/:ns/:name", s.getApp)
-	api.DELETE("/apps/:ns/:name", s.deleteApp)
-	api.POST("/apps/:ns/:name/deploy", s.deployApp)
-	api.GET("/apps/:ns/:name/logs", s.appLogs)
-	api.GET("/apps/:ns/:name/builds", s.listBuilds)
-	api.GET("/apps/:ns/:name/builds/:build/logs", s.buildLogs)
-	api.GET("/apps/:ns/:name/secrets", s.appSecretKeys)
-	api.PUT("/apps/:ns/:name/secrets", s.updateAppSecrets)
-	api.GET("/apps/:ns/:name/metrics", s.appMetrics)
-	api.POST("/apps/:ns/:name/scale", s.scaleApp)
-	api.POST("/apps/:ns/:name/resize", s.resizeApp)
-	api.POST("/apps/:ns/:name/processes", s.applyProcesses)
-	api.POST("/apps/:ns/:name/rollback", s.rollbackApp)
+	api.GET("/apps", s.listApps) // filtered to visible projects
+	api.POST("/apps", s.require(authz.ClusterCreate), s.createApp)
+	api.GET("/apps/:ns/:name", s.require(authz.ProjectView), s.getApp)
+	api.DELETE("/apps/:ns/:name", s.require(authz.ProjectDestroy), s.deleteApp)
+	api.POST("/apps/:ns/:name/deploy", s.require(authz.ProjectDeploy), s.deployApp)
+	api.GET("/apps/:ns/:name/logs", s.require(authz.ProjectView), s.appLogs)
+	api.GET("/apps/:ns/:name/builds", s.require(authz.ProjectView), s.listBuilds)
+	api.GET("/apps/:ns/:name/builds/:build/logs", s.require(authz.ProjectView), s.buildLogs)
+	api.GET("/apps/:ns/:name/secrets", s.require(authz.ProjectView), s.appSecretKeys)
+	api.PUT("/apps/:ns/:name/secrets", s.require(authz.ProjectConfig), s.updateAppSecrets)
+	api.GET("/apps/:ns/:name/metrics", s.require(authz.ProjectView), s.appMetrics)
+	api.POST("/apps/:ns/:name/scale", s.require(authz.ProjectScale), s.scaleApp)
+	api.POST("/apps/:ns/:name/resize", s.require(authz.ProjectScale), s.resizeApp)
+	api.POST("/apps/:ns/:name/processes", s.require(authz.ProjectScale), s.applyProcesses)
+	api.POST("/apps/:ns/:name/rollback", s.require(authz.ProjectDeploy), s.rollbackApp)
+	api.GET("/apps/:ns/:name/audit", s.require(authz.ProjectView), s.appAudit)
 	// Project resources (RFC-0003/0006): volumes live in the project namespace.
-	api.GET("/projects/:ns/resources", s.listProjectResources)
-	api.GET("/projects/:ns/volumes", s.listVolumes)
-	api.POST("/projects/:ns/volumes", s.createVolume)
-	api.PUT("/projects/:ns/volumes/:name", s.resizeVolume)
-	api.DELETE("/projects/:ns/volumes/:name", s.deleteVolume)
+	api.GET("/projects/:ns/resources", s.require(authz.ProjectView), s.listProjectResources)
+	api.GET("/projects/:ns/volumes", s.require(authz.ProjectView), s.listVolumes)
+	api.POST("/projects/:ns/volumes", s.require(authz.ProjectResource), s.createVolume)
+	api.PUT("/projects/:ns/volumes/:name", s.require(authz.ProjectResource), s.resizeVolume)
+	api.DELETE("/projects/:ns/volumes/:name", s.require(authz.ProjectResource), s.deleteVolume)
+	api.GET("/projects/:ns/members", s.require(authz.ProjectMembers), s.listMembers)
+	api.POST("/projects/:ns/members", s.require(authz.ProjectMembers), s.addMember)
+	api.DELETE("/projects/:ns/members/:name", s.require(authz.ProjectMembers), s.removeMember)
 
 	// Extensions mount their routes and register login providers.
 	deps := s.deps()

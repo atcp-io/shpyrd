@@ -42,6 +42,17 @@ func (r *AppReconciler) processHealth(ctx context.Context, app *shpyrdv1.App, pr
 			switch {
 			case cs.State.Waiting != nil && failingReasons[cs.State.Waiting.Reason]:
 				why = cs.State.Waiting.Reason
+				if m := cs.State.Waiting.Message; strings.Contains(m, "runAsNonRoot") {
+					// Pod security: processes run as non-root (RFC-0008), and
+					// the kubelet can only verify a numeric user.
+					switch {
+					case strings.Contains(m, "non-numeric user"):
+						why = "the image sets a named USER, which Kubernetes cannot verify as non-root: use a numeric USER in the Dockerfile (for example USER 1000)"
+					default:
+						why = "the image runs as root: shpyrd runs processes as a non-root user (add USER 1000 to the Dockerfile)"
+					}
+					break
+				}
 				if t := cs.LastTerminationState.Terminated; t != nil {
 					why += fmt.Sprintf(" (exit %d)", t.ExitCode)
 					if m := shortMessage(t.Message); m != "" {

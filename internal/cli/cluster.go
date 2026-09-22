@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kind"
@@ -104,14 +107,24 @@ func adminToken(ctx context.Context, k *kube.Client) (string, error) {
 }
 
 func newClusterTokenCmd(g *globalFlags) *cobra.Command {
-	return &cobra.Command{
+	var rotate bool
+	cmd := &cobra.Command{
 		Use:   "token",
-		Short: "Print the dashboard/API admin token",
+		Short: "Print the dashboard/API admin token (--rotate replaces it)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			k, err := kube.Connect(kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx})
 			if err != nil {
 				return err
+			}
+			if rotate {
+				tok, err := rotateAdminToken(ctx, k)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(cmd.ErrOrStderr(), "Admin token rotated; the server is restarting with it. Automation using the old token must be updated:")
+				fmt.Fprintln(cmd.OutOrStdout(), tok)
+				return nil
 			}
 			tok, err := adminToken(ctx, k)
 			if err != nil {
@@ -121,6 +134,33 @@ func newClusterTokenCmd(g *globalFlags) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&rotate, "rotate", false, "generate a new token, store it and restart the server")
+	return cmd
+}
+
+// rotateAdminToken replaces the token Secret and restarts the server so it
+// picks the new value up (RFC-0008).
+func rotateAdminToken(ctx context.Context, k *kube.Client) (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	tok := hex.EncodeToString(raw)
+	secrets := k.Kube.CoreV1().Secrets(install.DefaultSystemNamespace)
+	sec, err := secrets.Get(ctx, install.AdminTokenSecretName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("read admin token: %w", err)
+	}
+	sec.Data = map[string][]byte{"token": []byte(tok)}
+	sec.StringData = nil
+	if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
+		return "", fmt.Errorf("update admin token: %w", err)
+	}
+	patch := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"shpyrd.io/restarted-at":%q}}}}}`, time.Now().UTC().Format(time.RFC3339))
+	if _, err := k.Kube.AppsV1().Deployments(install.DefaultSystemNamespace).Patch(ctx, "shpyrd-server", types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil {
+		return "", fmt.Errorf("restart server: %w", err)
+	}
+	return tok, nil
 }
 
 func newClusterDashboardCmd(g *globalFlags) *cobra.Command {

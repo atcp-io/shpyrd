@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/authz"
 )
 
 // VolumeView is a project volume as shown to users.
@@ -105,6 +106,7 @@ func (s *Server) createVolume(c *gin.Context) {
 		}
 		return
 	}
+	s.audit(c, authz.ProjectFromNamespace(vol.Namespace), "volume.create", vol.Name, req.Size)
 	c.JSON(http.StatusCreated, volumeView(*vol))
 }
 
@@ -134,6 +136,7 @@ func (s *Server) resizeVolume(c *gin.Context) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
+	s.audit(c, authz.ProjectFromNamespace(vol.Namespace), "volume.resize", vol.Name, req.Size)
 	c.JSON(http.StatusOK, volumeView(*vol))
 }
 
@@ -154,6 +157,7 @@ func (s *Server) deleteVolume(c *gin.Context) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
+	s.audit(c, authz.ProjectFromNamespace(vol.Namespace), "volume.delete", vol.Name, "")
 	c.Status(http.StatusNoContent)
 }
 

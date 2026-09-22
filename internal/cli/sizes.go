@@ -268,6 +268,7 @@ func newResizeCmd(g *globalFlags) *cobra.Command {
 				parts = append(parts, proc+"="+size)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Resizing %s: %s (new release, rolling restart)\n", name, strings.Join(parts, " "))
+			ac.audit(ctx, name, "resize", name, strings.Join(args, " "))
 			return nil
 		},
 	}

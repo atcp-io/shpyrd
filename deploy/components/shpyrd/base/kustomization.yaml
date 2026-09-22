@@ -7,6 +7,8 @@ labels:
 resources:
   - crds/shpyrd.io_apps.yaml
   - crds/shpyrd.io_volumes.yaml
+  - crds/shpyrd.io_teams.yaml
+  - crds/shpyrd.io_projectmembers.yaml
   - rbac.yaml
   - storage.yaml
   - server.yaml

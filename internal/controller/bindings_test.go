@@ -7,6 +7,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -141,8 +142,23 @@ func TestEnsureProjectLabel(t *testing.T) {
 	r, c := newTestReconciler(t, app, ns, foreign)
 	runReconcile(t, r, app)
 	_ = c.Get(context.Background(), types.NamespacedName{Name: "app-demo"}, ns)
-	if ns.Labels[shpyrdv1.LabelProject] != "demo" {
+	if ns.Labels[shpyrdv1.LabelProject] != "demo" || ns.Labels["pod-security.kubernetes.io/warn"] != "restricted" {
 		t.Errorf("namespace labels = %v", ns.Labels)
+	}
+	np := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-demo", Name: IsolationPolicyName}, np); err != nil {
+		t.Fatalf("network policy: %v", err)
+	}
+	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].From) != 3 || len(np.Spec.Egress) != 1 || len(np.Spec.PolicyTypes) != 2 {
+		t.Errorf("policy = %+v", np.Spec)
+	}
+	d := &appsv1.Deployment{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-demo", Name: "demo-web"}, d); err != nil {
+		t.Fatal(err)
+	}
+	sc := d.Spec.Template.Spec.Containers[0].SecurityContext
+	if sc == nil || sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot || sc.Capabilities == nil || len(sc.Capabilities.Drop) != 1 {
+		t.Errorf("hardened container context missing: %+v", sc)
 	}
 	other := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "app-other"}, Spec: shpyrdv1.AppSpec{Image: "x"}}
 	if err := c.Create(context.Background(), other); err != nil {

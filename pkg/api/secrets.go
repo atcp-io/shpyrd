@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -129,6 +130,7 @@ func (s *Server) updateAppSecrets(c *gin.Context) {
 			err = s.apps.Update(ctx, sec)
 		}
 		if err == nil {
+			s.audit(c, app.Name, "config.set", app.Name, configChangeDetail(req))
 			c.JSON(http.StatusOK, ConfigVarsResponse{Vars: configvars.List(sec)})
 			return
 		}
@@ -138,4 +140,24 @@ func (s *Server) updateAppSecrets(c *gin.Context) {
 		}
 	}
 	abort(c, http.StatusConflict, errors.New("too many conflicts"))
+}
+
+// configChangeDetail names the variables touched, never their values.
+func configChangeDetail(req ConfigVarsUpdate) string {
+	var parts []string
+	keys := make([]string, 0, len(req.Set))
+	for k := range req.Set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		parts = append(parts, "set "+strings.Join(keys, ", "))
+	}
+	if len(req.Unset) > 0 {
+		parts = append(parts, "unset "+strings.Join(req.Unset, ", "))
+	}
+	if req.Dotenv != "" {
+		parts = append(parts, "bulk update")
+	}
+	return strings.Join(parts, "; ")
 }

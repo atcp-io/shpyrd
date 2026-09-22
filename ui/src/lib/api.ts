@@ -21,6 +21,37 @@ export type Identity = {
   groups?: string[];
   provider: string;
   admin: boolean;
+  roles?: {
+    platform?: "platform-admin" | "platform-viewer" | "";
+    projects?: Record<string, "viewer" | "developer" | "admin">;
+    enforced: boolean;
+  };
+};
+
+export type Team = {
+  name: string;
+  description?: string;
+  members: string[];
+  groups: string[];
+  platformRole?: string;
+};
+
+export type Member = {
+  name: string;
+  project: string;
+  role: "viewer" | "developer" | "admin";
+  user?: string;
+  team?: string;
+};
+
+export type AuditEntry = {
+  time: string;
+  actor: string;
+  action: string;
+  target?: string;
+  detail?: string;
+  from?: string;
+  via: string;
 };
 
 export type LocalUser = { email: string; name?: string; createdAt: string };
@@ -336,6 +367,23 @@ export const api = {
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   loginUrl: (provider: string, next: string) =>
     `/api/auth/login?provider=${encodeURIComponent(provider)}&next=${encodeURIComponent(next)}`,
+  teams: () => request<Team[]>("/api/teams"),
+  putTeam: (body: Team) => request<Team>("/api/teams", json("POST", body)),
+  deleteTeam: (name: string) =>
+    request<void>(`/api/teams/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
+  members: (ns: string) => request<Member[]>(`/api/projects/${ns}/members`),
+  addMember: (
+    ns: string,
+    body: { role: string; user?: string; team?: string },
+  ) => request<Member>(`/api/projects/${ns}/members`, json("POST", body)),
+  removeMember: (ns: string, name: string) =>
+    request<void>(`/api/projects/${ns}/members/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
+  audit: (ns: string, name: string, limit = 50) =>
+    request<AuditEntry[]>(`${app(ns, name)}/audit?limit=${limit}`),
   users: () => request<LocalUser[]>("/api/users"),
   createUser: (body: { email: string; name?: string; password: string }) =>
     request<LocalUser>("/api/users", json("POST", body)),

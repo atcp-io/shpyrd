@@ -147,8 +147,42 @@ shpyrd users list | passwd | rm
 ```
 
 The dashboard then offers "Sign in with email and password" next to the admin
-token, which stays for automation (`shpyrd cluster dashboard`, CI). Every
-account is an administrator until teams and roles arrive (rfcs/0008).
+token, which stays for automation (`shpyrd cluster dashboard`, CI; rotate it
+with `shpyrd cluster token --rotate`).
+
+## Teams, roles and security
+
+Users belong to **teams**; projects grant **roles** to users or teams
+(rfcs/0008): `viewer` sees everything and changes nothing, `developer` deploys,
+rolls back, scales, edits config vars and opens shells, `admin` also manages
+members and resources and can destroy the project. Two platform roles exist:
+`platform-admin` (everything, including the cluster page, extensions, teams and
+users) and `platform-viewer` (read-only everywhere). The API refuses what the
+role cannot do with a plain explanation, the dashboard hides it beforehand, and
+a controller mirrors the grants into Kubernetes RBAC (`RoleBinding`s per
+project, `ClusterRoleBinding`s for platform roles) so `kubectl` users
+authenticated by the same identity provider see the same.
+
+```sh
+shpyrd teams create platform --platform-role platform-admin --member you@example.com
+shpyrd teams create web --member ada@example.com --group engineering   # groups: your IdP's groups claim
+shpyrd members add shop --team web --role developer
+shpyrd members add shop --user guest@example.com --role viewer
+shpyrd members list shop
+```
+
+Until the first team or member exists every signed-in user is a platform admin,
+so a fresh cluster stays usable; the dashboard says so. The admin token is
+always a platform admin.
+
+Hardening that needs no extension: a `NetworkPolicy` per project (ingress only
+from the project itself, the ingress controller and monitoring; egress to the
+project, platform namespaces and the internet, never to other projects), the
+`restricted` Pod Security Standard in warn/audit mode with app containers run
+non-root without capabilities (Dockerfiles need a numeric `USER`), security
+headers and a strict CSP on the dashboard, rate-limited sign-in, and an audit
+trail of every mutation from the API and the CLI (`{who, what, target, when,
+from}` as Kubernetes Events, shown on the project page).
 
 ## Instance sizes
 
@@ -177,6 +211,7 @@ pkg/kind              kind cluster provisioning
 pkg/localca           development root CA
 pkg/configvars        config vars (names + metadata, values are write-only)
 pkg/ext               extension interfaces; pkg/ext/all the registry; pkg/ext/authlocal the first extension
+pkg/authz             roles and actions (RFC-0008); pkg/audit the audit trail
 pkg/api               HTTP API, OIDC relying party and sessions, dashboard serving
 deploy/               components and profiles embedded in the binary (incl. extension components such as dex)
 ui/                   dashboard (Vite + React 19 + Tailwind 4 + shadcn/ui)

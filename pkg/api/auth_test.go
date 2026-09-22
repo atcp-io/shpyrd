@@ -235,3 +235,24 @@ func doCookie(t *testing.T, s *Server, method, path, body, sid, csrf string) *ht
 	s.Handler().ServeHTTP(rec, req)
 	return rec
 }
+
+func TestRateLimiter(t *testing.T) {
+	rl := newRateLimiter(3)
+	now := time.Now()
+	rl.now = func() time.Time { return now }
+	for i := 0; i < 3; i++ {
+		if !rl.allow("a") {
+			t.Fatalf("attempt %d should pass", i)
+		}
+	}
+	if rl.allow("a") {
+		t.Error("burst exhausted")
+	}
+	if !rl.allow("b") {
+		t.Error("other clients are independent")
+	}
+	now = now.Add(time.Minute)
+	if !rl.allow("a") {
+		t.Error("tokens refill over time")
+	}
+}

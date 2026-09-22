@@ -10,7 +10,8 @@ FROM alpine:3.21 AS runtime
 ARG BUILT_WITH=buildkit
 ENV BUILT_WITH=$BUILT_WITH
 RUN adduser -D -u 1000 app
-USER app
+# Numeric: Kubernetes verifies non-root users by uid (shpyrd runs every process as non-root).
+USER 1000
 COPY --from=build /out/hello /usr/local/bin/hello
 EXPOSE 8080
 CMD ["hello", "web"]

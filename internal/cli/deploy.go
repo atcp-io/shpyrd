@@ -152,6 +152,7 @@ The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 			if err != nil {
 				return err
 			}
+			ac.audit(ctx, name, "deploy", name, firstNonEmpty(note, "source deploy"))
 			if noWait {
 				fmt.Fprintln(out, "Deploy requested. Follow with `shpyrd projects info", name+"`.")
 				return nil

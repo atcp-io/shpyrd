@@ -7,6 +7,9 @@ vars:
   SHPYRD_SERVER_IMAGE: ghcr.io/atcp-io/shpyrd-server:latest
   SHPYRD_HTTP_PORT: "80"
   SHPYRD_HTTPS_PORT: "443"
+  # kind's default pod network; project network policies exclude it from
+  # the "internet" egress rule so projects cannot reach each other.
+  SHPYRD_POD_CIDR: 10.244.0.0/16
 runlevels:
   # CRD-only components first: later charts create ServiceMonitors.
   - name: rc0

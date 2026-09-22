@@ -47,6 +47,8 @@ spec:
               value: ${SHPYRD_AUTH_URL}
             - name: SHPYRD_EXTENSIONS
               value: "${SHPYRD_EXTENSIONS}"
+            - name: SHPYRD_POD_CIDR
+              value: "${SHPYRD_POD_CIDR}"
             - name: SHPYRD_CLUSTER_ISSUER
               value: shpyrd-ca
             - name: SHPYRD_DATA_DIR

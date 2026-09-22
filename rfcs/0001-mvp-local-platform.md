@@ -296,6 +296,8 @@ shpyrd releases  | rollback [n]
 shpyrd volumes   create <name> --size 5Gi [--shared] | list | resize | delete   (RFC-0006)
 shpyrd extensions list | enable <name> | disable <name>                          (RFC-0002)
 shpyrd users     add <email> | list | passwd <email> | rm <email>               (RFC-0007, auth-local)
+shpyrd teams     create <name> [--member e] [--group g] [--platform-role r] | list | add | remove | delete   (RFC-0008)
+shpyrd members   add <project> --user e | --team t --role viewer|developer|admin | list [project] | remove   (RFC-0008)
 shpyrd open
 ```
 

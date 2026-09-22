@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -126,6 +128,7 @@ func (s *Server) resizeApp(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	s.audit(c, app.Name, "resize", app.Name, req.Process+"="+req.Size)
 	c.JSON(http.StatusOK, summarize(app))
 }
 
@@ -199,5 +202,26 @@ func (s *Server) applyProcesses(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	s.audit(c, app.Name, "processes", app.Name, processChangesDetail(req.Processes))
 	c.JSON(http.StatusOK, summarize(app))
+}
+
+// processChangesDetail summarises a batch of process changes for the audit trail.
+func processChangesDetail(changes map[string]ProcessChange) string {
+	names := make([]string, 0, len(changes))
+	for n := range changes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var parts []string
+	for _, n := range names {
+		ch := changes[n]
+		if ch.Replicas != nil {
+			parts = append(parts, fmt.Sprintf("%s=%d", n, *ch.Replicas))
+		}
+		if ch.Size != nil {
+			parts = append(parts, fmt.Sprintf("%s:%s", n, *ch.Size))
+		}
+	}
+	return strings.Join(parts, " ")
 }

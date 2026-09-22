@@ -174,6 +174,7 @@ func mutateEnvSecret(g *globalFlags, cmd *cobra.Command, appName string, set map
 		names = append(names, v.Name)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Config vars for %s: %s\n", name, strings.Join(names, ", "))
+	ac.audit(ctx, name, "config.set", name, configDetail(set, unset))
 	if app.Status.Image != "" {
 		fmt.Fprintln(cmd.OutOrStdout(), "Restarting processes with the new configuration...")
 	}
@@ -242,6 +243,7 @@ func newScaleCmd(g *globalFlags) *cobra.Command {
 				parts = append(parts, fmt.Sprintf("%s=%d", n, r))
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Scaling %s: %s\n", name, strings.Join(parts, " "))
+			ac.audit(ctx, name, "scale", name, strings.Join(args, " "))
 			return nil
 		},
 	}
@@ -391,6 +393,7 @@ config vars are restored. The source configuration is kept; the next
 				return fmt.Errorf("a release is still rolling out (%s); wait for it or pass --force", firstNonEmpty(app.Status.Message, app.Status.Phase))
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "==> Rolling back %s to v%d (build %s, config as of v%d)\n", name, target.Number, digest(target.Image), target.Number)
+			ac.audit(ctx, name, "rollback", name, fmt.Sprintf("to v%d", target.Number))
 			img := target.Image
 			note := fmt.Sprintf("Rollback to v%d", target.Number)
 			sizesOf := target.Sizes
@@ -477,4 +480,21 @@ func openBrowser(url string) error {
 		c = exec.Command("xdg-open", url)
 	}
 	return c.Start()
+}
+
+// configDetail names the variables touched by a config change, never values.
+func configDetail(set map[string]string, unset []string) string {
+	var parts []string
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		parts = append(parts, "set "+strings.Join(keys, ", "))
+	}
+	if len(unset) > 0 {
+		parts = append(parts, "unset "+strings.Join(unset, ", "))
+	}
+	return strings.Join(parts, "; ")
 }

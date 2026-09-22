@@ -17,6 +17,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/authz"
 )
 
 // AppSummary is the list view of an App. Image references are reduced to
@@ -194,6 +195,9 @@ func (s *Server) listApps(c *gin.Context) {
 	}
 	out := make([]AppSummary, 0, len(list.Items))
 	for i := range list.Items {
+		if !s.canView(c, authz.ProjectFromNamespace(list.Items[i].Namespace)) {
+			continue
+		}
 		out = append(out, summarize(&list.Items[i]))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -267,7 +271,23 @@ func (s *Server) createApp(c *gin.Context) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
+	s.audit(c, app.Name, "project.create", app.Name, "")
 	c.JSON(http.StatusCreated, summarize(app))
+}
+
+// deployDetail summarises a deploy request for the audit trail.
+func deployDetail(req DeployRequest) string {
+	if req.Image != "" {
+		return "image " + req.Image
+	}
+	if req.Git != nil {
+		d := req.Git.URL + "@" + firstNonEmpty(req.Git.Revision, "main")
+		if req.Strategy != "" {
+			d += " (" + req.Strategy + ")"
+		}
+		return d
+	}
+	return ""
 }
 
 // DeployRequest points the app at a new source (or prebuilt image).
@@ -320,6 +340,7 @@ func (s *Server) deployApp(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	s.audit(c, app.Name, "deploy", app.Name, deployDetail(req))
 	c.JSON(http.StatusAccepted, summarize(app))
 }
 
@@ -334,6 +355,7 @@ func (s *Server) deleteApp(c *gin.Context) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
+	s.audit(c, app.Name, "project.destroy", app.Name, "")
 	c.JSON(http.StatusAccepted, gin.H{"status": "deleting"})
 }
 
@@ -370,6 +392,7 @@ func (s *Server) scaleApp(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	s.audit(c, app.Name, "scale", app.Name, fmt.Sprintf("%s=%d", req.Process, *req.Replicas))
 	c.JSON(http.StatusOK, summarize(app))
 }
 
@@ -408,6 +431,7 @@ func (s *Server) rollbackApp(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	s.audit(c, app.Name, "rollback", app.Name, fmt.Sprintf("to v%d", req.Release))
 	c.JSON(http.StatusOK, summarize(app))
 }
 

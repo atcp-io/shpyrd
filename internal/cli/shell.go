@@ -70,6 +70,7 @@ process type with --process; the default is the first web instance.`,
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (%s)...\n", label, pod.Name)
+			ac.audit(ctx, name, "shell", label, strings.Join(args, " "))
 			command := args
 			if len(command) == 0 {
 				command = []string{"bash"}
@@ -349,10 +350,12 @@ exits (like 'heroku run'). Use it for migrations, consoles and scripts.
 				return fmt.Errorf("start one-off instance: %w", err)
 			}
 			if detach {
+				ac.audit(ctx, name, "run", created.Name, strings.Join(args, " ")+" (detached)")
 				fmt.Fprintf(cmd.OutOrStdout(), "Started %s (follow with `shpyrd logs --process run --project %s`)\n", created.Name, name)
 				return nil
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "Running on %s (%s)...\n", created.Name, sizeLabel(size, catalog))
+			ac.audit(ctx, name, "run", created.Name, strings.Join(args, " "))
 			defer func() {
 				_ = ac.k.Kube.CoreV1().Pods(app.Namespace).Delete(context.Background(), created.Name, metav1.DeleteOptions{GracePeriodSeconds: ptr.To[int64](5)})
 			}()
@@ -440,7 +443,13 @@ func runPod(app *shpyrdv1.App, image string, command []string, res corev1.Resour
 					{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.EnvSecretName()}, Optional: ptr.To(true)}},
 					{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.BindingsSecretName()}, Optional: ptr.To(true)}},
 				},
-				SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: ptr.To(false)},
+				// Same hardening as deployed processes (RFC-0008).
+				SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: ptr.To(false),
+					RunAsNonRoot:             ptr.To(true),
+					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+					SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+				},
 			}},
 		},
 	}

@@ -48,8 +48,17 @@ rules:
     resources: [horizontalpodautoscalers]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [networking.k8s.io]
-    resources: [ingresses]
+    resources: [ingresses, networkpolicies]
     verbs: [get, list, watch, create, update, patch, delete]
+  # The membership controller mirrors project roles into RBAC (RFC-0008);
+  # it may only bind the shpyrd roles below.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, clusterrolebindings]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    verbs: [bind]
+    resourceNames: [shpyrd-project-viewer, shpyrd-project-developer, shpyrd-project-admin, shpyrd-platform-viewer, shpyrd-platform-admin]
   - apiGroups: [cert-manager.io]
     resources: [certificates, issuers, clusterissuers]
     verbs: [get, list, watch, create, update, patch, delete]
@@ -81,3 +90,91 @@ subjects:
   - kind: ServiceAccount
     name: shpyrd-server
     namespace: ${SHPYRD_SYSTEM_NS}
+---
+# Project roles mirrored into Kubernetes RBAC (RFC-0008). The membership
+# controller binds these per project namespace to the users and groups that
+# hold the role, so kubectl users authenticated by the same identity provider
+# see what the dashboard shows them. Nothing here exceeds what the server
+# itself may do, and config var Secrets stay write-only (no get/list).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-project-viewer
+rules:
+  - apiGroups: [shpyrd.io]
+    resources: [apps, volumes]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods, pods/log, pods/status, services, events, configmaps, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [kpack.io]
+    resources: [images, builds]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-project-developer
+rules:
+  - apiGroups: [shpyrd.io]
+    resources: [apps]
+    verbs: [update, patch]
+  - apiGroups: [""]
+    resources: [pods/exec, pods/attach]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, delete] # one-off instances (shpyrd run)
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, update, patch] # config vars: write-only, no get or list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-project-admin
+rules:
+  - apiGroups: [shpyrd.io]
+    resources: [apps, volumes]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [delete]
+---
+# Platform roles: cluster-wide read of the project model and, for admins,
+# the membership objects.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-platform-viewer
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [shpyrd.io]
+    resources: [teams, projectmembers]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: shpyrd-platform-admin
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, delete]
+  - apiGroups: [shpyrd.io]
+    resources: [teams, projectmembers]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, clusterrolebindings]
+    verbs: [get, list, watch]

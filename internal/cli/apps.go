@@ -257,6 +257,7 @@ func newAppsDestroyCmd(g *globalFlags) *cobra.Command {
 			if err := ac.c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 				return err
 			}
+			ac.auditCluster(ctx, "project.destroy", name, "")
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleting %s...\n", ns.Name)
 			return nil
 		},

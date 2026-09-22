@@ -1,0 +1,83 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: teams.shpyrd.io
+spec:
+  group: shpyrd.io
+  names:
+    kind: Team
+    listKind: TeamList
+    plural: teams
+    singular: team
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.members
+      name: Members
+      type: string
+    - jsonPath: .spec.platformRole
+      name: Platform role
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Team is a group of users; projects grant roles to teams or to
+          users.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              TeamSpec groups users. Members are matched by email; Groups are names of
+              the identity provider's groups claim, so a company directory group maps
+              to a team without listing people twice.
+            properties:
+              description:
+                type: string
+              groups:
+                description: Groups are identity provider group names whose users
+                  belong to the team.
+                items:
+                  type: string
+                type: array
+              members:
+                description: Members are user emails.
+                items:
+                  type: string
+                type: array
+              platformRole:
+                description: |-
+                  PlatformRole grants a cluster-wide role to the team: platform-admin
+                  or platform-viewer.
+                enum:
+                - platform-admin
+                - platform-viewer
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

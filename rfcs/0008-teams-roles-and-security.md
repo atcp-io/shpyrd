@@ -1,6 +1,6 @@
 # RFC-0008 Teams, roles and security
 
-**Status:** provisional
+**Status:** implemented (roles, RBAC mirror, isolation, audit); quotas and supply chain pending
 
 **Creation date:** 2026-09-22
 
@@ -100,3 +100,27 @@ platform-wide roles exist besides.
 ## Implementation History
 
 - 2026-09-22: RFC written; phase D.
+- 2026-09-22: Implemented. `pkg/authz` holds the static role table (`Roles.Can(action,
+  project)`) and resolves roles from cluster-scoped `Team` (members, identity-provider
+  groups, optional platform role) and `ProjectMember` (project, role, user or team)
+  objects, cached for five seconds. Bootstrap rule: with no Team or ProjectMember every
+  signed-in user is a platform admin, and the admin token always is. Every protected API
+  route names its action; refusals are 403 with the role and the verb; project lists are
+  filtered; `/api/me` carries the roles the dashboard hides actions by. `/api/teams` and
+  `/api/projects/{ns}/members` plus `shpyrd teams` and `shpyrd members`. The membership
+  controller mirrors grants into `RoleBinding`s (`shpyrd-viewer|developer|admin` to the
+  fixed ClusterRoles `shpyrd-project-*`) per project namespace and `ClusterRoleBinding`s
+  for platform roles, subjects being user emails and group names, so an API server
+  configured with the same OIDC issuer gives kubectl users the same view. Hardening: a
+  `NetworkPolicy` per project (ingress from the project, ingress-nginx and monitoring;
+  egress to the project, non-project namespaces and the internet minus the pod CIDR when
+  known), `restricted` PSS labels in warn/audit mode, app and one-off containers non-root
+  with all capabilities dropped and RuntimeDefault seccomp (named Dockerfile users are
+  refused with an explanation: the kubelet verifies numeric users only), security headers
+  and a strict CSP, a per-client rate limit on sign-in, `shpyrd cluster token --rotate`.
+  Audit: API mutations and CLI actions are recorded as Kubernetes Events with structured
+  annotations (`{who, what, target, detail, from, via}`), listed by
+  `GET /api/apps/{ns}/{name}/audit` and on the project page. Not done: ResourceQuota and
+  LimitRange (they need a plan model; a LimitRange default would starve build pods),
+  etcd encryption, cosign, SBOM/CVE reporting, per-user API tokens, and enforce-mode PSS
+  (BuildKit build pods need seccomp/AppArmor exemptions).

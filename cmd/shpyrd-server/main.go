@@ -173,6 +173,7 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 			IngressClass:    os.Getenv("SHPYRD_INGRESS_CLASS"),
 			SystemNamespace: k.Namespace,
 			BuildKitImage:   os.Getenv("SHPYRD_BUILDKIT_IMAGE"),
+			PodCIDR:         os.Getenv("SHPYRD_POD_CIDR"),
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
@@ -181,6 +182,10 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	volumes := &controller.VolumeReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("shpyrd")}
 	if err := volumes.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("volume controller: %w", err)
+	}
+	memberships := &controller.MembershipReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	if err := memberships.SetupWithManager(mgr); err != nil {
+		return nil, fmt.Errorf("membership controller: %w", err)
 	}
 	extensions, _ := all.Enabled(os.Getenv("SHPYRD_EXTENSIONS"))
 	deps := ext.Deps{Kube: k, Client: mgr.GetClient(), SystemNamespace: k.Namespace, Vars: os.Getenv}

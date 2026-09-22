@@ -52,6 +52,8 @@ func New() *cobra.Command {
 	root.AddCommand(newSizesCmd(g))
 	root.AddCommand(newVolumesCmd(g))
 	root.AddCommand(newExtensionsCmd(g))
+	root.AddCommand(newTeamsCmd(g))
+	root.AddCommand(newMembersCmd(g))
 	// Commands contributed by extensions (they explain themselves when the
 	// extension is not enabled on the cluster).
 	for _, x := range all.All() {
