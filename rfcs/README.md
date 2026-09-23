@@ -1,36 +1,95 @@
 # RFCs
 
-Design changes to shpyrd are proposed as short RFCs before they are built.
+Design changes to shpyrd are proposed as short RFCs before they are built. Every RFC is
+sized to be implemented completely; when a feature is too large, it is split and the parts
+declare what they depend on.
 
 ## Process
 
 1. Discuss the idea in a GitHub issue or on Discord.
 2. Copy `0000-template.md` to `NNNN-title.md`, fill it in and open a pull request.
-3. Address feedback with additive commits; the RFC's status moves from `provisional` to
-   `implementable` when maintainers agree, and to `implemented` when the code lands.
-4. Keep the Implementation History section current.
+3. Address feedback with additive commits; the status moves from `provisional` to
+   `implementable` when the open questions are settled.
+4. To implement one: set **Owner** and the status to `in progress` in a first commit, keep
+   the Implementation History current, and set `implemented` when it lands (partial scope
+   spelled out after the word).
+
+## Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `provisional` | A proposal. The Open questions section lists what must be settled, each with a default that applies when nobody objects. |
+| `implementable` | Decided; anyone can pick it up. |
+| `in progress` | Being implemented; the Owner field names who and where. |
+| `implemented` | Merged. Partial scope, if any, follows the word. |
+| `deferred`, `rejected`, `withdrawn`, `replaced` | Not going ahead (as is). |
 
 ## Index
 
-| RFC | Title | Status |
-| --- | --- | --- |
-| [0001](0001-mvp-local-platform.md) | MVP: local platform, App CRD and CLI | implemented |
-| [0002](0002-extension-model.md) | Extension model | implemented (framework) |
-| [0003](0003-projects-and-resources.md) | Projects and resources | implemented |
-| [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented |
-| [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI) |
-| [0006](0006-persistent-volumes.md) | Persistent volumes | implemented (RWO) |
-| [0007](0007-authentication.md) | Authentication (OIDC, Dex, Okta) | implemented (3.1 local users) |
-| [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented (quotas, supply chain pending) |
-| [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented (backups pending) |
-| [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented (HA pending) |
+| RFC | Title | Status | Depends on |
+| --- | --- | --- | --- |
+| [0001](0001-mvp-local-platform.md) | MVP: local platform, App CRD and CLI | implemented | |
+| [0002](0002-extension-model.md) | Extension model | implemented (framework) | |
+| [0003](0003-projects-and-resources.md) | Projects and resources | implemented | |
+| [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented | |
+| [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI); browser terminal → 0026 | |
+| [0006](0006-persistent-volumes.md) | Persistent volumes | implemented (RWO); shared → 0041 | |
+| [0007](0007-authentication.md) | Authentication (OIDC, Dex) | implemented (3.1 local users); 3.2 → 0014, 3.3 → 0012 | |
+| [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented; quotas → 0042, enforce PSS → 0043, supply chain → 0044, tokens → 0031, durable audit → 0025 | |
+| [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented; backups → 0038, pooling/rotation → 0039 | |
+| [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented; HA → 0040 | |
+| [0011](0011-project-identity-and-product-language.md) | Project identity and product language | provisional | |
+| [0012](0012-sign-in-experience.md) | Sign-in experience (own login page, Okta/OIDC, GitHub/Google) | provisional | 0007 |
+| [0013](0013-email-delivery.md) | Email delivery (`mail` extension) | provisional | 0002 |
+| [0014](0014-account-lifecycle.md) | Account lifecycle (invites, reset, verification, lockout) | provisional | 0012, 0013 |
+| [0015](0015-grafana-sign-in.md) | Grafana sign-in through shpyrd | provisional | 0007 |
+| [0016](0016-global-config-vars.md) | Global config vars | provisional | 0003 |
+| [0017](0017-git-credentials.md) | Git credentials for private repositories | provisional | 0004 |
+| [0018](0018-repository-monitoring.md) | Repository monitoring and auto-deploy | provisional | 0017 |
+| [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | provisional | 0001 |
+| [0020](0020-maintenance-mode.md) | Maintenance mode | provisional | 0001 |
+| [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implementable | |
+| [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) | provisional | 0046 |
+| [0023](0023-log-drains.md) | Log drains (syslog, HTTPS) | provisional | 0022 |
+| [0024](0024-runs-and-scheduled-tasks.md) | Run history and scheduled tasks | provisional | 0005, 0022 |
+| [0025](0025-audit-trail-v2.md) | Audit trail v2 (durable, cluster-wide) | provisional | 0008, 0022 |
+| [0026](0026-web-terminal.md) | Web terminal | implementable | 0005, 0008 |
+| [0027](0027-application-metrics-v2.md) | Application metrics v2 | implementable | 0011 |
+| [0028](0028-resource-pages-and-metrics.md) | Resource detail pages and metrics | provisional | 0006, 0009, 0010 |
+| [0029](0029-opentelemetry.md) | OpenTelemetry | provisional | 0016 |
+| [0030](0030-notifications.md) | Notifications (webhook, Slack, email) | provisional | 0013 (email) |
+| [0031](0031-api-tokens.md) | Per-user API tokens | implementable | 0008 |
+| [0032](0032-mcp-connector.md) | MCP connector | provisional | 0031 (remote) |
+| [0033](0033-workspaces.md) | Workspaces | provisional (blocked on definition) | 0008, 0016 |
+| [0034](0034-domains-and-certificates.md) | Domains and certificates | provisional | 0011 |
+| [0035](0035-aws-profile.md) | AWS profile | provisional | 0034, 0045 |
+| [0036](0036-dns-providers-and-exposure.md) | DNS providers and load balancer exposure | provisional | 0034, 0035 |
+| [0037](0037-platform-backup-and-restore.md) | Platform backup and restore | provisional | 0046 |
+| [0038](0038-postgres-backups-and-pitr.md) | Postgres backups and PITR | implementable | 0009, 0046 |
+| [0039](0039-postgres-pooling-rotation-resize.md) | Postgres pooling, rotation and resize | implementable | 0009 |
+| [0040](0040-redis-ha-and-exporter.md) | Redis high availability and metrics exporter | provisional | 0010 |
+| [0041](0041-shared-volumes.md) | Shared volumes (`storage-rwx`) | implementable | 0006 |
+| [0042](0042-project-quotas.md) | Project quotas | implementable | 0008 |
+| [0043](0043-builds-namespace-and-pod-security.md) | Builds namespace and enforce-mode Pod Security | implementable | 0004, 0008 |
+| [0044](0044-supply-chain.md) | Supply chain (pins, signing, SBOM, CVEs) | implementable | 0045 |
+| [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implementable | |
+| [0046](0046-object-storage.md) | Object storage extension | implementable | 0002 |
 
 ## Phases
 
-| Phase | RFCs | Scope |
+| Phase | RFCs | State |
 | --- | --- | --- |
-| B | 0005, 0004, 0006, 0003 | shell and one-off commands; Dockerfile builds; RWO volumes; project resources and bindings |
-| C | 0002, 0007 | extension framework; OIDC relying party; local users (Dex) |
-| D | 0008, 0007 | teams and roles, RBAC mirror, isolation, audit; Okta and email/password |
-| E | 0009, 0010, 0006 | Postgres, Redis/Valkey, shared (RWX) storage |
-| F | 0001 roadmap | AWS profile, published binaries |
+| A | 0001 | done |
+| B | 0003, 0004, 0005, 0006 | done |
+| C | 0002, 0007 | done |
+| D | 0008 | done |
+| E | 0009, 0010 | done |
+| F | 0045, 0011, 0012, 0016, 0019, 0046 | next: foundations (binaries, identity, sign-in, globals, health, object storage) |
+| G | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | delivery and logs |
+| H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
+| I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
+| J | 0034, 0035, 0036, 0037 | domains, cloud, backup |
+| K | 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0033 | data stores, security, workspaces |
+
+Anyone may pick an `implementable` RFC in any phase; the phases only suggest an order that
+keeps dependencies satisfied.

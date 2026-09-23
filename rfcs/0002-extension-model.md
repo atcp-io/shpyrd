@@ -1,6 +1,6 @@
 # RFC-0002 Extension model
 
-**Status:** implemented (framework); disable-while-in-use and per-extension RBAC per component
+**Status:** implemented (framework); schema-driven forms → RFC-0028
 
 **Creation date:** 2026-09-22
 

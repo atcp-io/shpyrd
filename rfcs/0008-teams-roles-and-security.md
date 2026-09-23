@@ -1,6 +1,6 @@
 # RFC-0008 Teams, roles and security
 
-**Status:** implemented (roles, RBAC mirror, isolation, audit); quotas and supply chain pending
+**Status:** implemented (roles, RBAC mirror, isolation, audit); quotas → RFC-0042, enforce-mode PSS → RFC-0043, supply chain → RFC-0044, API tokens → RFC-0031, durable audit → RFC-0025
 
 **Creation date:** 2026-09-22
 

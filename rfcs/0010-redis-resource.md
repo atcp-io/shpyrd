@@ -1,6 +1,6 @@
 # RFC-0010 Redis resource
 
-**Status:** implemented (single instance); HA via operator pending
+**Status:** implemented (single instance); HA and exporter → RFC-0040
 
 **Creation date:** 2026-09-22
 

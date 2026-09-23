@@ -1,6 +1,6 @@
 # RFC-0009 Postgres resource
 
-**Status:** implemented (create, attach, psql, HA instances); backups, pooling and rotation pending
+**Status:** implemented (create, attach, psql, HA instances); backups → RFC-0038, pooling/rotation/resize → RFC-0039
 
 **Creation date:** 2026-09-22
 

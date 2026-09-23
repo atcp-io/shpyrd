@@ -7,9 +7,18 @@ The title must be short and descriptive.
 **Status:** provisional
 
 <!--
-Status represents the current state of the RFC.
-Must be one of `provisional`, `implementable`, `implemented`, `deferred`, `rejected`, `withdrawn`, or `replaced`.
+Status represents the current state of the RFC. Must be one of:
+- `provisional`: a proposal; the Open questions section lists what must be settled
+  (each with a default) before or while implementing.
+- `implementable`: decided; anyone can pick it up.
+- `in progress`: being implemented; Owner names who, with the branch or PR.
+- `implemented`: merged; partial scope is spelled out after the word.
+- `deferred`, `rejected`, `withdrawn`, `replaced`.
 -->
+
+**Owner:** unassigned
+
+**Depends on:** none
 
 **Creation date:** YYYY-MM-DD
 
@@ -80,6 +89,13 @@ The design details should address at least the following questions:
 - Can the feature be disabled once it has been enabled?
 - How can an operator determine if the feature is in use?
 - Are there any drawbacks when enabling this feature?
+-->
+
+## Open questions
+
+<!--
+Decisions still to make, each with the default that applies when nobody
+objects. Remove the section (and move to `implementable`) once settled.
 -->
 
 ## Implementation History

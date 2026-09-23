@@ -1,6 +1,6 @@
 # RFC-0006 Persistent volumes
 
-**Status:** implemented (RWO); `storage-rwx` extension pending
+**Status:** implemented (RWO); shared volumes → RFC-0041
 
 **Creation date:** 2026-09-22
 

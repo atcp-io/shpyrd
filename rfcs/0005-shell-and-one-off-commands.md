@@ -1,6 +1,6 @@
 # RFC-0005 Shell and one-off commands
 
-**Status:** implemented (CLI); browser terminal pending
+**Status:** implemented (CLI); browser terminal → RFC-0026
 
 **Creation date:** 2026-09-22
 
