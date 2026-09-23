@@ -12,16 +12,21 @@ Status: pre-alpha. The design and roadmap live in
 
 ## Quick start (local)
 
-Requirements: Docker (Docker Desktop with 6-8 GB of memory) and Go 1.27 to
-build the CLI until binaries are published.
+Requirements: Docker (Docker Desktop with 6-8 GB of memory), macOS or Linux.
 
 ```sh
-make cli
-./bin/shpyrd cluster create          # kind cluster + base stack (10-20 min first time)
-./bin/shpyrd cluster trust-ca        # trust the development CA (asks for sudo)
-./bin/shpyrd cluster status
-./bin/shpyrd cluster dashboard       # opens https://shpyrd.127.0.0.1.nip.io signed in
+brew install shpyrd-io/tap/shpyrd    # macOS; or: curl -fsSL https://shpyrd.io/install.sh | sh
+shpyrd cluster create                # kind cluster + base stack (10-20 min first time)
+shpyrd cluster trust-ca              # trust the development CA (asks for sudo)
+shpyrd cluster status
+shpyrd cluster dashboard             # opens https://shpyrd.127.0.0.1.nip.io signed in
 ```
+
+Releases publish the CLI for macOS and Linux (amd64, arm64) with checksums and
+the server image `ghcr.io/shpyrd-io/shpyrd-server:<version>`; the CLI installs
+the image of its own version. Building from source: `make cli` (Go 1.27), then
+`./bin/shpyrd` with `--set SHPYRD_SERVER_IMAGE=...` to run your own server build
+(see [Developing](#developing)).
 
 `cluster create` runs [kind](https://kind.sigs.k8s.io) through its Go library
 and installs the base stack in dependency-ordered runlevels:
@@ -251,6 +256,12 @@ make test vet
 
 The UI can be developed against a local server: `go run ./cmd/shpyrd-server`
 in one terminal, `cd ui && npm run dev` in another (Vite proxies `/api`).
+
+CI runs `go vet`, `go test`, the dashboard lint and build, and an end-to-end
+job on a kind cluster (`.github/workflows/ci.yml`). A tag `vX.Y.Z` releases:
+GoReleaser builds the CLI archives, checksums, release notes and the Homebrew
+cask in [shpyrd-io/homebrew-tap](https://github.com/shpyrd-io/homebrew-tap);
+buildx pushes the multi-arch server image to GHCR (`release.yml`).
 
 ## Contributing
 

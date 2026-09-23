@@ -1,0 +1,97 @@
+# GoReleaser (RFC-0045): the CLI for macOS and Linux, checksums, release
+# notes from Conventional Commits and the Homebrew formula. The server image
+# is built by the same workflow with buildx (see .github/workflows/release.yml).
+version: 2
+
+project_name: shpyrd
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: shpyrd
+    main: ./cmd/shpyrd
+    binary: shpyrd
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X shpyrd/pkg/version.Version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: shpyrd
+    ids: [shpyrd]
+    formats: [tar.gz]
+    name_template: "shpyrd_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Documentation and RFCs
+      regexp: '^(docs|rfcs)(\(.+\))?!?:'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^chore\(release\)'
+      - '^test:'
+
+release:
+  github:
+    owner: shpyrd-io
+    name: shpyrd
+  draft: false
+  prerelease: auto
+  header: |
+    Install or upgrade the CLI:
+
+    ```sh
+    brew install shpyrd-io/tap/shpyrd        # or: brew upgrade shpyrd
+    curl -fsSL https://shpyrd.io/install.sh | sh
+    ```
+
+    Server image: `ghcr.io/shpyrd-io/shpyrd-server:{{ .Tag }}` (linux/amd64, linux/arm64).
+    `shpyrd cluster create` installs this exact version.
+
+homebrew_casks:
+  - name: shpyrd
+    ids: [shpyrd]
+    repository:
+      owner: shpyrd-io
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://shpyrd.io
+    description: "Open-source Cloud PaaS on Kubernetes: deploy, run and observe applications and agents from one place"
+    license: MPL-2.0
+    commit_author:
+      name: shpyrd-release
+      email: release@shpyrd.io
+    commit_msg_template: "shpyrd {{ .Tag }}"
+    # The binary is not notarized; casks let brew clear the quarantine flag.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/shpyrd"]
+          end

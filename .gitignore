@@ -28,3 +28,4 @@ ui/dist/*
 *.tfstate
 *.tfstate.*
 .terraform
+dist/

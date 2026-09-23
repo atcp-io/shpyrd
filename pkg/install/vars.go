@@ -26,7 +26,26 @@ const (
 	VarExtensions   = "SHPYRD_EXTENSIONS"    // enabled extensions, comma separated
 	VarDashboardURL = "SHPYRD_DASHBOARD_URL" // external dashboard URL
 	VarAuthURL      = "SHPYRD_AUTH_URL"      // external URL of the login issuer (auth.<domain>)
+	VarServerImage  = "SHPYRD_SERVER_IMAGE"  // server image; derived from the version unless set
 )
+
+// ServerImageRepo is where release workflows publish the server image.
+const ServerImageRepo = "ghcr.io/shpyrd-io/shpyrd-server"
+
+// releaseTagRe matches release tags (v1.2.3, v1.2.3-rc.1) but not what git
+// describe makes of commits after a tag (v1.2.3-4-gabcdef, -dirty).
+var releaseTagRe = regexp.MustCompile(`^v\d+\.\d+\.\d+(-(alpha|beta|rc)\.?\d*)?$`)
+
+// DefaultServerImage is the image a CLI of the given version installs when
+// nobody says otherwise (RFC-0045): a release installs the image of its own
+// tag; a development build (git describe, "dev") gets the latest release,
+// and developers point at their own build with --set SHPYRD_SERVER_IMAGE.
+func DefaultServerImage(version string) string {
+	if releaseTagRe.MatchString(version) {
+		return ServerImageRepo + ":" + version
+	}
+	return ServerImageRepo + ":latest"
+}
 
 // derivedVars computes the variables manifests may use but nobody sets by
 // hand: external URLs and the enabled extensions.
@@ -36,11 +55,15 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 	for _, x := range exts {
 		names = append(names, x.Extension)
 	}
-	return map[string]string{
+	out := map[string]string{
 		VarDashboardURL: base("shpyrd"),
 		VarAuthURL:      base("auth"),
 		VarExtensions:   strings.Join(names, ","),
 	}
+	if vars[VarServerImage] == "" {
+		out[VarServerImage] = DefaultServerImage(vars[VarVersion])
+	}
+	return out
 }
 
 // BaseURL returns a function building https URLs for <name>.<domain>,

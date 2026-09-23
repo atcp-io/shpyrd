@@ -4,7 +4,8 @@ vars:
   SHPYRD_DOMAIN: 127.0.0.1.nip.io
   SHPYRD_REGISTRY_IP: 10.96.0.50
   SHPYRD_REGISTRY_HOST: 10.96.0.50:5000
-  SHPYRD_SERVER_IMAGE: ghcr.io/shpyrd-io/shpyrd-server:latest
+  # SHPYRD_SERVER_IMAGE follows the CLI version (a release installs its own
+  # tag, a development build the latest release); --set overrides it.
   SHPYRD_HTTP_PORT: "80"
   SHPYRD_HTTPS_PORT: "443"
   # kind's default pod network; project network policies exclude it from

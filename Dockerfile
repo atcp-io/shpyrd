@@ -1,25 +1,29 @@
 # shpyrd-server: API + App controller + embedded dashboard.
 #
 #   docker build -t shpyrd-server:dev .
+#   docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/shpyrd-io/shpyrd-server:vX.Y.Z .
 #
 # Stage 1 builds the UI, stage 2 embeds it into the Go binary, stage 3 is a
-# distroless runtime image.
+# distroless runtime image. Stages 1 and 2 run on the build platform and
+# cross-compile for the target, so a multi-arch build needs no emulation.
 
-FROM node:24-alpine AS ui
+FROM --platform=$BUILDPLATFORM node:24-alpine AS ui
 WORKDIR /src/ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY ui/ ./
 RUN npm run build
 
-FROM golang:1.27-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=ui /src/ui/dist ./ui/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X shpyrd/pkg/version.Version=${VERSION}" \
       -o /out/shpyrd-server ./cmd/shpyrd-server
 

@@ -1,0 +1,125 @@
+# CI (RFC-0045): Go tests and vet, the dashboard build and lint, the
+# manifests render test, and an end-to-end run on a kind cluster that
+# deploys the sample projects with buildpacks and a Dockerfile.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - name: Committed CRDs and deepcopy are current
+        run: |
+          make generate
+          git diff --exit-code -- api deploy/components/shpyrd/base/crds
+
+  ui:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+          retention-days: 1
+
+  e2e:
+    name: End to end on kind
+    runs-on: ubuntu-latest
+    needs: [go, ui]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Install kind
+        run: |
+          curl -fsSLo kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+          chmod +x kind && sudo mv kind /usr/local/bin/kind
+      - name: Build the CLI and the server image
+        run: |
+          make cli
+          make dev-image SERVER_IMAGE=shpyrd-server:ci
+      - name: Create the cluster (everything but the server)
+        run: ./bin/shpyrd cluster create --name ci --skip shpyrd --http-port 8080 --https-port 8443
+      - name: Install the server built from this commit
+        run: |
+          kind load docker-image shpyrd-server:ci --name ci
+          ./bin/shpyrd cluster init --context kind-ci --only shpyrd --set SHPYRD_SERVER_IMAGE=shpyrd-server:ci --http-port 8080 --https-port 8443
+          ./bin/shpyrd cluster status --context kind-ci
+      - name: Deploy a buildpacks project and a Dockerfile project
+        run: |
+          set -euo pipefail
+          export SHPYRD_CONTEXT=kind-ci
+          ./bin/shpyrd projects create "Hello World" --context kind-ci
+          (cd examples/hello && ../../bin/shpyrd deploy --project hello-world --context kind-ci)
+          ./bin/shpyrd projects create api --context kind-ci
+          (cd examples/api && ../../bin/shpyrd deploy --project api --context kind-ci)
+          ./bin/shpyrd projects list --context kind-ci
+      - name: The projects answer on their URLs
+        run: |
+          set -euo pipefail
+          for host in hello-world api; do
+            for i in $(seq 1 30); do
+              if curl -fsk --max-time 5 "https://$host.127.0.0.1.nip.io:8443/" >/tmp/$host.html; then break; fi
+              sleep 5
+            done
+            head -c 300 /tmp/$host.html; echo
+          done
+          grep -qi "hello world" /tmp/hello-world.html
+          grep -q '"service"' /tmp/api.html
+      - name: Scale, logs, volumes, roles
+        run: |
+          set -euo pipefail
+          ./bin/shpyrd scale web=2 --project hello-world --context kind-ci
+          ./bin/shpyrd logs --project hello-world -n 5 --context kind-ci
+          ./bin/shpyrd volumes create data --size 1Gi --project api --context kind-ci
+          ./bin/shpyrd volumes list --project api --context kind-ci
+          ./bin/shpyrd teams create platform --platform-role platform-admin --member ci@example.com --context kind-ci
+          ./bin/shpyrd members add hello-world --user dev@example.com --role developer --context kind-ci
+          ./bin/shpyrd members list hello-world --context kind-ci
+          ./bin/shpyrd projects destroy api --yes --context kind-ci
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl --context kind-ci get pods -A
+          kubectl --context kind-ci -n shpyrd-system logs deployment/shpyrd-server --tail=200 || true
+          kubectl --context kind-ci get apps.shpyrd.io -A -o yaml || true
+          kubectl --context kind-ci get events -A --sort-by=.lastTimestamp | tail -60 || true
