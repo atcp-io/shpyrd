@@ -20,6 +20,7 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/internal/controller"
 	"shpyrd/pkg/api"
+	"shpyrd/pkg/install"
 	"shpyrd/pkg/kexec"
 	"shpyrd/pkg/sizes"
 )
@@ -287,6 +288,10 @@ func runPod(app *shpyrdv1.App, image string, command []string, res corev1.Resour
 			RestartPolicy:         corev1.RestartPolicyNever,
 			ActiveDeadlineSeconds: ptr.To[int64](3600),
 			EnableServiceLinks:    ptr.To(false),
+			// Private registries: the controller mirrors the credentials
+			// into the project namespace under a fixed name; the pull secret
+			// is optional for Kubernetes, so listing it is harmless without.
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: install.RegistrySecretName}},
 			Containers: []corev1.Container{{
 				Name:      "app",
 				Image:     image,

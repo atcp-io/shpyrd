@@ -131,7 +131,7 @@ func globalsDisabled(app *shpyrdv1.App) bool {
 // its App, the cluster-wide global vars to every App, a project's mirror
 // to the Apps of that namespace (so a tampered mirror is repaired).
 func (r *AppReconciler) secretToApps(ctx context.Context, obj client.Object) []reconcile.Request {
-	if obj.GetName() != shpyrdv1.GlobalEnvSecretName {
+	if obj.GetName() != shpyrdv1.GlobalEnvSecretName && !r.registrySecretChanged(obj) {
 		return envSecretToApp(ctx, obj) // "<app>-env"; the global name ends in -env too
 	}
 	var apps shpyrdv1.AppList

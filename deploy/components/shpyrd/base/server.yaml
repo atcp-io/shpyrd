@@ -52,7 +52,13 @@ spec:
             - name: SHPYRD_POD_CIDR
               value: "${SHPYRD_POD_CIDR}"
             - name: SHPYRD_CLUSTER_ISSUER
-              value: shpyrd-ca
+              value: ${SHPYRD_CLUSTER_ISSUER}
+            # Private registries (RFC-0035): builds push and instances pull
+            # with this Secret, mirrored into every project namespace.
+            - name: SHPYRD_REGISTRY_SECRET
+              value: "${SHPYRD_REGISTRY_SECRET}"
+            - name: SHPYRD_REGISTRY_INSECURE
+              value: "${SHPYRD_REGISTRY_INSECURE}"
             - name: SHPYRD_DATA_DIR
               value: /data
             - name: SHPYRD_LEADER_ELECT

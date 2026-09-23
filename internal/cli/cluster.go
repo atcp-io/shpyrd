@@ -51,13 +51,19 @@ type initFlags struct {
 	frontDoor string // auto, kind or caddy
 	localDNS  bool
 	caddy     *localnet.Caddy
+	// Private registry credentials (cloud profiles): written to a Secret by
+	// the registry-credentials hook, never to the install record.
+	registryUser      string
+	registryTokenFile string
 }
 
 func (f *initFlags) bind(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&f.profile, "profile", "local", "installer profile (local)")
+	cmd.Flags().StringVar(&f.profile, "profile", "local", "installer profile: local (kind) or oci (Oracle OKE)")
 	cmd.Flags().StringVar(&f.domain, "domain", defaultDomain, "wildcard domain for projects and the dashboard (shpyrd.test with --local-dns)")
 	cmd.Flags().StringVar(&f.frontDoor, "front-door", frontDoorAuto, "who serves 443: kind (host ports), caddy (an existing Caddy proxies to kind), or auto (detect and ask)")
 	cmd.Flags().BoolVar(&f.localDNS, "local-dns", false, "make *.<domain> resolve to this machine with dnsmasq and /etc/resolver (macOS)")
+	cmd.Flags().StringVar(&f.registryUser, "registry-user", "", "private registry user for builds and pulls (cloud profiles), e.g. <tenancy-namespace>/<user> for OCIR")
+	cmd.Flags().StringVar(&f.registryTokenFile, "registry-token-file", "", "file holding the registry password or auth token (cloud profiles)")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
@@ -433,10 +439,11 @@ func newClusterInitCmd(g *globalFlags) *cobra.Command {
 			if flags.frontDoor == install.FrontDoorCaddy && flags.httpPort == 0 {
 				return errors.New("--front-door caddy needs the host port kind maps to ingress HTTP: pass --http-port")
 			}
-			if flags.frontDoor == frontDoorAuto {
-				flags.frontDoor = install.FrontDoorKind
+			local := flags.profile == "local"
+			if flags.frontDoor == frontDoorAuto && local {
+				flags.frontDoor = install.FrontDoorKind // cloud profiles keep their own (lb)
 			}
-			if cmd.Flags().Changed("local-dns") || cmd.Flags().Changed("domain") {
+			if local && (cmd.Flags().Changed("local-dns") || cmd.Flags().Changed("domain")) {
 				if err := ensureLocalDNS(cmd, &flags); err != nil {
 					return err
 				}
@@ -464,8 +471,19 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if contextName == "" {
 		return fmt.Errorf("no kubeconfig context selected; use --context or create a cluster with `shpyrd cluster create`")
 	}
-	if !fromCreate && !flags.yes && !strings.HasPrefix(contextName, "kind-") {
-		return fmt.Errorf("context %q does not look like a local kind cluster; re-run with --yes to install the base stack on it", contextName)
+	if !fromCreate && !flags.yes && flags.profile == "local" && !strings.HasPrefix(contextName, "kind-") {
+		return fmt.Errorf("context %q does not look like a local kind cluster; pass --profile oci for a cloud cluster, or --yes to install the local profile on it", contextName)
+	}
+	registryPassword := ""
+	if flags.registryTokenFile != "" {
+		raw, err := os.ReadFile(flags.registryTokenFile)
+		if err != nil {
+			return fmt.Errorf("registry token: %w", err)
+		}
+		registryPassword = strings.TrimSpace(string(raw))
+	}
+	if (flags.registryUser == "") != (registryPassword == "") {
+		return errors.New("--registry-user and --registry-token-file go together")
 	}
 
 	k, err := kube.Connect(kopts)
@@ -482,15 +500,18 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if err != nil {
 		return err
 	}
-	eng, err := install.New(k, install.Options{
-		Profile:    flags.profile,
-		Vars:       vars,
-		Skip:       flags.skip,
-		Only:       flags.only,
-		Version:    Version,
-		Extensions: extComps,
-		Reporter:   &consoleReporter{out: out},
-	})
+	opts := install.Options{
+		Profile:          flags.profile,
+		Vars:             vars,
+		Skip:             flags.skip,
+		Only:             flags.only,
+		Version:          Version,
+		Extensions:       extComps,
+		Reporter:         &consoleReporter{out: out},
+		RegistryUser:     flags.registryUser,
+		RegistryPassword: registryPassword,
+	}
+	eng, err := install.New(k, opts)
 	if err != nil {
 		return err
 	}
@@ -500,6 +521,30 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 
 	fmt.Fprintf(out, "Installing shpyrd base stack (profile %s) on context %s\n", eng.Profile().Name, contextName)
 	fmt.Fprintf(out, "Domain: %s\n", eng.Vars()[install.VarDomain])
+	cloud := eng.Vars()[install.VarFrontDoor] == install.FrontDoorLB
+	var lbAddress string
+	if cloud && len(flags.only) == 0 {
+		// Certificates need the wildcard DNS record, and the record needs
+		// the load balancer's address: install everything that does not
+		// wait for a certificate first, then let the operator create the
+		// record, then the rest.
+		first := install.Options(opts)
+		first.Skip = append(append([]string{}, opts.Skip...), certificateComponents(extNames)...)
+		phase1, err := install.New(k, first)
+		if err != nil {
+			return err
+		}
+		if err := phase1.Apply(ctx); err != nil {
+			return err
+		}
+		lbAddress, err = waitForLoadBalancer(ctx, cmd, k)
+		if err != nil {
+			return err
+		}
+		if err := waitForDNS(ctx, cmd, eng.Vars()[install.VarDomain], lbAddress); err != nil {
+			return err
+		}
+	}
 	if err := eng.Apply(ctx); err != nil {
 		return err
 	}
@@ -514,12 +559,128 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	fmt.Fprintf(out, "\nshpyrd is ready.\n\n")
 	fmt.Fprintf(out, "  Dashboard:  %s\n", base("shpyrd"))
 	fmt.Fprintf(out, "  Grafana:    %s\n", base("grafana"))
-	fmt.Fprintf(out, "  Registry:   %s (host: localhost:30050)\n", eng.Vars()[install.VarRegistryHost])
-	if caDir, err := localca.DefaultDir(); err == nil && flags.frontDoor != install.FrontDoorCaddy {
-		fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
+	if cloud {
+		fmt.Fprintf(out, "  Registry:   %s (credentials in Secret %s)\n", eng.Vars()[install.VarRegistryHost], install.RegistrySecretName)
+		if lbAddress == "" {
+			lbAddress, _ = loadBalancerAddress(ctx, k)
+		}
+		if lbAddress != "" {
+			fmt.Fprintf(out, "  Load balancer: %s (DNS: *.%s -> %s)\n", lbAddress, eng.Vars()[install.VarDomain], lbAddress)
+		}
+	} else {
+		fmt.Fprintf(out, "  Registry:   %s (host: localhost:30050)\n", eng.Vars()[install.VarRegistryHost])
+		if caDir, err := localca.DefaultDir(); err == nil && flags.frontDoor != install.FrontDoorCaddy {
+			fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
+		}
 	}
 	printLocalSummary(out, eng.Vars())
 	return nil
+}
+
+// certificateComponents are the components whose readiness needs a valid
+// certificate, so they go last on cloud profiles: the server, and Dex when
+// the auth-local extension is on.
+func certificateComponents(extNames []string) []string {
+	out := []string{"shpyrd"}
+	if contains(extNames, "auth-local") {
+		out = append(out, "dex")
+	}
+	return out
+}
+
+// loadBalancerAddress is the public address of ingress-nginx's Service.
+func loadBalancerAddress(ctx context.Context, k *kube.Client) (string, error) {
+	svc, err := k.Kube.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	for _, in := range svc.Status.LoadBalancer.Ingress {
+		if in.IP != "" {
+			return in.IP, nil
+		}
+		if in.Hostname != "" {
+			return in.Hostname, nil
+		}
+	}
+	return "", nil
+}
+
+// waitForLoadBalancer polls until the cloud assigns ingress-nginx an address.
+func waitForLoadBalancer(ctx context.Context, cmd *cobra.Command, k *kube.Client) (string, error) {
+	out := cmd.OutOrStdout()
+	fmt.Fprint(out, "\nWaiting for the load balancer address...")
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		addr, err := loadBalancerAddress(ctx, k)
+		if err == nil && addr != "" {
+			fmt.Fprintf(out, " %s\n", addr)
+			return addr, nil
+		}
+		if time.Now().After(deadline) {
+			return "", errors.New("the load balancer got no address in 10 minutes; check the cloud's load balancer quota and the ingress-nginx Service events")
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(10 * time.Second):
+			fmt.Fprint(out, ".")
+		}
+	}
+}
+
+// waitForDNS tells the operator the record to create and waits until the
+// platform hostname resolves to the load balancer, which Let's Encrypt
+// needs before it can issue the first certificate.
+func waitForDNS(ctx context.Context, cmd *cobra.Command, domain, addr string) error {
+	out := cmd.OutOrStdout()
+	host := "shpyrd." + domain
+	if resolvesTo(host, addr) {
+		fmt.Fprintf(out, "DNS: %s resolves to the load balancer.\n", host)
+		return nil
+	}
+	fmt.Fprintf(out, "\nCreate this DNS record now (certificates are issued once it resolves):\n\n  *.%s   A   %s   (TTL 300)\n\nWaiting for %s to resolve to %s...", domain, addr, host, addr)
+	deadline := time.Now().Add(30 * time.Minute)
+	for {
+		if resolvesTo(host, addr) {
+			fmt.Fprintln(out, " resolved.")
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s did not resolve to %s within 30 minutes; create the record and run `shpyrd cluster init` again", host, addr)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(15 * time.Second):
+			fmt.Fprint(out, ".")
+		}
+	}
+}
+
+func resolvesTo(host, addr string) bool {
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return false
+	}
+	for _, ip := range ips {
+		if ip == addr {
+			return true
+		}
+	}
+	// A hostname target (some clouds hand out names): compare resolutions.
+	if net.ParseIP(addr) == nil {
+		want, err := net.LookupHost(addr)
+		if err == nil {
+			for _, w := range want {
+				for _, ip := range ips {
+					if ip == w {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // seedFromRecord fills flags the user did not pass from the install record,

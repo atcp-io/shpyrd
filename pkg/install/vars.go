@@ -27,6 +27,11 @@ const (
 	VarDashboardURL = "SHPYRD_DASHBOARD_URL" // external dashboard URL
 	VarAuthURL      = "SHPYRD_AUTH_URL"      // external URL of the login issuer (auth.<domain>)
 	VarServerImage  = "SHPYRD_SERVER_IMAGE"  // server image; derived from the version unless set
+	// Cloud profiles (RFC-0034/0035 counterparts).
+	VarClusterIssuer    = "SHPYRD_CLUSTER_ISSUER"    // cert-manager ClusterIssuer for every certificate (shpyrd-ca locally, letsencrypt on cloud)
+	VarACMEEmail        = "SHPYRD_ACME_EMAIL"        // Let's Encrypt account email (cloud profiles)
+	VarRegistryInsecure = "SHPYRD_REGISTRY_INSECURE" // "true" for the plain-HTTP in-cluster registry
+	VarRegistrySecret   = "SHPYRD_REGISTRY_SECRET"   // name of the registry credentials Secret ("" when the registry needs none)
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine
@@ -38,7 +43,13 @@ const (
 const (
 	FrontDoorKind  = "kind"
 	FrontDoorCaddy = "caddy"
+	// FrontDoorLB is a cloud load balancer in front of ingress-nginx.
+	FrontDoorLB = "lb"
 )
+
+// RegistrySecretName is the dockerconfigjson Secret with the credentials
+// builds push with and instances pull with (private registries).
+const RegistrySecretName = "shpyrd-registry"
 
 // ServerImageRepo is where release workflows publish the server image.
 const ServerImageRepo = "ghcr.io/shpyrd-io/shpyrd-server"
@@ -83,9 +94,10 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 }
 
 // URLPort is the https port public URLs carry: 443 when a front door
-// terminates TLS on the standard port, else the port kind maps.
+// terminates TLS on the standard port or a cloud load balancer listens
+// there, else the port kind maps.
 func URLPort(vars map[string]string) string {
-	if vars[VarFrontDoor] == FrontDoorCaddy {
+	if vars[VarFrontDoor] == FrontDoorCaddy || vars[VarFrontDoor] == FrontDoorLB {
 		return "443"
 	}
 	if p := vars[VarHTTPSPort]; p != "" {

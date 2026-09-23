@@ -45,6 +45,34 @@ type Config struct {
 	// PodCIDR, when known, lets the project network policy block egress to
 	// pods of other projects while allowing the internet.
 	PodCIDR string
+	// RegistrySecret names the dockerconfigjson Secret in SystemNamespace
+	// with the registry's credentials; "" when the registry needs none
+	// (the in-cluster registry). It is mirrored into every project
+	// namespace: builds push with it, instances pull with it.
+	RegistrySecret string
+	// RegistryInsecure says the registry speaks plain HTTP (in-cluster).
+	RegistryInsecure bool
+}
+
+// BuildServiceAccount is the ServiceAccount builds run as in a project
+// namespace when the registry needs credentials.
+const BuildServiceAccount = "shpyrd-builder"
+
+// buildServiceAccountName is what kpack Images run as: the credentialed
+// account when the registry needs one, else the namespace default.
+func (c Config) buildServiceAccountName() string {
+	if c.RegistrySecret != "" {
+		return BuildServiceAccount
+	}
+	return "default"
+}
+
+// imagePullSecrets for project pods: the mirrored registry Secret, if any.
+func (c Config) imagePullSecrets() []corev1.LocalObjectReference {
+	if c.RegistrySecret == "" {
+		return nil
+	}
+	return []corev1.LocalObjectReference{{Name: c.RegistrySecret}}
 }
 
 // DefaultBuildKitImage is the rootless BuildKit image used for Dockerfile builds.
@@ -199,7 +227,7 @@ func (c Config) desiredKpackImage(app *shpyrdv1.App) *unstructured.Unstructured 
 
 	spec := map[string]interface{}{
 		"tag":                      c.imageTag(app),
-		"serviceAccountName":       "default",
+		"serviceAccountName":       c.buildServiceAccountName(),
 		"builder":                  map[string]interface{}{"name": builder, "kind": "ClusterBuilder"},
 		"source":                   source,
 		"failedBuildHistoryLimit":  int64(5),
@@ -283,6 +311,7 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 		shpyrdv1.AnnotationConfigHash: configHash,
 	})
 	d.Spec.Template.Spec.EnableServiceLinks = ptr.To(false)
+	d.Spec.Template.Spec.ImagePullSecrets = c.imagePullSecrets()
 	d.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}
 	hc := p.HealthCheck
 	if hc == nil || !hc.Disabled {

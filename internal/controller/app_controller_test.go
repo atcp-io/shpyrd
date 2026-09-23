@@ -36,7 +36,7 @@ func newTestReconciler(t *testing.T, objs ...client.Object) (*AppReconciler, cli
 		APIReader: c,
 		Scheme:    scheme,
 		Recorder:  record.NewFakeRecorder(100),
-		Config:    Config{Domain: "example.test", HTTPSPort: "8443", RegistryHost: "10.96.0.50:5000"}.Defaults(),
+		Config:    Config{Domain: "example.test", HTTPSPort: "8443", RegistryHost: "10.96.0.50:5000", RegistryInsecure: true}.Defaults(),
 	}
 	return r, c
 }

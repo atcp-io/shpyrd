@@ -57,7 +57,7 @@ grafana:
     enabled: true
     ingressClassName: nginx
     annotations:
-      cert-manager.io/cluster-issuer: shpyrd-ca
+      cert-manager.io/cluster-issuer: ${SHPYRD_CLUSTER_ISSUER}
     hosts:
       - grafana.${SHPYRD_DOMAIN}
     tls:

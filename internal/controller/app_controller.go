@@ -249,6 +249,9 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	// Cluster-wide config vars arrive through a per-project mirror the
 	// processes read first (RFC-0016).
 	r.labelRunningInstances(ctx, app)
+	if err := r.reconcileRegistryCredentials(ctx, app); err != nil {
+		return outcome{}, err
+	}
 	globals, err := r.reconcileGlobals(ctx, app)
 	if err != nil {
 		return outcome{}, err

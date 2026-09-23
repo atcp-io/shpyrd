@@ -1,0 +1,33 @@
+name: oci
+description: Oracle Cloud (OKE) with a public load balancer, Let's Encrypt certificates and OCIR as the registry
+vars:
+  # Pass --domain (a wildcard DNS record you own) and the registry:
+  #   --set SHPYRD_REGISTRY_HOST=<region-key>.ocir.io/<tenancy-namespace>
+  #   --registry-user <tenancy-namespace>/<user> --registry-token-file ~/.oci/ocir-token
+  #   --set SHPYRD_ACME_EMAIL=you@example.com
+  SHPYRD_DOMAIN: apps.example.com
+  SHPYRD_REGISTRY_HOST: gru.ocir.io/tenancy-namespace
+  SHPYRD_REGISTRY_INSECURE: "false"
+  SHPYRD_REGISTRY_SECRET: shpyrd-registry
+  SHPYRD_REGISTRY_IP: ""            # only the in-cluster registry (local profile) uses it
+  SHPYRD_CLUSTER_ISSUER: letsencrypt
+  SHPYRD_ACME_EMAIL: ""
+  # A cloud load balancer terminates nothing and listens on 80/443: URLs carry no port.
+  SHPYRD_FRONT_DOOR: lb
+  SHPYRD_LOCAL_DNS: "false"
+  SHPYRD_HTTP_PORT: "80"
+  SHPYRD_HTTPS_PORT: "443"
+  # OKE VCN-native pod networking: pods get addresses from the pod subnet;
+  # with the flannel CNI use 10.244.0.0/16.
+  SHPYRD_POD_CIDR: 10.0.4.0/22
+runlevels:
+  - name: rc0
+    components: [monitoring-crds]
+  - name: rc1
+    components: [cert-manager]
+  - name: rc2
+    components: [letsencrypt-issuers, ingress-nginx, registry-credentials]
+  - name: rc3
+    components: [kpack, monitoring]
+  - name: rc4
+    components: [shpyrd]

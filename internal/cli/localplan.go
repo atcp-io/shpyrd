@@ -208,8 +208,11 @@ func describeLocal(vars map[string]string) string {
 		names = "dnsmasq (*." + domain + ")"
 	}
 	door := "kind on " + firstNonEmpty(vars[install.VarHTTPPort], "80") + "/" + firstNonEmpty(vars[install.VarHTTPSPort], "443")
-	if vars[install.VarFrontDoor] == install.FrontDoorCaddy {
+	switch vars[install.VarFrontDoor] {
+	case install.FrontDoorCaddy:
 		door = "Caddy on 443 -> kind :" + firstNonEmpty(vars[install.VarHTTPPort], "8080")
+	case install.FrontDoorLB:
+		door = "cloud load balancer on 80/443 · Certificates: " + firstNonEmpty(vars[install.VarClusterIssuer], "letsencrypt")
 	}
 	return "Names: " + names + " · Front door: " + door
 }
@@ -247,9 +250,12 @@ func portsWord(busy []int) string {
 // printLocalSummary closes `cluster init` output with what to trust.
 func printLocalSummary(out io.Writer, vars map[string]string) {
 	fmt.Fprintf(out, "  %s\n", describeLocal(vars))
-	if vars[install.VarFrontDoor] == install.FrontDoorCaddy {
+	switch vars[install.VarFrontDoor] {
+	case install.FrontDoorCaddy:
 		fmt.Fprintln(out, "\nCertificates come from Caddy's local CA. If the browser warns, run `caddy trust` once.")
-		return
+	case install.FrontDoorLB:
+		fmt.Fprintln(out, "\nCertificates are publicly trusted (Let's Encrypt); nothing to install. Open the dashboard with `shpyrd cluster dashboard`.")
+	default:
+		fmt.Fprintln(out, "\nRun `shpyrd cluster trust-ca` once so your browser trusts the development CA.")
 	}
-	fmt.Fprintln(out, "\nRun `shpyrd cluster trust-ca` once so your browser trusts the development CA.")
 }

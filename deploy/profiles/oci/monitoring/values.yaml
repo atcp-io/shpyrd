@@ -1,0 +1,24 @@
+# OKE: the control plane is managed, so its components cannot be scraped.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+
+grafana:
+  adminPassword: shpyrd
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer

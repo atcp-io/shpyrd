@@ -4,6 +4,11 @@ vars:
   SHPYRD_DOMAIN: 127.0.0.1.nip.io
   SHPYRD_REGISTRY_IP: 10.96.0.50
   SHPYRD_REGISTRY_HOST: 10.96.0.50:5000
+  SHPYRD_REGISTRY_INSECURE: "true"   # plain HTTP inside the cluster
+  SHPYRD_REGISTRY_SECRET: ""         # no credentials needed
+  # Certificates come from the development CA (ca-issuers component).
+  SHPYRD_CLUSTER_ISSUER: shpyrd-ca
+  SHPYRD_ACME_EMAIL: ""
   # SHPYRD_SERVER_IMAGE follows the CLI version (a release installs its own
   # tag, a development build the latest release); --set overrides it.
   SHPYRD_HTTP_PORT: "80"

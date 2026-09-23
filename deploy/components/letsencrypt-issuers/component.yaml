@@ -1,0 +1,12 @@
+name: letsencrypt-issuers
+description: Let's Encrypt ClusterIssuer (HTTP-01 through ingress-nginx) for cloud profiles
+namespace: cert-manager
+kustomize:
+  path: base
+wait:
+  - condition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      name: letsencrypt
+      type: Ready
+timeout: 3m

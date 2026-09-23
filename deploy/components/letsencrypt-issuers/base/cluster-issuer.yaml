@@ -1,0 +1,20 @@
+# Publicly trusted certificates for every hostname the platform serves:
+# cert-manager answers the HTTP-01 challenge through ingress-nginx, so the
+# load balancer must be reachable from the internet on port 80 and the
+# wildcard DNS record must point at it (cluster init prints both).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${SHPYRD_ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx

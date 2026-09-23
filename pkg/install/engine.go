@@ -41,6 +41,11 @@ type Options struct {
 	Version string
 	// CADir holds the locally generated root CA (hook local-ca).
 	CADir string
+	// RegistryUser and RegistryPassword are the credentials of a private
+	// registry (hook registry-credentials). They are written to a Secret,
+	// never to the install record; empty keeps an existing Secret.
+	RegistryUser     string
+	RegistryPassword string
 	// Tree overrides the embedded manifests (tests, development).
 	Tree fs.FS
 	// Extensions are the enabled extensions' components, appended to the

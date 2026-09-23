@@ -1,0 +1,5 @@
+name: registry-credentials
+description: Credentials of the private image registry (pushes by builds, pulls by instances) as Secret shpyrd-registry
+namespace: shpyrd-system
+hooks: [registry-credentials]
+timeout: 1m

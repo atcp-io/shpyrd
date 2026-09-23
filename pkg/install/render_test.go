@@ -11,17 +11,55 @@ import (
 )
 
 func TestLocalProfileRenders(t *testing.T) {
+	testProfileRenders(t, "local", map[string]string{VarDomain: "example.test", VarHTTPSPort: "8443"}, "https://auth.example.test:8443")
+}
+
+// The cloud profile renders with every variable defined and URLs without a
+// port (a load balancer listens on 443).
+func TestOCIProfileRenders(t *testing.T) {
+	eng := testProfileRenders(t, "oci", map[string]string{VarDomain: "oci.example.com", VarACMEEmail: "ops@example.com", VarRegistryHost: "gru.ocir.io/ns"}, "https://auth.oci.example.com")
+	if eng.vars[VarClusterIssuer] != "letsencrypt" || eng.vars[VarURLPort] != "443" || eng.vars[VarRegistrySecret] != RegistrySecretName {
+		t.Errorf("oci vars: issuer=%s urlport=%s registrysecret=%s", eng.vars[VarClusterIssuer], eng.vars[VarURLPort], eng.vars[VarRegistrySecret])
+	}
+	for _, absent := range []string{"registry", "ca-issuers", "trust-manager"} {
+		if eng.components[absent] != nil {
+			t.Errorf("oci profile must not install %s", absent)
+		}
+	}
+	for _, present := range []string{"letsencrypt-issuers", "registry-credentials", "ingress-nginx", "kpack", "shpyrd"} {
+		if eng.components[present] == nil {
+			t.Errorf("oci profile must install %s", present)
+		}
+	}
+	// The kpack overlay links the registry Secret to the builder ServiceAccount.
+	objs, err := eng.renderComponent(eng.components["kpack"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, o := range objs {
+		if o.GetKind() == "ServiceAccount" && o.GetName() == "kpack-builder" {
+			found = strings.Contains(mustYAML(t, o), RegistrySecretName)
+		}
+	}
+	if !found {
+		t.Error("kpack-builder ServiceAccount must reference the registry Secret on the oci profile")
+	}
+}
+
+func testProfileRenders(t *testing.T, profile string, vars map[string]string, wantAuthURL string) *Engine {
+	t.Helper()
 	// Extension components render with the same profile.
 	exts := []ExtensionComponent{{Extension: "auth-local", Component: "dex", Runlevel: "rc3"}}
-	eng, err := New(nil, Options{Profile: "local", Vars: map[string]string{VarDomain: "example.test", VarHTTPSPort: "8443"}, Extensions: exts, Reporter: &quiet{}})
+	eng, err := New(nil, Options{Profile: profile, Vars: vars, Extensions: exts, Reporter: &quiet{}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if got := eng.vars[VarExtensions]; got != "auth-local" {
 		t.Errorf("SHPYRD_EXTENSIONS = %q", got)
 	}
-	if got := eng.vars[VarAuthURL]; got != "https://auth.example.test:8443" {
-		t.Errorf("SHPYRD_AUTH_URL = %q", got)
+	if got := eng.vars[VarAuthURL]; got != wantAuthURL {
+		t.Errorf("SHPYRD_AUTH_URL = %q, want %q", got, wantAuthURL)
 	}
 	comps, err := eng.profile.Components(deploy.FS)
 	if err != nil {
@@ -33,18 +71,18 @@ func TestLocalProfileRenders(t *testing.T) {
 	if eng.components["dex"] == nil {
 		t.Error("extension component dex must join the profile")
 	}
-	if _, err := New(nil, Options{Profile: "local", Extensions: []ExtensionComponent{{Extension: "x", Component: "dex", Runlevel: "rc9"}}, Reporter: &quiet{}}); err == nil {
+	if _, err := New(nil, Options{Profile: profile, Extensions: []ExtensionComponent{{Extension: "x", Component: "dex", Runlevel: "rc9"}}, Reporter: &quiet{}}); err == nil {
 		t.Error("unknown runlevel must be refused")
 	}
 	for _, c := range comps {
-		if c.Helm == nil && c.Kustomize == nil {
-			t.Errorf("%s: neither helm nor kustomize", c.Name)
+		if c.Helm == nil && c.Kustomize == nil && len(c.Hooks) == 0 {
+			t.Errorf("%s: neither helm, kustomize nor hooks", c.Name)
 		}
 		if c.Helm != nil {
 			if c.Helm.Chart == "" || c.Helm.Version == "" {
 				t.Errorf("%s: helm chart and version must be pinned", c.Name)
 			}
-			if _, err := loadValues(deploy.FS, valuesFiles(deploy.FS, c, "local"), eng.vars); err != nil {
+			if _, err := loadValues(deploy.FS, valuesFiles(deploy.FS, c, profile), eng.vars); err != nil {
 				t.Errorf("%s: values: %v", c.Name, err)
 			}
 		}
@@ -72,6 +110,7 @@ func TestLocalProfileRenders(t *testing.T) {
 			}
 		}
 	}
+	return eng
 }
 
 func TestSubstitute(t *testing.T) {

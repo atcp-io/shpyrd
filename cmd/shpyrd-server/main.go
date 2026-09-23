@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -175,14 +176,16 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 		Scheme:        mgr.GetScheme(),
 		Recorder:      mgr.GetEventRecorderFor("shpyrd"),
 		Config: controller.Config{
-			Domain:          os.Getenv("SHPYRD_DOMAIN"),
-			HTTPSPort:       os.Getenv("SHPYRD_HTTPS_PORT"),
-			RegistryHost:    os.Getenv("SHPYRD_REGISTRY_HOST"),
-			ClusterIssuer:   os.Getenv("SHPYRD_CLUSTER_ISSUER"),
-			IngressClass:    os.Getenv("SHPYRD_INGRESS_CLASS"),
-			SystemNamespace: k.Namespace,
-			BuildKitImage:   os.Getenv("SHPYRD_BUILDKIT_IMAGE"),
-			PodCIDR:         os.Getenv("SHPYRD_POD_CIDR"),
+			Domain:           os.Getenv("SHPYRD_DOMAIN"),
+			HTTPSPort:        os.Getenv("SHPYRD_HTTPS_PORT"),
+			RegistryHost:     os.Getenv("SHPYRD_REGISTRY_HOST"),
+			ClusterIssuer:    os.Getenv("SHPYRD_CLUSTER_ISSUER"),
+			IngressClass:     os.Getenv("SHPYRD_INGRESS_CLASS"),
+			SystemNamespace:  k.Namespace,
+			BuildKitImage:    os.Getenv("SHPYRD_BUILDKIT_IMAGE"),
+			PodCIDR:          os.Getenv("SHPYRD_POD_CIDR"),
+			RegistrySecret:   os.Getenv("SHPYRD_REGISTRY_SECRET"),
+			RegistryInsecure: registryInsecure(os.Getenv("SHPYRD_REGISTRY_INSECURE"), os.Getenv("SHPYRD_REGISTRY_HOST")),
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
@@ -214,4 +217,23 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// registryInsecure follows SHPYRD_REGISTRY_INSECURE when set; otherwise an
+// IP-addressed registry (the in-cluster one) is plain HTTP and a named
+// host speaks TLS.
+func registryInsecure(flag, host string) bool {
+	switch flag {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	if i := strings.IndexByte(host, '/'); i > 0 {
+		host = host[:i]
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return net.ParseIP(host) != nil
 }

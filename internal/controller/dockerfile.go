@@ -306,6 +306,11 @@ func (c Config) desiredBuildJob(app *shpyrdv1.App, n int, key string) *batchv1.J
 		contextDir += sub
 	}
 	repo := c.imageTag(app)
+	// The in-cluster registry speaks plain HTTP; a real registry does not.
+	insecure := ""
+	if c.RegistryInsecure {
+		insecure = ",registry.insecure=true"
+	}
 	args := []string{
 		"build",
 		"--progress", "plain",
@@ -313,9 +318,9 @@ func (c Config) desiredBuildJob(app *shpyrdv1.App, n int, key string) *batchv1.J
 		"--local", "context=" + contextDir,
 		"--local", "dockerfile=" + contextDir,
 		"--opt", "filename=" + dockerfilePath(app),
-		"--output", fmt.Sprintf("type=image,name=%s:b%d,push=true,registry.insecure=true", repo, n),
-		"--export-cache", fmt.Sprintf("type=registry,ref=%s:cache,mode=max,registry.insecure=true", repo),
-		"--import-cache", fmt.Sprintf("type=registry,ref=%s:cache,registry.insecure=true", repo),
+		"--output", fmt.Sprintf("type=image,name=%s:b%d,push=true%s", repo, n, insecure),
+		"--export-cache", fmt.Sprintf("type=registry,ref=%s:cache,mode=max%s", repo, insecure),
+		"--import-cache", fmt.Sprintf("type=registry,ref=%s:cache%s", repo, insecure),
 		"--metadata-file", "/tmp/meta.json",
 	}
 	if b := app.Spec.Build; b != nil {
@@ -365,25 +370,26 @@ echo "pushed $IMAGE_REPO@$digest"`
 						Image:   c.BuildKitImage,
 						Command: []string{"sh", "-ec", buildScript, "buildctl"},
 						Args:    args,
-						Env: []corev1.EnvVar{
+						Env: append([]corev1.EnvVar{
 							{Name: "BUILDKITD_FLAGS", Value: "--oci-worker-no-process-sandbox"},
 							{Name: "IMAGE_REPO", Value: repo},
-						},
+						}, c.buildKitAuthEnv()...),
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("250m"),
 							corev1.ResourceMemory: resource.MustParse("512Mi"),
 						}},
 						SecurityContext: unconfined,
-						VolumeMounts: []corev1.VolumeMount{
+						VolumeMounts: append([]corev1.VolumeMount{
 							{Name: "workspace", MountPath: workspaceDir},
 							{Name: "buildkit", MountPath: "/home/user/.local/share/buildkit"},
-						},
+						}, c.buildKitAuthMounts()...),
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 					}},
-					Volumes: []corev1.Volume{
+					ImagePullSecrets: c.imagePullSecrets(),
+					Volumes: append([]corev1.Volume{
 						{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "buildkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-					},
+					}, c.buildKitAuthVolumes()...),
 				},
 			},
 		},
@@ -430,4 +436,32 @@ echo "source ready at $(cat %[4]s/revision)"`, shellQuote(src.Git.URL), shellQuo
 // shellQuote single-quotes s for POSIX sh.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// Registry credentials for BuildKit: the mirrored dockerconfigjson Secret
+// mounted where the rootless user's docker config lives.
+const dockerConfigDir = "/home/user/.docker"
+
+func (c Config) buildKitAuthEnv() []corev1.EnvVar {
+	if c.RegistrySecret == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: "DOCKER_CONFIG", Value: dockerConfigDir}}
+}
+
+func (c Config) buildKitAuthMounts() []corev1.VolumeMount {
+	if c.RegistrySecret == "" {
+		return nil
+	}
+	return []corev1.VolumeMount{{Name: "registry-auth", MountPath: dockerConfigDir, ReadOnly: true}}
+}
+
+func (c Config) buildKitAuthVolumes() []corev1.Volume {
+	if c.RegistrySecret == "" {
+		return nil
+	}
+	return []corev1.Volume{{Name: "registry-auth", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+		SecretName: c.RegistrySecret,
+		Items:      []corev1.KeyToPath{{Key: corev1.DockerConfigJsonKey, Path: "config.json"}},
+	}}}}
 }

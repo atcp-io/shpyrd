@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,10 +37,11 @@ const (
 const AdminTokenSecretName = "shpyrd-admin-token"
 
 var hooks = map[string]Hook{
-	"local-ca":      localCAHook,
-	"admin-token":   adminTokenHook,
-	"default-sizes": defaultSizesHook,
-	"oidc-client":   oidcClientHook,
+	"local-ca":             localCAHook,
+	"admin-token":          adminTokenHook,
+	"default-sizes":        defaultSizesHook,
+	"oidc-client":          oidcClientHook,
+	"registry-credentials": registryCredentialsHook,
 }
 
 // RegisterHook lets extensions add hooks their components reference.
@@ -198,4 +201,51 @@ func localCAHook(ctx context.Context, e *Engine, c *Component) error {
 		return fmt.Errorf("secret %s/%s: %w", c.Namespace, LocalCASecretName, err)
 	}
 	return nil
+}
+
+// registryCredentialsHook writes the private registry's credentials as a
+// dockerconfigjson Secret (RegistrySecretName) in the component namespace,
+// where the kpack builder ServiceAccount links it and the App controller
+// mirrors it into project namespaces for builds and image pulls. Without
+// credentials on the command line an existing Secret is kept; a missing
+// one is an error that says how to pass them.
+func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error {
+	secrets := e.kube.Kube.CoreV1().Secrets(c.Namespace)
+	if e.opts.RegistryUser == "" || e.opts.RegistryPassword == "" {
+		if _, err := secrets.Get(ctx, RegistrySecretName, metav1.GetOptions{}); err == nil {
+			e.rep.Step(c.Name, "keeping existing registry credentials")
+			return nil
+		}
+		return fmt.Errorf("the registry %s needs credentials: pass --registry-user and --registry-token-file (or --registry-password-env)", registryHostOf(e.vars[VarRegistryHost]))
+	}
+	host := registryHostOf(e.vars[VarRegistryHost])
+	auth := base64.StdEncoding.EncodeToString([]byte(e.opts.RegistryUser + ":" + e.opts.RegistryPassword))
+	cfg, _ := json.Marshal(map[string]interface{}{"auths": map[string]interface{}{
+		host: map[string]string{"username": e.opts.RegistryUser, "password": e.opts.RegistryPassword, "auth": auth},
+	}})
+	secret := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"type":       "kubernetes.io/dockerconfigjson",
+		"metadata": map[string]interface{}{
+			"name":      RegistrySecretName,
+			"namespace": c.Namespace,
+			"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": fieldManager},
+		},
+		"data": map[string]interface{}{".dockerconfigjson": base64.StdEncoding.EncodeToString(cfg)},
+	}}
+	if err := e.applier.applyOne(ctx, secret, c.Namespace, false); err != nil {
+		return fmt.Errorf("secret %s/%s: %w", c.Namespace, RegistrySecretName, err)
+	}
+	e.rep.Step(c.Name, "stored credentials for "+host+" as "+e.opts.RegistryUser)
+	return nil
+}
+
+// registryHostOf returns the host part of SHPYRD_REGISTRY_HOST, which may
+// carry a path (gru.ocir.io/<tenancy-namespace>); docker auth is per host.
+func registryHostOf(registry string) string {
+	if i := strings.IndexByte(registry, '/'); i > 0 {
+		return registry[:i]
+	}
+	return registry
 }
