@@ -156,7 +156,7 @@ func TestRedisReconcile(t *testing.T) {
 	}
 	ct := sts.Spec.Template.Spec.Containers[0]
 	args := strings.Join(ct.Args, " ")
-	if ct.Image != "valkey/valkey:8.1.10-alpine" || !strings.HasPrefix(args, "valkey-server --requirepass $(REDIS_PASSWORD)") || !strings.Contains(args, "allkeys-lru") || !strings.Contains(args, "--maxmemory ") || strings.Contains(args, "appendonly") {
+	if ct.Image != "docker.io/valkey/valkey:8.1.10-alpine" || !strings.HasPrefix(args, "valkey-server --requirepass $(REDIS_PASSWORD)") || !strings.Contains(args, "allkeys-lru") || !strings.Contains(args, "--maxmemory ") || strings.Contains(args, "appendonly") {
 		t.Errorf("cache container = %s %s", ct.Image, args)
 	}
 	if *ct.SecurityContext.RunAsUser != 999 || len(sts.Spec.VolumeClaimTemplates) != 0 {
@@ -173,7 +173,7 @@ func TestRedisReconcile(t *testing.T) {
 	qsts := &appsv1.StatefulSet{}
 	_ = c.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "queue"}, qsts)
 	qargs := strings.Join(qsts.Spec.Template.Spec.Containers[0].Args, " ")
-	if qsts.Spec.Template.Spec.Containers[0].Image != "redis:7.4-alpine" || !strings.HasPrefix(qargs, "redis-server") || !strings.Contains(qargs, "--appendonly yes") || !strings.Contains(qargs, "noeviction") {
+	if qsts.Spec.Template.Spec.Containers[0].Image != "docker.io/library/redis:7.4-alpine" || !strings.HasPrefix(qargs, "redis-server") || !strings.Contains(qargs, "--appendonly yes") || !strings.Contains(qargs, "noeviction") {
 		t.Errorf("queue container = %s", qargs)
 	}
 	if len(qsts.Spec.VolumeClaimTemplates) != 1 || qsts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String() != "2Gi" {

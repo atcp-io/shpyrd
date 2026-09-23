@@ -39,8 +39,8 @@ type RedisReconciler struct {
 
 // Engine images, pinned.
 var redisImages = map[string]map[string]string{
-	"valkey": {"8": "valkey/valkey:8.1.10-alpine", "9": "valkey/valkey:9.0.6-alpine"},
-	"redis":  {"7": "redis:7.4-alpine"},
+	"valkey": {"8": "docker.io/valkey/valkey:8.1.10-alpine", "9": "docker.io/valkey/valkey:9.0.6-alpine"},
+	"redis":  {"7": "docker.io/library/redis:7.4-alpine"},
 }
 
 const (

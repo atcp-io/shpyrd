@@ -76,7 +76,8 @@ func (c Config) imagePullSecrets() []corev1.LocalObjectReference {
 }
 
 // DefaultBuildKitImage is the rootless BuildKit image used for Dockerfile builds.
-const DefaultBuildKitImage = "moby/buildkit:v0.32.2-rootless"
+// Fully qualified: CRI-O (OKE, OpenShift) refuses Docker Hub short names.
+const DefaultBuildKitImage = "docker.io/moby/buildkit:v0.32.2-rootless"
 
 // Defaults fills unset fields.
 func (c Config) Defaults() Config {

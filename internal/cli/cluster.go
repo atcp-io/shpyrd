@@ -657,9 +657,12 @@ func waitForDNS(ctx context.Context, cmd *cobra.Command, domain, addr string) er
 	}
 }
 
+// resolvesTo asks public resolvers (what the certificate authority sees),
+// not the operator's machine, whose cache may still hold the NXDOMAIN from
+// the polls before the record existed.
 func resolvesTo(host, addr string) bool {
-	ips, err := net.LookupHost(host)
-	if err != nil {
+	ips := publicLookup(host)
+	if len(ips) == 0 {
 		return false
 	}
 	for _, ip := range ips {
@@ -669,18 +672,31 @@ func resolvesTo(host, addr string) bool {
 	}
 	// A hostname target (some clouds hand out names): compare resolutions.
 	if net.ParseIP(addr) == nil {
-		want, err := net.LookupHost(addr)
-		if err == nil {
-			for _, w := range want {
-				for _, ip := range ips {
-					if ip == w {
-						return true
-					}
+		for _, w := range publicLookup(addr) {
+			for _, ip := range ips {
+				if ip == w {
+					return true
 				}
 			}
 		}
 	}
 	return false
+}
+
+// publicLookup resolves a name through well-known public resolvers.
+func publicLookup(host string) []string {
+	for _, server := range []string{"1.1.1.1:53", "8.8.8.8:53"} {
+		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 4 * time.Second}).DialContext(ctx, network, server)
+		}}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ips, err := r.LookupHost(ctx, host)
+		cancel()
+		if err == nil && len(ips) > 0 {
+			return ips
+		}
+	}
+	return nil
 }
 
 // seedFromRecord fills flags the user did not pass from the install record,
