@@ -1,14 +1,14 @@
 # RFC-0011 Project identity and product language
 
-**Status:** provisional
+**Status:** implemented
 
-**Owner:** unassigned
+**Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
 **Depends on:** none
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-22
+**Last update:** 2026-09-23
 
 ## Summary
 
@@ -40,29 +40,43 @@ are the first things a new user notices.
   trimmed, conflict → error suggesting `my-shop-2`). The dashboard's New project form
   shows the slug live under the name field. Lists show the display name with the slug in
   small type; the slug stays the CLI identifier and the hostname.
-- **URLs**: dashboard routes `/projects/<slug>` (tabs as query or subpaths), `/apps/:ns/:name`
-  redirects for one release. API: new routes `/api/projects/<slug>/...` mirroring today's
-  `/api/apps/:ns/:name/...` (the server derives the namespace); old routes stay one release
-  with a `Deprecation` header. Project-level routes already use `/api/projects/:ns/...`
-  with the namespace; they move to the slug too.
+- **URLs**: dashboard route `/projects/<slug>` (tabs as query). API: `/api/projects` and
+  `/api/projects/<slug>/...` replace `/api/apps/:ns/:name/...`; project-level routes that
+  took the namespace (`/api/projects/:ns/volumes`...) take the slug. The server derives the
+  namespace; a path whose slug is malformed is a 404. The old routes are gone: pre-alpha,
+  no redirects.
+- **API shape**: list and detail carry `slug` and `displayName` (no `name` field, so that
+  clients cannot confuse the two); `POST /api/projects {name, slug?}` takes the display
+  name and an optional slug; `PATCH /api/projects/<slug> {name}` renames. Every project
+  action is audited with "Display Name (slug)" as target.
 - **Copy audit**: replace "pod" with "instance" in the dashboard (metrics tooltips use
-  instance names via the existing `InstanceNames` mapping; build steps say "build step",
-  "build instance"), CLI messages, docs. `kubectl` names stay in `kubectl` output only.
+  instance names via the existing `InstanceNames` mapping; the log viewer no longer shows
+  the pod name on hover; build steps say "build failed before step"), CLI and API
+  messages, docs and sample apps. `kubectl` names stay in `kubectl` output only.
 
 ## Design Details
 
-- `pkg/api`: a `projectOf(slug)` helper resolving namespace `app-<slug>`; route table
-  registered twice during the deprecation window.
-- UI: router paths, `Link` targets, breadcrumb; a `displayName(app)` helper.
-- CLI: `projects create` accepts a free-form name, prints "Created project My Shop (my-shop)";
-  `--slug` overrides.
+- `pkg/project`: the one place with the naming rules: `Slug(name)` (NFD, accents dropped,
+  lowercase ASCII, single dashes, 40 characters), `ValidSlug`, `Namespace`, `FromNamespace`,
+  `DisplayName`/`SetDisplayName`/`Label`. `authz.ProjectFromNamespace` and
+  `resources.Namespace` delegate to it.
+- `pkg/api`: `projectKey(c)`/`projectNamespace(c)` read `:slug`; `require()` rejects
+  malformed slugs before authorization.
+- UI: `api.ts` takes the slug only; `slugify()` mirrors `pkg/project.Slug` so the New
+  project form shows the slug live (editable; it follows the name until touched); the
+  header shows the display name with the slug beside it and a rename dialog; destroying
+  asks for the slug.
+- CLI: `projects create "My Shop"` derives the slug, `--slug` overrides, prints "Created
+  project My Shop (my-shop)"; `projects rename <slug> "<name>"`; `list` shows PROJECT
+  (slug) and NAME; `--project` and `shpyrd.yaml` keep taking the slug.
 
 ## Open questions
 
-1. Keep the `App` kind as the internal name? Default: yes.
+1. Keep the `App` kind as the internal name? Settled: yes.
 2. Keep old dashboard/API paths for one release with redirects and a `Deprecation`
-   header, or break now? Default: keep for one release.
+   header, or break now? Settled: break now (pre-alpha, no external users).
 
 ## Implementation History
 
 - 2026-09-22: RFC written.
+- 2026-09-23: open questions settled (break now); implemented in shpyrd-io/shpyrd (API, CLI, dashboard, copy audit).

@@ -74,13 +74,13 @@ func do(t *testing.T, s *Server, method, path, body string, auth bool) *httptest
 
 func TestAuth(t *testing.T) {
 	s, _ := newTestServer(t, nil, nil)
-	if rec := do(t, s, "GET", "/api/apps", "", false); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, s, "GET", "/api/projects", "", false); rec.Code != http.StatusUnauthorized {
 		t.Errorf("no token: got %d want 401", rec.Code)
 	}
-	if rec := do(t, s, "GET", "/api/apps", "", true); rec.Code != http.StatusOK {
+	if rec := do(t, s, "GET", "/api/projects", "", true); rec.Code != http.StatusOK {
 		t.Errorf("bearer: got %d want 200: %s", rec.Code, rec.Body.String())
 	}
-	req := httptest.NewRequest("GET", "/api/apps", nil)
+	req := httptest.NewRequest("GET", "/api/projects", nil)
 	req.Header.Set("X-Shpyrd-Token", testToken)
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
@@ -101,7 +101,7 @@ func TestListAndGetApps(t *testing.T) {
 		sampleApp("zeta", shpyrdv1.PhaseRunning, shpyrdv1.Release{Number: 3, Image: "x"}),
 		sampleApp("alpha", ""),
 	})
-	rec := do(t, s, "GET", "/api/apps", "", true)
+	rec := do(t, s, "GET", "/api/projects", "", true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
@@ -109,13 +109,13 @@ func TestListAndGetApps(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 2 || list[0].Name != "alpha" || list[1].Release != 3 || list[0].Phase != shpyrdv1.PhasePending {
+	if len(list) != 2 || list[0].Slug != "alpha" || list[0].DisplayName != "alpha" || list[1].Release != 3 || list[0].Phase != shpyrdv1.PhasePending {
 		t.Errorf("unexpected list: %+v", list)
 	}
-	if rec := do(t, s, "GET", "/api/apps/app-zeta/zeta", "", true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"phase":"Running"`) {
+	if rec := do(t, s, "GET", "/api/projects/zeta", "", true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"phase":"Running"`) {
 		t.Errorf("get: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "GET", "/api/apps/app-nope/nope", "", true); rec.Code != http.StatusNotFound {
+	if rec := do(t, s, "GET", "/api/projects/nope", "", true); rec.Code != http.StatusNotFound {
 		t.Errorf("missing app: %d", rec.Code)
 	}
 }
@@ -127,7 +127,7 @@ func TestScaleAndRollback(t *testing.T) {
 	)
 	s, cr := newTestServer(t, nil, []client.Object{app})
 
-	rec := do(t, s, "POST", "/api/apps/app-web1/web1/scale", `{"process":"web","replicas":3}`, true)
+	rec := do(t, s, "POST", "/api/projects/web1/scale", `{"process":"web","replicas":3}`, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("scale: %d %s", rec.Code, rec.Body.String())
 	}
@@ -138,11 +138,11 @@ func TestScaleAndRollback(t *testing.T) {
 	if r := got.Spec.Processes["web"].Replicas; r == nil || *r != 3 {
 		t.Errorf("replicas not applied: %+v", got.Spec.Processes)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/scale", `{"process":"nope","replicas":1}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/web1/scale", `{"process":"nope","replicas":1}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown process: %d", rec.Code)
 	}
 
-	rec = do(t, s, "POST", "/api/apps/app-web1/web1/rollback", `{"release":1}`, true)
+	rec = do(t, s, "POST", "/api/projects/web1/rollback", `{"release":1}`, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rollback: %d %s", rec.Code, rec.Body.String())
 	}
@@ -152,7 +152,7 @@ func TestScaleAndRollback(t *testing.T) {
 	if got.Spec.Image != "img-a" || got.Annotations[shpyrdv1.AnnotationReleaseNote] != "Rollback to v1" {
 		t.Errorf("rollback not applied: image=%q annotations=%v", got.Spec.Image, got.Annotations)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/rollback", `{"release":9}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/web1/rollback", `{"release":9}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown release: %d", rec.Code)
 	}
 }
@@ -179,7 +179,7 @@ func TestMetrics(t *testing.T) {
 	app := sampleApp("web1", shpyrdv1.PhaseRunning, shpyrdv1.Release{Number: 1, Image: "x", CreatedAt: metav1.Now()})
 	s, _ := newTestServer(t, NewPromClient(prom.URL), []client.Object{app})
 
-	rec := do(t, s, "GET", "/api/apps/app-web1/web1/metrics?range=6h", "", true)
+	rec := do(t, s, "GET", "/api/projects/web1/metrics?range=6h", "", true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("metrics: %d %s", rec.Code, rec.Body.String())
 	}
@@ -206,7 +206,7 @@ func TestMetrics(t *testing.T) {
 	if cpu := byID["cpu"]; len(cpu.Series) != 1 || cpu.Series[0].Name != "all" {
 		t.Errorf("cpu fallback series = %+v", cpu.Series)
 	}
-	if rec := do(t, s, "GET", "/api/apps/app-web1/web1/metrics?range=2h", "", true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "GET", "/api/projects/web1/metrics?range=2h", "", true); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad range: %d", rec.Code)
 	}
 }
@@ -214,7 +214,7 @@ func TestMetrics(t *testing.T) {
 func TestSecretsAndCreateDeploy(t *testing.T) {
 	s, cr := newTestServer(t, nil, []client.Object{sampleApp("web1", shpyrdv1.PhaseRunning)})
 
-	rec := do(t, s, "PUT", "/api/apps/app-web1/web1/secrets", `{"set":{"A":"1"},"dotenv":"B=two\n# comment\nexport C='three'\n"}`, true)
+	rec := do(t, s, "PUT", "/api/projects/web1/secrets", `{"set":{"A":"1"},"dotenv":"B=two\n# comment\nexport C='three'\n"}`, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("set secrets: %d %s", rec.Code, rec.Body.String())
 	}
@@ -233,30 +233,33 @@ func TestSecretsAndCreateDeploy(t *testing.T) {
 	if string(sec.Data["C"]) != "three" || string(sec.Data["B"]) != "two" {
 		t.Errorf("secret data = %v", sec.Data)
 	}
-	rec = do(t, s, "PUT", "/api/apps/app-web1/web1/secrets", `{"unset":["A","B"]}`, true)
+	rec = do(t, s, "PUT", "/api/projects/web1/secrets", `{"unset":["A","B"]}`, true)
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if rec.Code != http.StatusOK || len(resp.Vars) != 1 || resp.Vars[0].Name != "C" {
 		t.Errorf("unset: %d %+v", rec.Code, resp.Vars)
 	}
-	if rec := do(t, s, "PUT", "/api/apps/app-web1/web1/secrets", `{"set":{"1BAD":"x"}}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "PUT", "/api/projects/web1/secrets", `{"set":{"1BAD":"x"}}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid key: %d", rec.Code)
 	}
-	if rec := do(t, s, "GET", "/api/apps/app-web1/web1/secrets", "", true); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "three") {
+	if rec := do(t, s, "GET", "/api/projects/web1/secrets", "", true); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "three") {
 		t.Errorf("list must not leak values: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Create + deploy from git through the API.
-	rec = do(t, s, "POST", "/api/apps", `{"name":"newapp","processes":{"web":{},"worker":{}}}`, true)
+	rec = do(t, s, "POST", "/api/projects", `{"name":"newapp","processes":{"web":{},"worker":{}}}`, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/apps", `{"name":"Bad Name"}`, true); rec.Code != http.StatusBadRequest {
-		t.Errorf("bad name: %d", rec.Code)
+	if rec := do(t, s, "POST", "/api/projects", `{"name":"!!!"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("name without letters or digits: %d", rec.Code)
 	}
-	if rec := do(t, s, "POST", "/api/apps", `{"name":"newapp"}`, true); rec.Code != http.StatusConflict {
-		t.Errorf("duplicate: %d", rec.Code)
+	if rec := do(t, s, "POST", "/api/projects", `{"name":"x","slug":"Bad Slug"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad explicit slug: %d", rec.Code)
 	}
-	rec = do(t, s, "POST", "/api/apps/app-newapp/newapp/deploy", `{"git":{"url":"https://example.test/r"},"subPath":"svc"}`, true)
+	if rec := do(t, s, "POST", "/api/projects", `{"name":"newapp"}`, true); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "newapp-2") {
+		t.Errorf("duplicate: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, s, "POST", "/api/projects/newapp/deploy", `{"git":{"url":"https://example.test/r"},"subPath":"svc"}`, true)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("deploy: %d %s", rec.Code, rec.Body.String())
 	}
@@ -270,7 +273,7 @@ func TestSecretsAndCreateDeploy(t *testing.T) {
 	if got.Spec.Build != nil && got.Spec.Build.Strategy != "" {
 		t.Errorf("no strategy requested must keep the app's setting: %+v", got.Spec.Build)
 	}
-	rec = do(t, s, "POST", "/api/apps/app-newapp/newapp/deploy", `{"git":{"url":"https://example.test/r"},"strategy":"dockerfile","dockerfile":"deploy/Dockerfile"}`, true)
+	rec = do(t, s, "POST", "/api/projects/newapp/deploy", `{"git":{"url":"https://example.test/r"},"strategy":"dockerfile","dockerfile":"deploy/Dockerfile"}`, true)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("dockerfile deploy: %d %s", rec.Code, rec.Body.String())
 	}
@@ -280,7 +283,7 @@ func TestSecretsAndCreateDeploy(t *testing.T) {
 	if got.Spec.Build == nil || got.Spec.Build.Strategy != shpyrdv1.StrategyDockerfile || got.Spec.Build.Dockerfile != "deploy/Dockerfile" {
 		t.Errorf("dockerfile strategy not applied: %+v", got.Spec.Build)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-newapp/newapp/deploy", `{"git":{"url":"https://example.test/r"},"strategy":"magic"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/newapp/deploy", `{"git":{"url":"https://example.test/r"},"strategy":"magic"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown strategy: %d", rec.Code)
 	}
 	ns := &corev1.Namespace{}
@@ -359,11 +362,11 @@ func TestClusterSummaryAndLogs(t *testing.T) {
 		t.Errorf("nodes/apps: %+v", sum)
 	}
 
-	rec = do(t, s, "GET", "/api/apps/app-web1/web1/logs?tail=10", "", true)
+	rec = do(t, s, "GET", "/api/projects/web1/logs?tail=10", "", true)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), " web.1 | ") {
 		t.Errorf("logs: %d %q", rec.Code, rec.Body.String())
 	}
-	rec = do(t, s, "GET", "/api/apps/app-web1/web1/logs?tail=10&format=json", "", true)
+	rec = do(t, s, "GET", "/api/projects/web1/logs?tail=10&format=json", "", true)
 	var line LogLine
 	if err := json.Unmarshal([]byte(strings.SplitN(rec.Body.String(), "\n", 2)[0]), &line); err != nil || line.Instance != "web.1" || line.Pod != "web1-web-abc" {
 		t.Errorf("ndjson logs: %d %q (%v)", rec.Code, rec.Body.String(), err)
@@ -434,7 +437,7 @@ func TestSizesAndResize(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"default":"tiny"`) || !strings.Contains(rec.Body.String(), `"big"`) {
 		t.Errorf("catalog not saved: %s", rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/resize", `{"process":"web","size":"big"}`, true); rec.Code != http.StatusOK {
+	if rec := do(t, s, "POST", "/api/projects/web1/resize", `{"process":"web","size":"big"}`, true); rec.Code != http.StatusOK {
 		t.Fatalf("resize: %d %s", rec.Code, rec.Body.String())
 	}
 	got := &shpyrdv1.App{}
@@ -444,18 +447,18 @@ func TestSizesAndResize(t *testing.T) {
 	if got.Spec.Processes["web"].Size != "big" {
 		t.Errorf("size not applied: %+v", got.Spec.Processes)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/resize", `{"process":"web","size":"nope"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/web1/resize", `{"process":"web","size":"nope"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown size: %d", rec.Code)
 	}
 }
 
 func TestApplyProcesses(t *testing.T) {
 	s, cr := newTestServer(t, nil, []client.Object{sampleApp("web1", shpyrdv1.PhaseRunning)})
-	rec := do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"shared-m","replicas":3},"worker":{"size":"shared-xs"}}}`, true)
+	rec := do(t, s, "POST", "/api/projects/web1/processes", `{"processes":{"web":{"size":"shared-m","replicas":3},"worker":{"size":"shared-xs"}}}`, true)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown process worker must fail: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"shared-m","replicas":3}}}`, true)
+	rec = do(t, s, "POST", "/api/projects/web1/processes", `{"processes":{"web":{"size":"shared-m","replicas":3}}}`, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("apply: %d %s", rec.Code, rec.Body.String())
 	}
@@ -466,7 +469,7 @@ func TestApplyProcesses(t *testing.T) {
 	if got.Spec.Processes["web"].Size != "shared-m" || *got.Spec.Processes["web"].Replicas != 3 {
 		t.Errorf("changes not applied: %+v", got.Spec.Processes["web"])
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-web1/web1/processes", `{"processes":{"web":{"size":"nope"}}}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/web1/processes", `{"processes":{"web":{"size":"nope"}}}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown size: %d", rec.Code)
 	}
 }
@@ -480,10 +483,10 @@ func TestVolumesAPIAndScaleRefusal(t *testing.T) {
 	}
 	s, cr := newTestServer(t, nil, []client.Object{app})
 
-	if rec := do(t, s, "GET", "/api/projects/app-demo/volumes", "", true); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+	if rec := do(t, s, "GET", "/api/projects/demo/volumes", "", true); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Fatalf("empty list: %d %s", rec.Code, rec.Body.String())
 	}
-	rec := do(t, s, "POST", "/api/projects/app-demo/volumes", `{"name":"data","size":"5Gi"}`, true)
+	rec := do(t, s, "POST", "/api/projects/demo/volumes", `{"name":"data","size":"5Gi"}`, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
@@ -492,37 +495,37 @@ func TestVolumesAPIAndScaleRefusal(t *testing.T) {
 	if view.Size != "5Gi" || view.Shared || view.Phase != "Pending" || view.MountedBy == nil {
 		t.Errorf("view = %+v", view)
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-demo/volumes", `{"name":"data","size":"5Gi"}`, true); rec.Code != http.StatusConflict {
+	if rec := do(t, s, "POST", "/api/projects/demo/volumes", `{"name":"data","size":"5Gi"}`, true); rec.Code != http.StatusConflict {
 		t.Errorf("duplicate: %d", rec.Code)
 	}
 	for _, bad := range []string{`{"name":"Data","size":"5Gi"}`, `{"name":"x","size":"five"}`, `{"name":"x","size":"-1Gi"}`} {
-		if rec := do(t, s, "POST", "/api/projects/app-demo/volumes", bad, true); rec.Code != http.StatusBadRequest {
+		if rec := do(t, s, "POST", "/api/projects/demo/volumes", bad, true); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, rec.Code)
 		}
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-demo/volumes", `{"name":"assets","size":"1Gi","shared":true,"storageClass":"nfs"}`, true); rec.Code != http.StatusCreated {
+	if rec := do(t, s, "POST", "/api/projects/demo/volumes", `{"name":"assets","size":"1Gi","shared":true,"storageClass":"nfs"}`, true); rec.Code != http.StatusCreated {
 		t.Errorf("shared create: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Resize: grow ok, shrink refused.
-	if rec := do(t, s, "PUT", "/api/projects/app-demo/volumes/data", `{"size":"10Gi"}`, true); rec.Code != http.StatusOK {
+	if rec := do(t, s, "PUT", "/api/projects/demo/volumes/data", `{"size":"10Gi"}`, true); rec.Code != http.StatusOK {
 		t.Errorf("grow: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "PUT", "/api/projects/app-demo/volumes/data", `{"size":"1Gi"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "PUT", "/api/projects/demo/volumes/data", `{"size":"1Gi"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("shrink: %d", rec.Code)
 	}
-	if rec := do(t, s, "PUT", "/api/projects/app-demo/volumes/nope", `{"size":"1Gi"}`, true); rec.Code != http.StatusNotFound {
+	if rec := do(t, s, "PUT", "/api/projects/demo/volumes/nope", `{"size":"1Gi"}`, true); rec.Code != http.StatusNotFound {
 		t.Errorf("missing: %d", rec.Code)
 	}
 
 	// Scaling web past 1 is refused because "data" is single-instance.
-	if rec := do(t, s, "POST", "/api/apps/app-demo/demo/scale", `{"process":"web","replicas":3}`, true); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "single-instance volume") {
+	if rec := do(t, s, "POST", "/api/projects/demo/scale", `{"process":"web","replicas":3}`, true); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "single-instance volume") {
 		t.Errorf("scale: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-demo/demo/processes", `{"processes":{"web":{"replicas":2}}}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/demo/processes", `{"processes":{"web":{"replicas":2}}}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("batch scale: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-demo/demo/scale", `{"process":"web","replicas":1}`, true); rec.Code != http.StatusOK {
+	if rec := do(t, s, "POST", "/api/projects/demo/scale", `{"process":"web","replicas":1}`, true); rec.Code != http.StatusOK {
 		t.Errorf("scale to 1: %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -533,13 +536,13 @@ func TestVolumesAPIAndScaleRefusal(t *testing.T) {
 	if err := cr.Status().Update(context.Background(), vol); err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/data", "", true); rec.Code != http.StatusConflict {
+	if rec := do(t, s, "DELETE", "/api/projects/demo/volumes/data", "", true); rec.Code != http.StatusConflict {
 		t.Errorf("delete mounted: %d", rec.Code)
 	}
-	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/data?force=true", "", true); rec.Code != http.StatusNoContent {
+	if rec := do(t, s, "DELETE", "/api/projects/demo/volumes/data?force=true", "", true); rec.Code != http.StatusNoContent {
 		t.Errorf("force delete: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "DELETE", "/api/projects/app-demo/volumes/assets", "", true); rec.Code != http.StatusNoContent {
+	if rec := do(t, s, "DELETE", "/api/projects/demo/volumes/assets", "", true); rec.Code != http.StatusNoContent {
 		t.Errorf("delete: %d", rec.Code)
 	}
 }
@@ -567,7 +570,7 @@ func TestProjectResourcesAndBoundVars(t *testing.T) {
 	}
 	s, _ := newTestServer(t, nil, []client.Object{app, vol, bindings})
 
-	rec := do(t, s, "GET", "/api/projects/app-demo/resources", "", true)
+	rec := do(t, s, "GET", "/api/projects/demo/resources", "", true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resources: %d %s", rec.Code, rec.Body.String())
 	}
@@ -585,7 +588,7 @@ func TestProjectResourcesAndBoundVars(t *testing.T) {
 		t.Errorf("volume view = %+v", res[1])
 	}
 
-	rec = do(t, s, "GET", "/api/apps/app-demo/demo/secrets", "", true)
+	rec = do(t, s, "GET", "/api/projects/demo/secrets", "", true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("secrets: %d %s", rec.Code, rec.Body.String())
 	}
@@ -605,21 +608,21 @@ func TestResourcesAndBindingsAPI(t *testing.T) {
 	s.opts.Extensions = all.All() // postgres and redis kinds become available
 
 	// Create a Postgres and a Redis generically.
-	rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Postgres","name":"db","spec":{"version":"16","storage":"10Gi"}}`, true)
+	rec := do(t, s, "POST", "/api/projects/shop/resources", `{"kind":"Postgres","name":"db","spec":{"version":"16","storage":"10Gi"}}`, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create postgres: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Redis","name":"cache","spec":{"persistent":false}}`, true); rec.Code != http.StatusCreated {
+	if rec := do(t, s, "POST", "/api/projects/shop/resources", `{"kind":"Redis","name":"cache","spec":{"persistent":false}}`, true); rec.Code != http.StatusCreated {
 		t.Fatalf("create redis: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Mongo","name":"x"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/shop/resources", `{"kind":"Mongo","name":"x"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown kind: %d", rec.Code)
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/resources", `{"kind":"Postgres","name":"db"}`, true); rec.Code != http.StatusConflict {
+	if rec := do(t, s, "POST", "/api/projects/shop/resources", `{"kind":"Postgres","name":"db"}`, true); rec.Code != http.StatusConflict {
 		t.Errorf("duplicate: %d", rec.Code)
 	}
 
-	rec = do(t, s, "GET", "/api/projects/app-shop/resources", "", true)
+	rec = do(t, s, "GET", "/api/projects/shop/resources", "", true)
 	var res []ResourceView
 	_ = json.Unmarshal(rec.Body.Bytes(), &res)
 	kinds := map[string]ResourceView{}
@@ -631,7 +634,7 @@ func TestResourcesAndBindingsAPI(t *testing.T) {
 	}
 
 	// Attach: a binding with a release note; duplicates and unknown targets refused.
-	rec = do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Postgres","name":"db"}`, true)
+	rec = do(t, s, "POST", "/api/projects/shop/bindings", `{"kind":"Postgres","name":"db"}`, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
 	}
@@ -640,16 +643,16 @@ func TestResourcesAndBindingsAPI(t *testing.T) {
 	if len(got.Spec.Bindings) != 1 || got.Spec.Bindings[0].Kind != "Postgres" || got.Annotations[shpyrdv1.AnnotationReleaseNote] != "Attach Postgres db" {
 		t.Errorf("app after attach: %+v %v", got.Spec.Bindings, got.Annotations)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Postgres","name":"db"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/shop/bindings", `{"kind":"Postgres","name":"db"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("double attach: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Postgres","name":"nope"}`, true); rec.Code != http.StatusNotFound {
+	if rec := do(t, s, "POST", "/api/projects/shop/bindings", `{"kind":"Postgres","name":"nope"}`, true); rec.Code != http.StatusNotFound {
 		t.Errorf("attach missing: %d", rec.Code)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Redis","name":"cache","prefix":"bad prefix"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/shop/bindings", `{"kind":"Redis","name":"cache","prefix":"bad prefix"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad prefix: %d", rec.Code)
 	}
-	if rec := do(t, s, "POST", "/api/apps/app-shop/shop/bindings", `{"kind":"Redis","name":"cache","prefix":"queue"}`, true); rec.Code != http.StatusOK {
+	if rec := do(t, s, "POST", "/api/projects/shop/bindings", `{"kind":"Redis","name":"cache","prefix":"queue"}`, true); rec.Code != http.StatusOK {
 		t.Errorf("attach redis: %d %s", rec.Code, rec.Body.String())
 	}
 	_ = cr.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "shop"}, got)
@@ -658,32 +661,99 @@ func TestResourcesAndBindingsAPI(t *testing.T) {
 	}
 
 	// The resources list shows who attaches what; deletion is refused while attached.
-	rec = do(t, s, "GET", "/api/projects/app-shop/resources", "", true)
+	rec = do(t, s, "GET", "/api/projects/shop/resources", "", true)
 	_ = json.Unmarshal(rec.Body.Bytes(), &res)
 	for _, r := range res {
 		if r.Kind == "Postgres" && (len(r.AttachedTo) != 1 || r.AttachedTo[0] != "shop") {
 			t.Errorf("attachedTo = %v", r.AttachedTo)
 		}
 	}
-	if rec := do(t, s, "DELETE", "/api/projects/app-shop/resources/Postgres/db", "", true); rec.Code != http.StatusConflict {
+	if rec := do(t, s, "DELETE", "/api/projects/shop/resources/Postgres/db", "", true); rec.Code != http.StatusConflict {
 		t.Errorf("delete attached: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Detach, then delete.
-	if rec := do(t, s, "DELETE", "/api/apps/app-shop/shop/bindings/Postgres/db", "", true); rec.Code != http.StatusOK {
+	if rec := do(t, s, "DELETE", "/api/projects/shop/bindings/Postgres/db", "", true); rec.Code != http.StatusOK {
 		t.Fatalf("detach: %d %s", rec.Code, rec.Body.String())
 	}
 	_ = cr.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "shop"}, got)
 	if len(got.Spec.Bindings) != 1 || got.Spec.Bindings[0].Kind != "Redis" || got.Annotations[shpyrdv1.AnnotationReleaseNote] != "Detach Postgres db" {
 		t.Errorf("app after detach: %+v %v", got.Spec.Bindings, got.Annotations)
 	}
-	if rec := do(t, s, "DELETE", "/api/apps/app-shop/shop/bindings/Postgres/db", "", true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "DELETE", "/api/projects/shop/bindings/Postgres/db", "", true); rec.Code != http.StatusBadRequest {
 		t.Errorf("detach twice: %d", rec.Code)
 	}
-	if rec := do(t, s, "DELETE", "/api/projects/app-shop/resources/Postgres/db", "", true); rec.Code != http.StatusNoContent {
+	if rec := do(t, s, "DELETE", "/api/projects/shop/resources/Postgres/db", "", true); rec.Code != http.StatusNoContent {
 		t.Errorf("delete: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "DELETE", "/api/projects/app-shop/resources/Redis/cache?force=true", "", true); rec.Code != http.StatusNoContent {
+	if rec := do(t, s, "DELETE", "/api/projects/shop/resources/Redis/cache?force=true", "", true); rec.Code != http.StatusNoContent {
 		t.Errorf("force delete attached: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// RFC-0011: a project is created from a human name; the slug is derived or
+// given, and paths name projects by slug only.
+func TestProjectIdentity(t *testing.T) {
+	s, k := newTestServer(t, nil, nil)
+	rec := do(t, s, "POST", "/api/projects", `{"name":"  My Shop  "}`, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var created AppSummary
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	if created.Slug != "my-shop" || created.DisplayName != "My Shop" || created.Namespace != "app-my-shop" {
+		t.Fatalf("created = %+v", created)
+	}
+	app := &shpyrdv1.App{}
+	if err := k.Get(context.Background(), types.NamespacedName{Namespace: "app-my-shop", Name: "my-shop"}, app); err != nil {
+		t.Fatal(err)
+	}
+	if app.Annotations[shpyrdv1.AnnotationDisplayName] != "My Shop" {
+		t.Errorf("annotation = %v", app.Annotations)
+	}
+
+	// An explicit slug wins over the derived one.
+	rec = do(t, s, "POST", "/api/projects", `{"name":"My Shop","slug":"shop-eu"}`, true)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"slug":"shop-eu"`) {
+		t.Fatalf("explicit slug: %d %s", rec.Code, rec.Body.String())
+	}
+	// A name that already is a slug stores no annotation.
+	rec = do(t, s, "POST", "/api/projects", `{"name":"plain"}`, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("plain: %d %s", rec.Code, rec.Body.String())
+	}
+	plain := &shpyrdv1.App{}
+	_ = k.Get(context.Background(), types.NamespacedName{Namespace: "app-plain", Name: "plain"}, plain)
+	if _, ok := plain.Annotations[shpyrdv1.AnnotationDisplayName]; ok {
+		t.Errorf("plain slug must not carry a display-name annotation: %v", plain.Annotations)
+	}
+
+	// Detail and list carry both names; the list sorts by display name.
+	rec = do(t, s, "GET", "/api/projects/my-shop", "", true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"displayName":"My Shop"`) || !strings.Contains(rec.Body.String(), `"slug":"my-shop"`) {
+		t.Errorf("detail: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, s, "GET", "/api/projects", "", true)
+	var list []AppSummary
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 3 || list[0].Slug != "my-shop" || list[1].Slug != "shop-eu" || list[2].Slug != "plain" {
+		t.Errorf("list order = %+v", list)
+	}
+
+	// Rename changes the display name only.
+	rec = do(t, s, "PATCH", "/api/projects/my-shop", `{"name":"The Shop"}`, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"displayName":"The Shop"`) || !strings.Contains(rec.Body.String(), `"slug":"my-shop"`) {
+		t.Errorf("rename: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "PATCH", "/api/projects/my-shop", `{"name":"  "}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("empty rename: %d", rec.Code)
+	}
+
+	// Paths use slugs: a namespace-looking or malformed one is a 404, not an
+	// upstream error.
+	for _, p := range []string{"/api/projects/app-my-shop", "/api/projects/My%20Shop", "/api/projects/-bad"} {
+		if rec := do(t, s, "GET", p, "", true); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: %d want 404", p, rec.Code)
+		}
 	}
 }

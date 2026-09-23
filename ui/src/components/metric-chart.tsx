@@ -36,7 +36,7 @@ const subtitles: Record<string, string> = {
   instances: "running instances per process type",
   cpu: "of each process allocation; shared sizes can burst above 100%",
   memory: "of each process allocation",
-  network: "pod network traffic",
+  network: "instance network traffic",
 };
 
 type Props = {

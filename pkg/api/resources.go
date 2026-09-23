@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 )
 
@@ -43,7 +42,7 @@ type ResourceView struct {
 
 // listProjectResources returns every resource of the project namespace.
 func (s *Server) listProjectResources(c *gin.Context) {
-	ns := c.Param("ns")
+	ns := projectNamespace(c)
 	ctx := c.Request.Context()
 	var apps shpyrdv1.AppList
 	if err := s.apps.List(ctx, &apps, client.InNamespace(ns)); err != nil {
@@ -188,13 +187,13 @@ func (s *Server) createResource(c *gin.Context) {
 		abort(c, http.StatusBadRequest, errors.New("name must be lowercase letters, digits and dashes (max 40 chars)"))
 		return
 	}
-	ns := c.Param("ns")
+	ns := projectNamespace(c)
 	u := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": t.Group + "/" + t.Version,
 		"kind":       t.Kind,
 		"metadata": map[string]interface{}{
 			"name": req.Name, "namespace": ns,
-			"labels": map[string]interface{}{shpyrdv1.LabelManagedBy: "shpyrd", shpyrdv1.LabelProject: authz.ProjectFromNamespace(ns)},
+			"labels": map[string]interface{}{shpyrdv1.LabelManagedBy: "shpyrd", shpyrdv1.LabelProject: c.Param("slug")},
 		},
 		"spec": req.Spec,
 	}}
@@ -212,7 +211,7 @@ func (s *Server) createResource(c *gin.Context) {
 		}
 		return
 	}
-	s.audit(c, authz.ProjectFromNamespace(ns), "resource.create", t.Kind+" "+req.Name, "")
+	s.audit(c, c.Param("slug"), "resource.create", t.Kind+" "+req.Name, "")
 	c.JSON(http.StatusCreated, resourceViewOf(t, *u))
 }
 
@@ -223,7 +222,7 @@ func (s *Server) deleteResource(c *gin.Context) {
 		abort(c, http.StatusNotFound, errors.New("unknown resource kind"))
 		return
 	}
-	ns, name := c.Param("ns"), c.Param("name")
+	ns, name := projectNamespace(c), c.Param("name")
 	var apps shpyrdv1.AppList
 	_ = s.apps.List(c.Request.Context(), &apps, client.InNamespace(ns))
 	var bound []string
@@ -246,7 +245,7 @@ func (s *Server) deleteResource(c *gin.Context) {
 		abortNotFound(c, err, strings.ToLower(t.Kind))
 		return
 	}
-	s.audit(c, authz.ProjectFromNamespace(ns), "resource.delete", t.Kind+" "+name, "")
+	s.audit(c, c.Param("slug"), "resource.delete", t.Kind+" "+name, "")
 	c.Status(http.StatusNoContent)
 }
 
@@ -277,7 +276,7 @@ func (s *Server) attachResource(c *gin.Context) {
 		abort(c, http.StatusBadRequest, errors.New("prefix must be letters, digits and underscores"))
 		return
 	}
-	ns := c.Param("ns")
+	ns := projectNamespace(c)
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{Group: t.Group, Version: t.Version, Kind: t.Kind})
 	if err := s.apps.Get(c.Request.Context(), types.NamespacedName{Namespace: ns, Name: req.Name}, u); err != nil {
@@ -306,7 +305,7 @@ func (s *Server) attachResource(c *gin.Context) {
 
 // detachResource removes a binding.
 func (s *Server) detachResource(c *gin.Context) {
-	kind, name := c.Param("kind"), c.Param("rname")
+	kind, name := c.Param("kind"), c.Param("name")
 	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
 		kept := a.Spec.Bindings[:0]
 		found := false

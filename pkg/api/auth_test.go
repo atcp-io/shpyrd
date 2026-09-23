@@ -177,10 +177,10 @@ func TestOIDCLoginFlow(t *testing.T) {
 		t.Fatalf("me: %d %s", me.Code, me.Body.String())
 	}
 	// Mutations need the CSRF header when authenticated by cookie.
-	if rec := doCookie(t, s, "POST", "/api/apps", `{"name":"x"}`, sid, ""); rec.Code != http.StatusForbidden {
+	if rec := doCookie(t, s, "POST", "/api/projects", `{"name":"x"}`, sid, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("mutation without CSRF: %d", rec.Code)
 	}
-	if rec := doCookie(t, s, "POST", "/api/apps", `{"name":"csrf-ok"}`, sid, csrf); rec.Code == http.StatusForbidden || rec.Code == http.StatusUnauthorized {
+	if rec := doCookie(t, s, "POST", "/api/projects", `{"name":"csrf-ok"}`, sid, csrf); rec.Code == http.StatusForbidden || rec.Code == http.StatusUnauthorized {
 		t.Errorf("mutation with CSRF: %d %s", rec.Code, rec.Body.String())
 	}
 	// Replaying the code fails.
@@ -206,7 +206,7 @@ func TestOIDCLoginFlow(t *testing.T) {
 
 func TestSafeNext(t *testing.T) {
 	for in, want := range map[string]string{
-		"": "/", "/cluster": "/cluster", "//evil.test": "/", "https://evil.test": "/", "/api/x": "/", "cluster": "/", "/apps/app-x/x?tab=logs": "/apps/app-x/x?tab=logs",
+		"": "/", "/cluster": "/cluster", "//evil.test": "/", "https://evil.test": "/", "/api/x": "/", "cluster": "/", "/projects/x?tab=logs": "/projects/x?tab=logs",
 	} {
 		if got := safeNext(in); got != want {
 			t.Errorf("safeNext(%q) = %q, want %q", in, got, want)
@@ -265,7 +265,7 @@ func TestTokenDisabledAndTickets(t *testing.T) {
 	s, _ := newTestServer(t, nil, nil)
 	s.opts.TokenDisabled = true
 	s.opts.Public.Auth = AuthConfig{}
-	if rec := do(t, s, "GET", "/api/apps", "", true); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "admin token is disabled") {
+	if rec := do(t, s, "GET", "/api/projects", "", true); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "admin token is disabled") {
 		t.Errorf("disabled token: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := do(t, s, "GET", "/api/config", "", false); !strings.Contains(rec.Body.String(), `"token":false`) {
@@ -316,7 +316,7 @@ func TestFailedTokenAttemptsThrottled(t *testing.T) {
 	s, _ := newTestServer(t, nil, nil)
 	s.tokenFailures = newRateLimiter(3)
 	bad := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequest("GET", "/api/apps", nil)
+		req := httptest.NewRequest("GET", "/api/projects", nil)
 		req.Header.Set("Authorization", "Bearer wrong")
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, req)
@@ -331,7 +331,7 @@ func TestFailedTokenAttemptsThrottled(t *testing.T) {
 		t.Errorf("fourth wrong attempt should be throttled: %d", rec.Code)
 	}
 	// Even the right token is refused while throttled.
-	if rec := do(t, s, "GET", "/api/apps", "", true); rec.Code != http.StatusTooManyRequests {
+	if rec := do(t, s, "GET", "/api/projects", "", true); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("right token while throttled: %d", rec.Code)
 	}
 	// Each failure left an audit event.

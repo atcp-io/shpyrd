@@ -236,7 +236,7 @@ func newPsqlCmd(g ext.CLIGlobals) *cobra.Command {
 				return fmt.Errorf("database %s has no primary instance yet (%s)", pg.Name, firstNonEmpty(pg.Status.Message, pg.Status.Phase))
 			}
 			command := append([]string{"psql", "-d", "app"}, args[1:]...)
-			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (%s)...\n", pg.Name, pods.Items[0].Name)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (primary)...\n", pg.Name)
 			return kexec.RemoteExit(kexec.Exec(ctx, k, pg.Namespace, pods.Items[0].Name, "postgres", command, kexec.StdinIsTerminal()))
 		},
 	}

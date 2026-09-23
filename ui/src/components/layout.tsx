@@ -171,7 +171,7 @@ function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
   // "Projects" owns both the list and the project pages.
   const active =
     to === "/"
-      ? pathname === "/" || pathname.startsWith("/apps/")
+      ? pathname === "/" || pathname.startsWith("/projects/")
       : pathname.startsWith(to);
   return (
     <NavLink

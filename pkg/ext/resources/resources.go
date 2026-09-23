@@ -15,10 +15,11 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/kube"
+	"shpyrd/pkg/project"
 )
 
 // Namespace of a project.
-func Namespace(project string) string { return "app-" + project }
+func Namespace(slug string) string { return project.Namespace(slug) }
 
 // Connect builds the controller-runtime client the CLIs use.
 func Connect(g ext.CLIGlobals) (*kube.Client, client.Client, error) {

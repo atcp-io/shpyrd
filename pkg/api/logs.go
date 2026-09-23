@@ -97,7 +97,7 @@ func (s *Server) appLogs(c *gin.Context) {
 		return
 	}
 	if len(pods.Items) == 0 {
-		abort(c, http.StatusNotFound, errors.New("no running pods for this app"))
+		abort(c, http.StatusNotFound, errors.New("no running instances in this project"))
 		return
 	}
 	names := InstanceNames(pods.Items)
@@ -347,7 +347,7 @@ func (s *Server) buildLogs(c *gin.Context) {
 			return
 		}
 		if !follow {
-			abort(c, http.StatusNotFound, fmt.Errorf("the pod of build %s is gone (only a limited build history is kept)", build))
+			abort(c, http.StatusNotFound, fmt.Errorf("the output of build %s is gone (only a limited build history is kept)", build))
 			return
 		}
 		select {
@@ -380,7 +380,7 @@ func (s *Server) buildLogs(c *gin.Context) {
 					break
 				}
 				if p.Status.Phase == corev1.PodFailed {
-					w.line("===> build pod failed before step " + ic.Name)
+					w.line("===> build failed before step " + ic.Name)
 					return
 				}
 				select {

@@ -59,54 +59,54 @@ func TestAuthorization(t *testing.T) {
 	}
 
 	// Strangers now see nothing.
-	if rec := doCookie(t, s, "GET", "/api/apps/app-shop/shop", "", newSID, ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "no access to project shop") {
+	if rec := doCookie(t, s, "GET", "/api/projects/shop", "", newSID, ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "no access to project shop") {
 		t.Errorf("stranger: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doCookie(t, s, "GET", "/api/cluster", "", newSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("stranger cluster: %d", rec.Code)
 	}
-	rec = doCookie(t, s, "GET", "/api/apps", "", newSID, "")
+	rec = doCookie(t, s, "GET", "/api/projects", "", newSID, "")
 	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Errorf("stranger list must be empty: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Grants: a developer on shop, a viewer on shop through a team.
-	if rec := do(t, s, "POST", "/api/projects/app-shop/members", `{"role":"developer","user":"dev@example.test"}`, true); rec.Code != http.StatusCreated {
+	if rec := do(t, s, "POST", "/api/projects/shop/members", `{"role":"developer","user":"dev@example.test"}`, true); rec.Code != http.StatusCreated {
 		t.Fatalf("add member: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/members", `{"role":"developer","user":"dev@example.test"}`, true); rec.Code != http.StatusConflict {
+	if rec := do(t, s, "POST", "/api/projects/shop/members", `{"role":"developer","user":"dev@example.test"}`, true); rec.Code != http.StatusConflict {
 		t.Errorf("duplicate grant: %d", rec.Code)
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/members", `{"role":"owner","user":"x@example.test"}`, true); rec.Code != http.StatusBadRequest {
+	if rec := do(t, s, "POST", "/api/projects/shop/members", `{"role":"owner","user":"x@example.test"}`, true); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad role: %d", rec.Code)
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/members", `{"role":"viewer","team":"nope"}`, true); rec.Code != http.StatusNotFound {
+	if rec := do(t, s, "POST", "/api/projects/shop/members", `{"role":"viewer","team":"nope"}`, true); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown team: %d", rec.Code)
 	}
 	if rec := do(t, s, "POST", "/api/teams", `{"name":"readers","members":["viewer@example.test"]}`, true); rec.Code != http.StatusCreated {
 		t.Fatalf("readers team: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := do(t, s, "POST", "/api/projects/app-shop/members", `{"role":"viewer","team":"readers"}`, true); rec.Code != http.StatusCreated {
+	if rec := do(t, s, "POST", "/api/projects/shop/members", `{"role":"viewer","team":"readers"}`, true); rec.Code != http.StatusCreated {
 		t.Fatalf("team grant: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Developer: sees shop only, may scale, may not destroy or manage members.
-	rec = doCookie(t, s, "GET", "/api/apps", "", devSID, "")
+	rec = doCookie(t, s, "GET", "/api/projects", "", devSID, "")
 	var list []AppSummary
 	_ = json.Unmarshal(rec.Body.Bytes(), &list)
-	if len(list) != 1 || list[0].Name != "shop" {
+	if len(list) != 1 || list[0].Slug != "shop" {
 		t.Errorf("developer list = %s", rec.Body.String())
 	}
-	if rec := doCookie(t, s, "GET", "/api/apps/app-blog/blog", "", devSID, ""); rec.Code != http.StatusForbidden {
+	if rec := doCookie(t, s, "GET", "/api/projects/blog", "", devSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("developer on blog: %d", rec.Code)
 	}
-	if rec := doCookie(t, s, "POST", "/api/apps/app-shop/shop/scale", `{"process":"web","replicas":2}`, devSID, devCSRF); rec.Code != http.StatusOK {
+	if rec := doCookie(t, s, "POST", "/api/projects/shop/scale", `{"process":"web","replicas":2}`, devSID, devCSRF); rec.Code != http.StatusOK {
 		t.Errorf("developer scale: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doCookie(t, s, "DELETE", "/api/apps/app-shop/shop", "", devSID, devCSRF); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "role on project shop is developer") {
+	if rec := doCookie(t, s, "DELETE", "/api/projects/shop", "", devSID, devCSRF); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "role on project shop is developer") {
 		t.Errorf("developer destroy: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doCookie(t, s, "GET", "/api/projects/app-shop/members", "", devSID, ""); rec.Code != http.StatusForbidden {
+	if rec := doCookie(t, s, "GET", "/api/projects/shop/members", "", devSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("developer members: %d", rec.Code)
 	}
 	rec = doCookie(t, s, "GET", "/api/me", "", devSID, "")
@@ -115,10 +115,10 @@ func TestAuthorization(t *testing.T) {
 	}
 
 	// Viewer (through the team): read only.
-	if rec := doCookie(t, s, "GET", "/api/apps/app-shop/shop", "", viewSID, ""); rec.Code != http.StatusOK {
+	if rec := doCookie(t, s, "GET", "/api/projects/shop", "", viewSID, ""); rec.Code != http.StatusOK {
 		t.Errorf("viewer read: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doCookie(t, s, "PUT", "/api/apps/app-shop/shop/secrets", `{"set":{"A":"b"}}`, viewSID, viewCSRF); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "is viewer: it cannot change config vars") {
+	if rec := doCookie(t, s, "PUT", "/api/projects/shop/secrets", `{"set":{"A":"b"}}`, viewSID, viewCSRF); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "is viewer: it cannot change config vars") {
 		t.Errorf("viewer config: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doCookie(t, s, "GET", "/api/sizes", "", viewSID, ""); rec.Code != http.StatusOK {
@@ -126,7 +126,7 @@ func TestAuthorization(t *testing.T) {
 	}
 
 	// Membership listing and removal by the token (platform admin).
-	rec = do(t, s, "GET", "/api/projects/app-shop/members", "", true)
+	rec = do(t, s, "GET", "/api/projects/shop/members", "", true)
 	var members []MemberView
 	_ = json.Unmarshal(rec.Body.Bytes(), &members)
 	if len(members) != 2 {
@@ -134,19 +134,19 @@ func TestAuthorization(t *testing.T) {
 	}
 	for _, m := range members {
 		if m.User == "dev@example.test" {
-			if rec := do(t, s, "DELETE", "/api/projects/app-shop/members/"+m.Name, "", true); rec.Code != http.StatusNoContent {
+			if rec := do(t, s, "DELETE", "/api/projects/shop/members/"+m.Name, "", true); rec.Code != http.StatusNoContent {
 				t.Errorf("remove member: %d %s", rec.Code, rec.Body.String())
 			}
 		}
 	}
-	if rec := doCookie(t, s, "GET", "/api/apps/app-shop/shop", "", devSID, ""); rec.Code != http.StatusForbidden {
+	if rec := doCookie(t, s, "GET", "/api/projects/shop", "", devSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("developer after removal: %d", rec.Code)
 	}
 	// Deleting a team removes its grants.
 	if rec := do(t, s, "DELETE", "/api/teams/readers", "", true); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete team: %d", rec.Code)
 	}
-	if rec := doCookie(t, s, "GET", "/api/apps/app-shop/shop", "", viewSID, ""); rec.Code != http.StatusForbidden {
+	if rec := doCookie(t, s, "GET", "/api/projects/shop", "", viewSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("viewer after team deletion: %d", rec.Code)
 	}
 	var left shpyrdv1.ProjectMemberList

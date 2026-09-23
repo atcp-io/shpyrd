@@ -63,14 +63,14 @@ shpyrd projects create hello-world
 cd examples/hello && shpyrd deploy  # shpyrd.yaml names the app; ~1 min for the first build
 shpyrd open                         # https://hello-world.127.0.0.1.nip.io
 shpyrd secrets set GREETING="Olá mundo"   # the page picks it up
-shpyrd scale web=3                        # reload: the pod name changes
+shpyrd scale web=3                        # reload: another instance answers
 ```
 
 Then your own code:
 
 ```sh
 cd my-service                       # any repo a Paketo buildpack understands (Go, Node, Java, Python, Ruby, .NET, static) or with a Dockerfile
-shpyrd projects create my-service --save   # namespace app-my-service, App resource, shpyrd.yaml
+shpyrd projects create "My Service" --save # slug my-service: namespace app-my-service, App resource, shpyrd.yaml
 shpyrd deploy                       # archive HEAD, build in-cluster (buildpacks, or the Dockerfile when there is one), roll out
 shpyrd deploy --working-tree        # ...or the directory as is, uncommitted changes included
 shpyrd open                         # https://my-service.127.0.0.1.nip.io
@@ -141,7 +141,7 @@ build history, logs from every instance (`web.1`, `worker.2`...) with level
 highlighting, filtering and live tail, and the config var names. Config var
 values are write-only: they can be added, replaced or removed but never read
 back, in the UI or the CLI. The cluster page shows capacity: CPU and memory used
-versus reserved by pod requests, per node and in total, plus the installed
+versus reserved by instance requests, per node and in total, plus the installed
 components and the available extensions.
 
 ## Extensions and sign-in

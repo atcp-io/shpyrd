@@ -17,6 +17,7 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
+	project_ "shpyrd/pkg/project"
 )
 
 // Authorization (RFC-0008): every protected route names the action it
@@ -45,15 +46,20 @@ func (s *Server) rolesOf(c *gin.Context) (authz.Roles, error) {
 }
 
 // require refuses the request unless the caller may perform action; project
-// actions take the project from the :ns parameter.
+// actions take the project from the :slug parameter. A malformed slug is a
+// 404: no such project can exist.
 func (s *Server) require(action authz.Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		project := c.Param("slug")
+		if project != "" && !project_.ValidSlug(project) {
+			abort(c, http.StatusNotFound, errors.New("project not found"))
+			return
+		}
 		roles, err := s.rolesOf(c)
 		if err != nil {
 			abort(c, http.StatusBadGateway, fmt.Errorf("resolve roles: %w", err))
 			return
 		}
-		project := authz.ProjectFromNamespace(c.Param("ns"))
 		if !roles.Can(action, project) {
 			abort(c, http.StatusForbidden, denial(roles, action, project))
 			return
@@ -238,7 +244,7 @@ func MemberName(project, role, user, team string) string {
 }
 
 func (s *Server) listMembers(c *gin.Context) {
-	project := authz.ProjectFromNamespace(c.Param("ns"))
+	project := c.Param("slug")
 	var list shpyrdv1.ProjectMemberList
 	if err := s.apps.List(c.Request.Context(), &list); err != nil {
 		abort(c, http.StatusBadGateway, err)
@@ -260,7 +266,7 @@ func (s *Server) addMember(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
-	project := authz.ProjectFromNamespace(c.Param("ns"))
+	project := c.Param("slug")
 	switch req.Role {
 	case shpyrdv1.RoleViewer, shpyrdv1.RoleDeveloper, shpyrdv1.RoleAdmin:
 	default:
@@ -304,7 +310,7 @@ func (s *Server) addMember(c *gin.Context) {
 }
 
 func (s *Server) removeMember(c *gin.Context) {
-	project := authz.ProjectFromNamespace(c.Param("ns"))
+	project := c.Param("slug")
 	m := &shpyrdv1.ProjectMember{}
 	if err := s.apps.Get(c.Request.Context(), types.NamespacedName{Name: c.Param("name")}, m); err != nil {
 		abortNotFound(c, err, "member")

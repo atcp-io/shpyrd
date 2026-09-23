@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"shpyrd/pkg/audit"
-	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 )
 
@@ -48,7 +47,7 @@ func (s *Server) auditAnonymous(c *gin.Context, action, detail string) {
 
 // appAudit lists the audit trail of a project.
 func (s *Server) appAudit(c *gin.Context) {
-	project := authz.ProjectFromNamespace(c.Param("ns"))
+	project := c.Param("slug")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	entries, err := audit.List(c.Request.Context(), s.kube.Kube, audit.AppRef(project), limit)
 	if err != nil {

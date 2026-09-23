@@ -18,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
 )
 
 // VolumeView is a project volume as shown to users.
@@ -64,7 +63,7 @@ type ResizeVolumeRequest struct {
 
 func (s *Server) listVolumes(c *gin.Context) {
 	var list shpyrdv1.VolumeList
-	if err := s.apps.List(c.Request.Context(), &list, client.InNamespace(c.Param("ns"))); err != nil {
+	if err := s.apps.List(c.Request.Context(), &list, client.InNamespace(projectNamespace(c))); err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
@@ -92,7 +91,7 @@ func (s *Server) createVolume(c *gin.Context) {
 		return
 	}
 	vol := &shpyrdv1.Volume{
-		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: c.Param("ns"), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
+		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: projectNamespace(c), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
 		Spec:       shpyrdv1.VolumeSpec{Size: size, StorageClass: req.StorageClass, AccessMode: corev1.ReadWriteOnce},
 	}
 	if req.Shared {
@@ -106,7 +105,7 @@ func (s *Server) createVolume(c *gin.Context) {
 		}
 		return
 	}
-	s.audit(c, authz.ProjectFromNamespace(vol.Namespace), "volume.create", vol.Name, req.Size)
+	s.audit(c, c.Param("slug"), "volume.create", vol.Name, req.Size)
 	c.JSON(http.StatusCreated, volumeView(*vol))
 }
 
@@ -121,7 +120,7 @@ func (s *Server) resizeVolume(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
-	key := types.NamespacedName{Namespace: c.Param("ns"), Name: c.Param("name")}
+	key := types.NamespacedName{Namespace: projectNamespace(c), Name: c.Param("name")}
 	vol := &shpyrdv1.Volume{}
 	if err := s.apps.Get(c.Request.Context(), key, vol); err != nil {
 		abortNotFound(c, err, "volume")
@@ -136,14 +135,14 @@ func (s *Server) resizeVolume(c *gin.Context) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	s.audit(c, authz.ProjectFromNamespace(vol.Namespace), "volume.resize", vol.Name, req.Size)
+	s.audit(c, c.Param("slug"), "volume.resize", vol.Name, req.Size)
 	c.JSON(http.StatusOK, volumeView(*vol))
 }
 
 // deleteVolume removes a volume and its data. Mounted volumes are refused
 // unless ?force=true.
 func (s *Server) deleteVolume(c *gin.Context) {
-	key := types.NamespacedName{Namespace: c.Param("ns"), Name: c.Param("name")}
+	key := types.NamespacedName{Namespace: projectNamespace(c), Name: c.Param("name")}
 	vol := &shpyrdv1.Volume{}
 	if err := s.apps.Get(c.Request.Context(), key, vol); err != nil {
 		abortNotFound(c, err, "volume")
@@ -157,7 +156,7 @@ func (s *Server) deleteVolume(c *gin.Context) {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	s.audit(c, authz.ProjectFromNamespace(vol.Namespace), "volume.delete", vol.Name, "")
+	s.audit(c, c.Param("slug"), "volume.delete", vol.Name, "")
 	c.Status(http.StatusNoContent)
 }
 

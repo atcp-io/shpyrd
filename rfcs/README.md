@@ -38,7 +38,7 @@ declare what they depend on.
 | [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented; quotas → 0042, enforce PSS → 0043, supply chain → 0044, tokens → 0031, durable audit → 0025 | |
 | [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented; backups → 0038, pooling/rotation → 0039 | |
 | [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented; HA → 0040 | |
-| [0011](0011-project-identity-and-product-language.md) | Project identity and product language | provisional | |
+| [0011](0011-project-identity-and-product-language.md) | Project identity and product language | implemented | |
 | [0012](0012-sign-in-experience.md) | Sign-in experience (own login page, Okta/OIDC, GitHub/Google) | provisional | 0007 |
 | [0013](0013-email-delivery.md) | Email delivery (`mail` extension) | provisional | 0002 |
 | [0014](0014-account-lifecycle.md) | Account lifecycle (invites, reset, verification, lockout) | provisional | 0012, 0013 |

@@ -153,14 +153,19 @@ export function AppsPage() {
                   </TableRow>
                 )}
                 {apps.data?.map((a) => (
-                  <TableRow key={`${a.namespace}/${a.name}`}>
+                  <TableRow key={a.slug}>
                     <TableCell className="font-medium">
                       <Link
-                        to={`/apps/${a.namespace}/${a.name}`}
+                        to={`/projects/${a.slug}`}
                         className="hover:underline"
                       >
-                        {a.name}
+                        {a.displayName}
                       </Link>
+                      {a.displayName !== a.slug && (
+                        <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                          {a.slug}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <PhaseBadge phase={a.phase} />
@@ -221,11 +226,12 @@ function Stat({
   );
 }
 
-const nameRe = /^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$/;
-
 export function NewAppDialog() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  // The slug follows the name until the user edits it.
+  const [slugEdit, setSlugEdit] = useState<string | null>(null);
+  const slug = slugEdit ?? slugify(name);
   const [git, setGit] = useState("");
   const [ref, setRef] = useState("");
   const [path, setPath] = useState("");
@@ -235,24 +241,31 @@ export function NewAppDialog() {
   const create = useMutation({
     mutationFn: () =>
       api.createApp({
-        name,
+        name: name.trim(),
+        slug: slug !== slugify(name) ? slug : undefined,
         git: git.trim()
           ? { url: git.trim(), revision: ref.trim() || "main" }
           : undefined,
         subPath: path.trim() || undefined,
       }),
     onSuccess: (a) => {
-      toast.success(`Created ${a.name}`);
+      toast.success(`Created ${a.displayName}`);
       qc.invalidateQueries({ queryKey: ["apps"] });
       setOpen(false);
-      navigate(`/apps/${a.namespace}/${a.name}`);
+      navigate(`/projects/${a.slug}`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
-  const valid = nameRe.test(name);
+  const valid = name.trim() !== "" && slugRe.test(slug);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setSlugEdit(null);
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus data-icon="inline-start" /> New project
@@ -279,13 +292,25 @@ export function NewAppDialog() {
             <Input
               id="app-name"
               value={name}
-              onChange={(e) => setName(e.target.value.toLowerCase())}
-              placeholder="my-service"
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Service"
               autoFocus
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="app-slug">Slug</Label>
+            <Input
+              id="app-slug"
+              value={slug}
+              onChange={(e) => setSlugEdit(e.target.value.toLowerCase())}
+              placeholder="my-service"
+              className="font-mono"
+              aria-invalid={slug !== "" && !slugRe.test(slug)}
+            />
             <p className="text-xs text-muted-foreground">
-              Lowercase letters, digits and dashes. Becomes https://
-              {name || "my-service"}.&lt;domain&gt;
+              {slug && !slugRe.test(slug)
+                ? "Lowercase letters, digits and dashes, up to 40 characters."
+                : `Used in URLs and the CLI. Becomes https://${slug || "my-service"}.<domain>`}
             </p>
           </div>
           <div className="grid gap-2">
@@ -335,4 +360,19 @@ export function NewAppDialog() {
       </DialogContent>
     </Dialog>
   );
+}
+
+const slugRe = /^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$/;
+
+/** Mirrors pkg/project.Slug: lowercase ASCII, dashes between words, accents
+ * stripped, at most 40 characters. */
+function slugify(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,34 +16,38 @@ import (
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
+	"shpyrd/pkg/project"
 )
 
-// AppSummary is the list view of an App. Image references are reduced to
-// their digest so registry internals never surface in the UI.
+// AppSummary is the list view of a project. Image references are reduced
+// to their digest so registry internals never surface in the UI.
 type AppSummary struct {
-	Name      string                            `json:"name"`
-	Namespace string                            `json:"namespace"`
-	Phase     string                            `json:"phase"`
-	Message   string                            `json:"message,omitempty"`
-	URL       string                            `json:"url,omitempty"`
-	Digest    string                            `json:"digest,omitempty"`
-	Release   int                               `json:"release"`
-	Source    string                            `json:"source,omitempty"`
-	Processes map[string]shpyrdv1.ProcessStatus `json:"processes,omitempty"`
-	CreatedAt time.Time                         `json:"createdAt"`
+	// Slug identifies the project in URLs, the CLI and hostnames.
+	Slug string `json:"slug"`
+	// DisplayName is the human name; the slug when none was given.
+	DisplayName string                            `json:"displayName"`
+	Namespace   string                            `json:"namespace"`
+	Phase       string                            `json:"phase"`
+	Message     string                            `json:"message,omitempty"`
+	URL         string                            `json:"url,omitempty"`
+	Digest      string                            `json:"digest,omitempty"`
+	Release     int                               `json:"release"`
+	Source      string                            `json:"source,omitempty"`
+	Processes   map[string]shpyrdv1.ProcessStatus `json:"processes,omitempty"`
+	CreatedAt   time.Time                         `json:"createdAt"`
 }
 
 func summarize(a *shpyrdv1.App) AppSummary {
 	s := AppSummary{
-		Name:      a.Name,
-		Namespace: a.Namespace,
-		Phase:     a.Status.Phase,
-		Message:   a.Status.Message,
-		URL:       a.Status.URL,
-		Digest:    Digest(a.Status.Image),
-		Processes: a.Status.Processes,
-		CreatedAt: a.CreationTimestamp.Time,
+		Slug:        a.Name,
+		DisplayName: project.DisplayName(a),
+		Namespace:   a.Namespace,
+		Phase:       a.Status.Phase,
+		Message:     a.Status.Message,
+		URL:         a.Status.URL,
+		Digest:      Digest(a.Status.Image),
+		Processes:   a.Status.Processes,
+		CreatedAt:   a.CreationTimestamp.Time,
 	}
 	if s.Phase == "" {
 		s.Phase = shpyrdv1.PhasePending
@@ -78,12 +81,13 @@ func Digest(image string) string {
 
 // AppDetail is the App with image references replaced by digests.
 type AppDetail struct {
-	Name      string                            `json:"name"`
-	Namespace string                            `json:"namespace"`
-	CreatedAt time.Time                         `json:"createdAt"`
-	Spec      AppDetailSpec                     `json:"spec"`
-	Status    AppDetailStatus                   `json:"status"`
-	Processes map[string]shpyrdv1.ProcessStatus `json:"processes,omitempty"`
+	Slug        string                            `json:"slug"`
+	DisplayName string                            `json:"displayName"`
+	Namespace   string                            `json:"namespace"`
+	CreatedAt   time.Time                         `json:"createdAt"`
+	Spec        AppDetailSpec                     `json:"spec"`
+	Status      AppDetailStatus                   `json:"status"`
+	Processes   map[string]shpyrdv1.ProcessStatus `json:"processes,omitempty"`
 }
 
 type AppDetailSpec struct {
@@ -136,9 +140,10 @@ func releaseKind(prev *shpyrdv1.Release, cur shpyrdv1.Release) string {
 
 func detail(a *shpyrdv1.App, buildByDigest map[string]int) AppDetail {
 	d := AppDetail{
-		Name:      a.Name,
-		Namespace: a.Namespace,
-		CreatedAt: a.CreationTimestamp.Time,
+		Slug:        a.Name,
+		DisplayName: project.DisplayName(a),
+		Namespace:   a.Namespace,
+		CreatedAt:   a.CreationTimestamp.Time,
 		Spec: AppDetailSpec{
 			Source:      a.Spec.Source,
 			PinnedImage: Digest(a.Spec.Image),
@@ -204,20 +209,34 @@ func (s *Server) listApps(c *gin.Context) {
 	}
 	out := make([]AppSummary, 0, len(list.Items))
 	for i := range list.Items {
-		if !s.canView(c, authz.ProjectFromNamespace(list.Items[i].Namespace)) {
+		if !s.canView(c, list.Items[i].Name) {
 			continue
 		}
 		out = append(out, summarize(&list.Items[i]))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].DisplayName != out[j].DisplayName {
+			return strings.ToLower(out[i].DisplayName) < strings.ToLower(out[j].DisplayName)
+		}
+		return out[i].Slug < out[j].Slug
+	})
 	c.JSON(http.StatusOK, out)
 }
 
+// projectKey locates the App of the project named in the path.
+func projectKey(c *gin.Context) types.NamespacedName {
+	slug := c.Param("slug")
+	return types.NamespacedName{Namespace: project.Namespace(slug), Name: slug}
+}
+
+// projectNamespace is the namespace of the project named in the path.
+func projectNamespace(c *gin.Context) string { return project.Namespace(c.Param("slug")) }
+
 func (s *Server) loadApp(c *gin.Context) (*shpyrdv1.App, bool) {
 	app := &shpyrdv1.App{}
-	err := s.apps.Get(c.Request.Context(), types.NamespacedName{Namespace: c.Param("ns"), Name: c.Param("name")}, app)
+	err := s.apps.Get(c.Request.Context(), projectKey(c), app)
 	if apierrors.IsNotFound(err) {
-		abort(c, http.StatusNotFound, errors.New("app not found"))
+		abort(c, http.StatusNotFound, errors.New("project not found"))
 		return nil, false
 	}
 	if err != nil {
@@ -235,11 +254,11 @@ func (s *Server) getApp(c *gin.Context) {
 	c.JSON(http.StatusOK, detail(app, s.buildsByDigest(c.Request.Context(), app)))
 }
 
-var appNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$`)
-
-// CreateAppRequest creates an app: namespace app-<name> plus the App.
+// CreateAppRequest creates a project: namespace app-<slug> plus the App.
+// Name is the display name, any text; Slug overrides the one derived from it.
 type CreateAppRequest struct {
 	Name      string                      `json:"name" binding:"required"`
+	Slug      string                      `json:"slug,omitempty"`
 	Domains   []string                    `json:"domains,omitempty"`
 	Processes map[string]shpyrdv1.Process `json:"processes,omitempty"`
 	Git       *shpyrdv1.GitSource         `json:"git,omitempty"`
@@ -252,36 +271,76 @@ func (s *Server) createApp(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
-	if !appNameRe.MatchString(req.Name) {
-		abort(c, http.StatusBadRequest, errors.New("name must be lowercase letters, digits and dashes (max 40 characters)"))
+	req.Name = strings.TrimSpace(req.Name)
+	slug := req.Slug
+	if slug == "" {
+		var err error
+		if slug, err = project.Slug(req.Name); err != nil {
+			abort(c, http.StatusBadRequest, err)
+			return
+		}
+	} else if err := project.ValidateSlug(slug); err != nil {
+		abort(c, http.StatusBadRequest, err)
 		return
 	}
 	ctx := c.Request.Context()
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-		Name:   "app-" + req.Name,
-		Labels: map[string]string{shpyrdv1.LabelApp: req.Name, shpyrdv1.LabelProject: req.Name, shpyrdv1.LabelManagedBy: "shpyrd"},
+		Name:   project.Namespace(slug),
+		Labels: map[string]string{shpyrdv1.LabelApp: slug, shpyrdv1.LabelProject: slug, shpyrdv1.LabelManagedBy: "shpyrd"},
 	}}
 	if err := s.apps.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		abort(c, http.StatusBadGateway, fmt.Errorf("create namespace: %w", err))
 		return
 	}
 	app := &shpyrdv1.App{
-		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: ns.Name},
+		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns.Name},
 		Spec:       shpyrdv1.AppSpec{Domains: req.Domains, Processes: req.Processes},
 	}
+	project.SetDisplayName(app, req.Name)
 	if req.Git != nil && req.Git.URL != "" {
 		app.Spec.Source = &shpyrdv1.Source{Git: req.Git, SubPath: req.SubPath}
 	}
 	if err := s.apps.Create(ctx, app); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			abort(c, http.StatusConflict, fmt.Errorf("app %q already exists", req.Name))
+			abort(c, http.StatusConflict, fmt.Errorf("project %q already exists; choose another slug, for example %s-2", slug, slug))
 			return
 		}
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	s.audit(c, app.Name, "project.create", app.Name, "")
+	s.audit(c, app.Name, "project.create", project.Label(app), "")
 	c.JSON(http.StatusCreated, summarize(app))
+}
+
+// UpdateAppRequest changes project metadata; only the display name so far.
+type UpdateAppRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// updateApp renames a project (its display name; the slug never changes).
+func (s *Server) updateApp(c *gin.Context) {
+	var req UpdateAppRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	if req.Name == nil {
+		abort(c, http.StatusBadRequest, errors.New("nothing to update: give name"))
+		return
+	}
+	if strings.TrimSpace(*req.Name) == "" {
+		abort(c, http.StatusBadRequest, errors.New("name must not be empty"))
+		return
+	}
+	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
+		project.SetDisplayName(a, *req.Name)
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	s.audit(c, app.Name, "project.rename", project.Label(app), "")
+	c.JSON(http.StatusOK, detail(app, s.buildsByDigest(c.Request.Context(), app)))
 }
 
 // deployDetail summarises a deploy request for the audit trail.
@@ -468,12 +527,12 @@ func restoreSizes(a *shpyrdv1.App, rel *shpyrdv1.Release) {
 // mutateApp applies a read-modify-write with conflict retries and writes the
 // HTTP error itself; callers only check err != nil.
 func (s *Server) mutateApp(c *gin.Context, mutate func(*shpyrdv1.App) error) (*shpyrdv1.App, error) {
-	key := types.NamespacedName{Namespace: c.Param("ns"), Name: c.Param("name")}
+	key := projectKey(c)
 	for attempt := 0; attempt < 5; attempt++ {
 		app := &shpyrdv1.App{}
 		if err := s.apps.Get(c.Request.Context(), key, app); err != nil {
 			if apierrors.IsNotFound(err) {
-				abort(c, http.StatusNotFound, errors.New("app not found"))
+				abort(c, http.StatusNotFound, errors.New("project not found"))
 			} else {
 				abort(c, http.StatusBadGateway, err)
 			}

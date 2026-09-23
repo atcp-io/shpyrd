@@ -39,7 +39,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<AppsPage />} />
-          <Route path="/apps/:ns/:name" element={<AppDetailPage />} />
+          <Route path="/projects/:slug" element={<AppDetailPage />} />
           <Route path="/cluster" element={<ClusterPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/teams" element={<TeamsPage />} />

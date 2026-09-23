@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -26,16 +25,17 @@ import (
 	"shpyrd/pkg/api"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
+	"shpyrd/pkg/project"
 )
 
-// appNamespace is the namespace convention for apps.
-func appNamespace(name string) string { return "app-" + name }
+// appNamespace is the namespace of a project (app-<slug>).
+func appNamespace(slug string) string { return project.Namespace(slug) }
 
-var appNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$`)
-
-func validateAppName(name string) error {
-	if !appNameRe.MatchString(name) {
-		return fmt.Errorf("invalid project name %q: use lowercase letters, digits and dashes (max 40 characters)", name)
+// validateAppName checks a project identifier given on the command line or
+// in shpyrd.yaml: always the slug, never the display name.
+func validateAppName(slug string) error {
+	if !project.ValidSlug(slug) {
+		return fmt.Errorf("invalid project %q: use its slug (lowercase letters, digits and dashes, max %d characters)", slug, project.MaxSlugLength)
 	}
 	return nil
 }
@@ -221,6 +221,9 @@ func newAppClient(g *globalFlags, out io.Writer) (*appClient, error) {
 }
 
 func (a *appClient) getApp(ctx context.Context, name string) (*shpyrdv1.App, error) {
+	if !project.ValidSlug(name) {
+		return nil, fmt.Errorf("invalid project %q: use its slug, the identifier in the PROJECT column of `shpyrd projects list`", name)
+	}
 	app := &shpyrdv1.App{}
 	err := a.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name}, app)
 	if apierrors.IsNotFound(err) {
@@ -324,7 +327,7 @@ func (a *appClient) followBuild(ctx context.Context, namespace, build string) er
 			return err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("the pod of build %s did not appear", build)
+			return fmt.Errorf("the build instance of build %s did not appear", build)
 		}
 		if err := sleepCtx(ctx, 2*time.Second); err != nil {
 			return err
@@ -345,7 +348,7 @@ func (a *appClient) followBuild(ctx context.Context, namespace, build string) er
 				break
 			}
 			if p.Status.Phase == corev1.PodFailed {
-				return fmt.Errorf("build pod failed before step %s", ic.Name)
+				return fmt.Errorf("build instance failed before step %s", ic.Name)
 			}
 			if err := sleepCtx(ctx, time.Second); err != nil {
 				return err
@@ -481,7 +484,7 @@ func (a *appClient) streamPodLogs(ctx context.Context, namespace, selector strin
 	}
 	wg.Wait()
 	if len(seen) == 0 {
-		return fmt.Errorf("no pods found for selector %q", selector)
+		return fmt.Errorf("no instances found for selector %q", selector)
 	}
 	return nil
 }

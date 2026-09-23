@@ -15,8 +15,11 @@ const (
 	LabelProcess = "shpyrd.io/process"
 	// LabelManagedBy is set on namespaces created for apps.
 	LabelManagedBy = "app.kubernetes.io/managed-by"
-	// LabelProject marks the namespace of a project (value: project name).
+	// LabelProject marks the namespace of a project (value: project slug).
 	LabelProject = "shpyrd.io/project"
+	// AnnotationDisplayName on an App holds the human name of the project
+	// when it differs from the slug (RFC-0011).
+	AnnotationDisplayName = "shpyrd.io/display-name"
 	// AnnotationConfigHash is put on pod templates so config changes roll out.
 	AnnotationConfigHash = "shpyrd.io/config-hash"
 	// AnnotationReleaseNote lets clients describe the next release

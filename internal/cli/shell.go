@@ -61,7 +61,7 @@ process type with --process; the default is the first web instance.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (%s)...\n", label, pod.Name)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s...\n", label)
 			ac.audit(ctx, name, "shell", label, strings.Join(args, " "))
 			command := args
 			if len(command) == 0 {

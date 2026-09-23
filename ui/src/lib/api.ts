@@ -98,7 +98,10 @@ export type InstanceSize = {
 export type SizeCatalog = { default: string; sizes: InstanceSize[] };
 
 export type AppSummary = {
-  name: string;
+  /** Identifier used in URLs, the CLI and the hostname. */
+  slug: string;
+  /** Human name; equals the slug when none was given. */
+  displayName: string;
   namespace: string;
   phase: string;
   message?: string;
@@ -139,7 +142,8 @@ export type ProcessSpec = {
 };
 
 export type AppDetail = {
-  name: string;
+  slug: string;
+  displayName: string;
   namespace: string;
   createdAt: string;
   spec: {
@@ -359,8 +363,8 @@ export async function apiStream(
   if (buf) onLine(buf);
 }
 
-const app = (ns: string, name: string) =>
-  `/api/apps/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`;
+/** Base path of a project: the server derives the namespace from the slug. */
+const project = (slug: string) => `/api/projects/${encodeURIComponent(slug)}`;
 
 export const api = {
   config: () => request<PublicConfig>("/api/config"),
@@ -374,17 +378,17 @@ export const api = {
     request<void>(`/api/teams/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }),
-  members: (ns: string) => request<Member[]>(`/api/projects/${ns}/members`),
+  members: (slug: string) => request<Member[]>(`${project(slug)}/members`),
   addMember: (
-    ns: string,
+    slug: string,
     body: { role: string; user?: string; team?: string },
-  ) => request<Member>(`/api/projects/${ns}/members`, json("POST", body)),
-  removeMember: (ns: string, name: string) =>
-    request<void>(`/api/projects/${ns}/members/${encodeURIComponent(name)}`, {
+  ) => request<Member>(`${project(slug)}/members`, json("POST", body)),
+  removeMember: (slug: string, name: string) =>
+    request<void>(`${project(slug)}/members/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }),
-  audit: (ns: string, name: string, limit = 50) =>
-    request<AuditEntry[]>(`${app(ns, name)}/audit?limit=${limit}`),
+  audit: (slug: string, limit = 50) =>
+    request<AuditEntry[]>(`${project(slug)}/audit?limit=${limit}`),
   users: () => request<LocalUser[]>("/api/users"),
   createUser: (body: { email: string; name?: string; password: string }) =>
     request<LocalUser>("/api/users", json("POST", body)),
@@ -397,20 +401,23 @@ export const api = {
     request<void>(`/api/users/${encodeURIComponent(email)}`, {
       method: "DELETE",
     }),
-  apps: () => request<AppSummary[]>("/api/apps"),
+  apps: () => request<AppSummary[]>("/api/projects"),
   createApp: (body: {
+    /** Display name, any text; the slug is derived unless given. */
     name: string;
+    slug?: string;
     domains?: string[];
     processes?: Record<string, ProcessSpec>;
     git?: { url: string; revision?: string };
     subPath?: string;
-  }) => request<AppSummary>("/api/apps", json("POST", body)),
-  app: (ns: string, name: string) => request<AppDetail>(app(ns, name)),
-  deleteApp: (ns: string, name: string) =>
-    request<{ status: string }>(app(ns, name), { method: "DELETE" }),
+  }) => request<AppSummary>("/api/projects", json("POST", body)),
+  app: (slug: string) => request<AppDetail>(project(slug)),
+  renameApp: (slug: string, name: string) =>
+    request<AppDetail>(project(slug), json("PATCH", { name })),
+  deleteApp: (slug: string) =>
+    request<{ status: string }>(project(slug), { method: "DELETE" }),
   deploy: (
-    ns: string,
-    name: string,
+    slug: string,
     body: {
       git?: { url: string; revision?: string };
       subPath?: string;
@@ -418,29 +425,26 @@ export const api = {
       strategy?: "buildpacks" | "dockerfile";
       dockerfile?: string;
     },
-  ) => request<AppSummary>(`${app(ns, name)}/deploy`, json("POST", body)),
-  configVars: (ns: string, name: string) =>
+  ) => request<AppSummary>(`${project(slug)}/deploy`, json("POST", body)),
+  configVars: (slug: string) =>
     request<{ vars: ConfigVar[]; bound?: BoundVar[] }>(
-      `${app(ns, name)}/secrets`,
+      `${project(slug)}/secrets`,
     ),
   updateConfigVars: (
-    ns: string,
-    name: string,
+    slug: string,
     body: { set?: Record<string, string>; unset?: string[]; dotenv?: string },
   ) =>
     request<{ vars: ConfigVar[] }>(
-      `${app(ns, name)}/secrets`,
+      `${project(slug)}/secrets`,
       json("PUT", body),
     ),
-  metrics: (ns: string, name: string, range: string) =>
-    request<MetricsResponse>(`${app(ns, name)}/metrics?range=${range}`),
-  builds: (ns: string, name: string) =>
-    request<BuildInfo[]>(`${app(ns, name)}/builds`),
-  buildLogsPath: (ns: string, name: string, build: string, follow: boolean) =>
-    `${app(ns, name)}/builds/${encodeURIComponent(build)}/logs?follow=${follow}`,
+  metrics: (slug: string, range: string) =>
+    request<MetricsResponse>(`${project(slug)}/metrics?range=${range}`),
+  builds: (slug: string) => request<BuildInfo[]>(`${project(slug)}/builds`),
+  buildLogsPath: (slug: string, build: string, follow: boolean) =>
+    `${project(slug)}/builds/${encodeURIComponent(build)}/logs?follow=${follow}`,
   logsPath: (
-    ns: string,
-    name: string,
+    slug: string,
     q: { process?: string; tail?: number; follow?: boolean },
   ) => {
     const p = new URLSearchParams({
@@ -449,72 +453,67 @@ export const api = {
       follow: q.follow ? "true" : "false",
     });
     if (q.process) p.set("process", q.process);
-    return `${app(ns, name)}/logs?${p}`;
+    return `${project(slug)}/logs?${p}`;
   },
-  scale: (ns: string, name: string, process: string, replicas: number) =>
+  scale: (slug: string, process: string, replicas: number) =>
     request<AppSummary>(
-      `${app(ns, name)}/scale`,
+      `${project(slug)}/scale`,
       json("POST", { process, replicas }),
     ),
-  resize: (ns: string, name: string, process: string, size: string) =>
+  resize: (slug: string, process: string, size: string) =>
     request<AppSummary>(
-      `${app(ns, name)}/resize`,
+      `${project(slug)}/resize`,
       json("POST", { process, size }),
     ),
   applyProcesses: (
-    ns: string,
-    name: string,
+    slug: string,
     processes: Record<string, { size?: string; replicas?: number }>,
   ) =>
     request<AppSummary>(
-      `${app(ns, name)}/processes`,
+      `${project(slug)}/processes`,
       json("POST", { processes }),
     ),
   sizes: () => request<SizeCatalog>("/api/sizes"),
   saveSizes: (catalog: SizeCatalog) =>
     request<SizeCatalog>("/api/sizes", json("PUT", catalog)),
-  rollback: (ns: string, name: string, release: number) =>
-    request<AppSummary>(`${app(ns, name)}/rollback`, json("POST", { release })),
-  resources: (ns: string) =>
-    request<ResourceInfo[]>(`/api/projects/${ns}/resources`),
+  rollback: (slug: string, release: number) =>
+    request<AppSummary>(`${project(slug)}/rollback`, json("POST", { release })),
+  resources: (slug: string) =>
+    request<ResourceInfo[]>(`${project(slug)}/resources`),
   createResource: (
-    ns: string,
+    slug: string,
     body: { kind: string; name: string; spec: Record<string, unknown> },
-  ) =>
-    request<ResourceInfo>(`/api/projects/${ns}/resources`, json("POST", body)),
-  deleteResource: (ns: string, kind: string, name: string, force = false) =>
+  ) => request<ResourceInfo>(`${project(slug)}/resources`, json("POST", body)),
+  deleteResource: (slug: string, kind: string, name: string, force = false) =>
     request<void>(
-      `/api/projects/${ns}/resources/${kind}/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
+      `${project(slug)}/resources/${kind}/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
     ),
-  attach: (
-    ns: string,
-    name: string,
-    body: { kind: string; name: string; prefix?: string },
-  ) => request<AppSummary>(`${app(ns, name)}/bindings`, json("POST", body)),
-  detach: (ns: string, name: string, kind: string, rname: string) =>
+  attach: (slug: string, body: { kind: string; name: string; prefix?: string }) =>
+    request<AppSummary>(`${project(slug)}/bindings`, json("POST", body)),
+  detach: (slug: string, kind: string, rname: string) =>
     request<AppSummary>(
-      `${app(ns, name)}/bindings/${kind}/${encodeURIComponent(rname)}`,
+      `${project(slug)}/bindings/${kind}/${encodeURIComponent(rname)}`,
       { method: "DELETE" },
     ),
-  volumes: (ns: string) => request<VolumeInfo[]>(`/api/projects/${ns}/volumes`),
+  volumes: (slug: string) => request<VolumeInfo[]>(`${project(slug)}/volumes`),
   createVolume: (
-    ns: string,
+    slug: string,
     body: {
       name: string;
       size: string;
       storageClass?: string;
       shared?: boolean;
     },
-  ) => request<VolumeInfo>(`/api/projects/${ns}/volumes`, json("POST", body)),
-  resizeVolume: (ns: string, name: string, size: string) =>
+  ) => request<VolumeInfo>(`${project(slug)}/volumes`, json("POST", body)),
+  resizeVolume: (slug: string, name: string, size: string) =>
     request<VolumeInfo>(
-      `/api/projects/${ns}/volumes/${name}`,
+      `${project(slug)}/volumes/${encodeURIComponent(name)}`,
       json("PUT", { size }),
     ),
-  deleteVolume: (ns: string, name: string, force = false) =>
+  deleteVolume: (slug: string, name: string, force = false) =>
     request<void>(
-      `/api/projects/${ns}/volumes/${name}${force ? "?force=true" : ""}`,
+      `${project(slug)}/volumes/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
     ),
   cluster: () => request<ClusterSummary>("/api/cluster"),

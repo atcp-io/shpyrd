@@ -220,8 +220,8 @@ func (s *Server) routes() error {
 	pub := s.engine.Group("/api")
 	pub.GET("/healthz", s.healthz)
 	pub.GET("/config", s.config)
-	// Archives are content addressed (SHA-256) and fetched by kpack build
-	// pods, which cannot present the admin token.
+	// Archives are content addressed (SHA-256) and fetched by build
+	// instances, which cannot present the admin token.
 	pub.GET("/sources/:name", s.serveSource)
 	// Sign-in (RFC-0007): the issuer redirects back to /api/auth/callback.
 	pub.GET("/auth/providers", s.authProviders)
@@ -247,35 +247,38 @@ func (s *Server) routes() error {
 	api.PUT("/teams/:name", s.require(authz.ClusterAdmin), s.putTeam)
 	api.DELETE("/teams/:name", s.require(authz.ClusterAdmin), s.deleteTeam)
 
-	api.GET("/apps", s.listApps) // filtered to visible projects
-	api.POST("/apps", s.require(authz.ClusterCreate), s.createApp)
-	api.GET("/apps/:ns/:name", s.require(authz.ProjectView), s.getApp)
-	api.DELETE("/apps/:ns/:name", s.require(authz.ProjectDestroy), s.deleteApp)
-	api.POST("/apps/:ns/:name/deploy", s.require(authz.ProjectDeploy), s.deployApp)
-	api.GET("/apps/:ns/:name/logs", s.require(authz.ProjectView), s.appLogs)
-	api.GET("/apps/:ns/:name/builds", s.require(authz.ProjectView), s.listBuilds)
-	api.GET("/apps/:ns/:name/builds/:build/logs", s.require(authz.ProjectView), s.buildLogs)
-	api.GET("/apps/:ns/:name/secrets", s.require(authz.ProjectView), s.appSecretKeys)
-	api.PUT("/apps/:ns/:name/secrets", s.require(authz.ProjectConfig), s.updateAppSecrets)
-	api.GET("/apps/:ns/:name/metrics", s.require(authz.ProjectView), s.appMetrics)
-	api.POST("/apps/:ns/:name/scale", s.require(authz.ProjectScale), s.scaleApp)
-	api.POST("/apps/:ns/:name/resize", s.require(authz.ProjectScale), s.resizeApp)
-	api.POST("/apps/:ns/:name/processes", s.require(authz.ProjectScale), s.applyProcesses)
-	api.POST("/apps/:ns/:name/rollback", s.require(authz.ProjectDeploy), s.rollbackApp)
-	api.GET("/apps/:ns/:name/audit", s.require(authz.ProjectView), s.appAudit)
-	// Project resources (RFC-0003/0006): volumes live in the project namespace.
-	api.GET("/projects/:ns/resources", s.require(authz.ProjectView), s.listProjectResources)
-	api.POST("/projects/:ns/resources", s.require(authz.ProjectResource), s.createResource)
-	api.DELETE("/projects/:ns/resources/:kind/:name", s.require(authz.ProjectResource), s.deleteResource)
-	api.POST("/apps/:ns/:name/bindings", s.require(authz.ProjectResource), s.attachResource)
-	api.DELETE("/apps/:ns/:name/bindings/:kind/:rname", s.require(authz.ProjectResource), s.detachResource)
-	api.GET("/projects/:ns/volumes", s.require(authz.ProjectView), s.listVolumes)
-	api.POST("/projects/:ns/volumes", s.require(authz.ProjectResource), s.createVolume)
-	api.PUT("/projects/:ns/volumes/:name", s.require(authz.ProjectResource), s.resizeVolume)
-	api.DELETE("/projects/:ns/volumes/:name", s.require(authz.ProjectResource), s.deleteVolume)
-	api.GET("/projects/:ns/members", s.require(authz.ProjectMembers), s.listMembers)
-	api.POST("/projects/:ns/members", s.require(authz.ProjectMembers), s.addMember)
-	api.DELETE("/projects/:ns/members/:name", s.require(authz.ProjectMembers), s.removeMember)
+	// Projects (RFC-0011): every path names the project by its slug; the
+	// server derives the namespace (app-<slug>).
+	api.GET("/projects", s.listApps) // filtered to visible projects
+	api.POST("/projects", s.require(authz.ClusterCreate), s.createApp)
+	api.GET("/projects/:slug", s.require(authz.ProjectView), s.getApp)
+	api.PATCH("/projects/:slug", s.require(authz.ProjectConfig), s.updateApp)
+	api.DELETE("/projects/:slug", s.require(authz.ProjectDestroy), s.deleteApp)
+	api.POST("/projects/:slug/deploy", s.require(authz.ProjectDeploy), s.deployApp)
+	api.GET("/projects/:slug/logs", s.require(authz.ProjectView), s.appLogs)
+	api.GET("/projects/:slug/builds", s.require(authz.ProjectView), s.listBuilds)
+	api.GET("/projects/:slug/builds/:build/logs", s.require(authz.ProjectView), s.buildLogs)
+	api.GET("/projects/:slug/secrets", s.require(authz.ProjectView), s.appSecretKeys)
+	api.PUT("/projects/:slug/secrets", s.require(authz.ProjectConfig), s.updateAppSecrets)
+	api.GET("/projects/:slug/metrics", s.require(authz.ProjectView), s.appMetrics)
+	api.POST("/projects/:slug/scale", s.require(authz.ProjectScale), s.scaleApp)
+	api.POST("/projects/:slug/resize", s.require(authz.ProjectScale), s.resizeApp)
+	api.POST("/projects/:slug/processes", s.require(authz.ProjectScale), s.applyProcesses)
+	api.POST("/projects/:slug/rollback", s.require(authz.ProjectDeploy), s.rollbackApp)
+	api.GET("/projects/:slug/audit", s.require(authz.ProjectView), s.appAudit)
+	// Project resources (RFC-0003/0006) live in the project namespace.
+	api.GET("/projects/:slug/resources", s.require(authz.ProjectView), s.listProjectResources)
+	api.POST("/projects/:slug/resources", s.require(authz.ProjectResource), s.createResource)
+	api.DELETE("/projects/:slug/resources/:kind/:name", s.require(authz.ProjectResource), s.deleteResource)
+	api.POST("/projects/:slug/bindings", s.require(authz.ProjectResource), s.attachResource)
+	api.DELETE("/projects/:slug/bindings/:kind/:name", s.require(authz.ProjectResource), s.detachResource)
+	api.GET("/projects/:slug/volumes", s.require(authz.ProjectView), s.listVolumes)
+	api.POST("/projects/:slug/volumes", s.require(authz.ProjectResource), s.createVolume)
+	api.PUT("/projects/:slug/volumes/:name", s.require(authz.ProjectResource), s.resizeVolume)
+	api.DELETE("/projects/:slug/volumes/:name", s.require(authz.ProjectResource), s.deleteVolume)
+	api.GET("/projects/:slug/members", s.require(authz.ProjectMembers), s.listMembers)
+	api.POST("/projects/:slug/members", s.require(authz.ProjectMembers), s.addMember)
+	api.DELETE("/projects/:slug/members/:name", s.require(authz.ProjectMembers), s.removeMember)
 
 	// Extensions mount their routes and register login providers.
 	deps := s.deps()

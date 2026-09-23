@@ -92,7 +92,7 @@ export function AppLogView({
               <span className="select-none text-zinc-500">
                 {localTime(l.t)}
               </span>
-              <span className={cn("truncate", instanceColor(l.i))} title={l.p}>
+              <span className={cn("truncate", instanceColor(l.i))} title={l.i}>
                 {l.i}
               </span>
               <span

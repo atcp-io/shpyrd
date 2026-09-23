@@ -296,7 +296,7 @@ func newLogsCmd(g *globalFlags) *cobra.Command {
 	appFlag(cmd, &appName)
 	cmd.Flags().StringVarP(&process, "process", "p", "", "only this process type (web, worker...)")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "stream new log lines")
-	cmd.Flags().Int64VarP(&tail, "tail", "n", 100, "number of recent lines per pod (-1 for all)")
+	cmd.Flags().Int64VarP(&tail, "tail", "n", 100, "number of recent lines per instance (-1 for all)")
 	cmd.Flags().BoolVar(&build, "build", false, "show the latest build's logs instead")
 	return cmd
 }

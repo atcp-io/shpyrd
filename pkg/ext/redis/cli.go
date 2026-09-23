@@ -238,7 +238,7 @@ func newCliCmd(g ext.CLIGlobals) *cobra.Command {
 				extra = " " + shellJoin(args[1:])
 			}
 			command := []string{"sh", "-c", fmt.Sprintf(`exec %s-cli -a "$REDIS_PASSWORD" --no-auth-warning%s`, engine, extra)}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (%s-0)...\n", rd.Name, rd.Name)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s...\n", rd.Name)
 			return kexec.RemoteExit(kexec.Exec(ctx, k, rd.Namespace, rd.Name+"-0", "redis", command, kexec.StdinIsTerminal()))
 		},
 	}

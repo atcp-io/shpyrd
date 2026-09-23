@@ -137,13 +137,13 @@ export function ClusterPage() {
                 <Gauge
                   label="CPU reserved"
                   pct={m.total.cpuRequestedPct}
-                  detail="by pod requests"
+                  detail="by instance requests"
                   tone="sky"
                 />
                 <Gauge
                   label="Memory reserved"
                   pct={m.total.memoryRequestedPct}
-                  detail="by pod requests"
+                  detail="by instance requests"
                   tone="sky"
                 />
               </div>
@@ -411,7 +411,7 @@ function NodesTable({
           <TableHead>Role</TableHead>
           <TableHead className="w-44">CPU used / reserved</TableHead>
           <TableHead className="w-44">Memory used / reserved</TableHead>
-          <TableHead>Pods</TableHead>
+          <TableHead>Instances</TableHead>
           <TableHead className="text-right">Kubelet</TableHead>
         </TableRow>
       </TableHeader>

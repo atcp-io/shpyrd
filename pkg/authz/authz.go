@@ -14,6 +14,7 @@ import (
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/ext"
+	"shpyrd/pkg/project"
 )
 
 // Action is something the API can do; the role table says who may.
@@ -250,5 +251,5 @@ func (r *Resolver) Roles(ctx context.Context, id ext.Identity) (Roles, error) {
 	return snap.RolesFor(id), nil
 }
 
-// ProjectFromNamespace maps app-<name> to <name>.
-func ProjectFromNamespace(ns string) string { return strings.TrimPrefix(ns, "app-") }
+// ProjectFromNamespace maps app-<slug> to <slug>.
+func ProjectFromNamespace(ns string) string { return project.FromNamespace(ns) }

@@ -13,6 +13,7 @@ import {
   ScrollText,
   UsersRound,
   Minus,
+  Pencil,
   Plus,
   RefreshCw,
   Rocket,
@@ -76,14 +77,14 @@ import {
 import { cn } from "@/lib/utils";
 
 export function AppDetailPage() {
-  const { ns = "", name = "" } = useParams();
+  const { slug = "" } = useParams();
   const qc = useQueryClient();
   const app = useQuery({
-    queryKey: ["app", ns, name],
-    queryFn: () => api.app(ns, name),
+    queryKey: ["app", slug],
+    queryFn: () => api.app(slug),
     refetchInterval: 4000,
   });
-  const perms = usePerms(name);
+  const perms = usePerms(slug);
 
   if (app.isLoading) {
     return (
@@ -104,7 +105,7 @@ export function AppDetailPage() {
     );
   }
   const a = app.data;
-  const refresh = () => qc.invalidateQueries({ queryKey: ["app", ns, name] });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["app", slug] });
   const building = a.status.phase === "Building";
   const busy = isBusy(a);
 
@@ -119,7 +120,15 @@ export function AppDetailPage() {
             <ArrowLeft className="size-3" /> Projects
           </Link>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{a.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {a.displayName}
+            </h1>
+            {a.displayName !== a.slug && (
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                {a.slug}
+              </code>
+            )}
+            {perms.config && <RenameButton app={a} onDone={refresh} />}
             <PhaseBadge phase={a.status.phase} />
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -233,7 +242,7 @@ function ActivityPanel({
   app: AppDetail;
   onChanged: () => void;
 }) {
-  const perms = usePerms(app.name);
+  const perms = usePerms(app.slug);
   const current = app.status.releases[app.status.releases.length - 1];
   const previous = app.status.releases[app.status.releases.length - 2];
   const phase = app.status.phase;
@@ -241,7 +250,7 @@ function ActivityPanel({
     a.localeCompare(b),
   );
   const rollback = useMutation({
-    mutationFn: (n: number) => api.rollback(app.namespace, app.name, n),
+    mutationFn: (n: number) => api.rollback(app.slug, n),
     onSuccess: (_, n) => {
       toast.success(`Rolling back to v${n}`);
       onChanged();
@@ -257,7 +266,7 @@ function ActivityPanel({
         <AlertDescription>
           Use <strong>Deploy</strong> to build from a Git repository, or run{" "}
           <code className="font-mono text-xs">
-            shpyrd deploy --project {app.name}
+            shpyrd deploy --project {app.slug}
           </code>{" "}
           from a checkout.
         </AlertDescription>
@@ -384,11 +393,11 @@ function BuildBanner({ app }: { app: AppDetail }) {
     if (!build) return;
     const ac = new AbortController();
     return streamText(
-      api.buildLogsPath(app.namespace, app.name, build, true),
+      api.buildLogsPath(app.slug, build, true),
       ac,
       setLines,
     );
-  }, [app.namespace, app.name, build]);
+  }, [app.slug, build]);
   return (
     <Card className="border-sky-500/30">
       <CardHeader>
@@ -433,10 +442,10 @@ function Overview({
   const releases = [...app.status.releases].reverse();
   const current = releases[0];
   const busy = isBusy(app);
-  const perms = usePerms(app.name);
+  const perms = usePerms(app.slug);
 
   const rollback = useMutation({
-    mutationFn: (n: number) => api.rollback(app.namespace, app.name, n),
+    mutationFn: (n: number) => api.rollback(app.slug, n),
     onSuccess: (_, n) => {
       toast.success(`Rolling back to v${n} (build and config)`);
       onChanged();
@@ -493,7 +502,7 @@ function Overview({
               <p className="text-muted-foreground">
                 No source yet. Use <strong>Deploy</strong> above or{" "}
                 <code className="font-mono text-xs">
-                  shpyrd deploy --project {app.name}
+                  shpyrd deploy --project {app.slug}
                 </code>
                 .
               </p>
@@ -741,7 +750,7 @@ function ProcessesCard({
   const dirty = Object.keys(changes).length > 0;
   const busy = isBusy(app);
   const apply = useMutation({
-    mutationFn: () => api.applyProcesses(app.namespace, app.name, changes),
+    mutationFn: () => api.applyProcesses(app.slug, changes),
     onSuccess: () => {
       const parts = Object.entries(changes).map(([p, ch]) =>
         [
@@ -938,8 +947,8 @@ function Metrics({ app }: { app: AppDetail }) {
     staleTime: 60_000,
   });
   const m = useQuery({
-    queryKey: ["metrics", app.namespace, app.name, range],
-    queryFn: () => api.metrics(app.namespace, app.name, range),
+    queryKey: ["metrics", app.slug, range],
+    queryFn: () => api.metrics(app.slug, range),
     refetchInterval: 30_000,
     enabled: config.data?.metrics !== false,
   });
@@ -1007,12 +1016,12 @@ function Logs({ app }: { app: AppDetail }) {
   const [filter, setFilter] = useState("");
   const path = useMemo(
     () =>
-      api.logsPath(app.namespace, app.name, {
+      api.logsPath(app.slug, {
         process: process === "all" ? undefined : process,
         tail: 300,
         follow,
       }),
-    [app.namespace, app.name, process, follow],
+    [app.slug, process, follow],
   );
   const { lines, error, restart } = useLogStream(path, []);
 
@@ -1071,8 +1080,8 @@ function Logs({ app }: { app: AppDetail }) {
 
 function Builds({ app }: { app: AppDetail }) {
   const builds = useQuery({
-    queryKey: ["builds", app.namespace, app.name],
-    queryFn: () => api.builds(app.namespace, app.name),
+    queryKey: ["builds", app.slug],
+    queryFn: () => api.builds(app.slug),
     refetchInterval: app.status.phase === "Building" ? 5000 : 30_000,
   });
   const [selected, setSelected] = useState<string | null>(null);
@@ -1085,17 +1094,14 @@ function Builds({ app }: { app: AppDetail }) {
     if (!activeName) return;
     const ac = new AbortController();
     return streamText(
-      api.buildLogsPath(
-        app.namespace,
-        app.name,
-        activeName,
+      api.buildLogsPath(app.slug, activeName,
         activeStatus === "Building",
       ),
       ac,
       setLines,
       (e) => setLines([`(${e.message})`]),
     );
-  }, [app.namespace, app.name, activeName, activeStatus]);
+  }, [app.slug, activeName, activeStatus]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
@@ -1216,11 +1222,11 @@ function BuildStatus({ status }: { status: BuildInfo["status"] }) {
 
 function Config({ app }: { app: AppDetail }) {
   const qc = useQueryClient();
-  const perms = usePerms(app.name);
-  const key = ["config-vars", app.namespace, app.name];
+  const perms = usePerms(app.slug);
+  const key = ["config-vars", app.slug];
   const vars = useQuery({
     queryKey: key,
-    queryFn: () => api.configVars(app.namespace, app.name),
+    queryFn: () => api.configVars(app.slug),
     refetchInterval: 15_000,
   });
   const update = useMutation({
@@ -1228,7 +1234,7 @@ function Config({ app }: { app: AppDetail }) {
       set?: Record<string, string>;
       unset?: string[];
       dotenv?: string;
-    }) => api.updateConfigVars(app.namespace, app.name, body),
+    }) => api.updateConfigVars(app.slug, body),
     onSuccess: (_, body) => {
       const n =
         Object.keys(body.set ?? {}).length +
@@ -1528,7 +1534,7 @@ function DeployDialog({
   );
   const deploy = useMutation({
     mutationFn: () =>
-      api.deploy(app.namespace, app.name, {
+      api.deploy(app.slug, {
         git: { url: git.trim(), revision: ref.trim() || "main" },
         subPath: path.trim() || undefined,
         strategy,
@@ -1660,7 +1666,7 @@ function DestroyDialog({ app }: { app: AppDetail }) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const resources = useQuery({
-    queryKey: ["resources", app.namespace],
+    queryKey: ["resources", app.slug],
     queryFn: () => api.resources(app.namespace),
     enabled: open,
   });
@@ -1669,9 +1675,9 @@ function DestroyDialog({ app }: { app: AppDetail }) {
     (a, b) => Number(b.data) - Number(a.data),
   );
   const destroy = useMutation({
-    mutationFn: () => api.deleteApp(app.namespace, app.name),
+    mutationFn: () => api.deleteApp(app.slug),
     onSuccess: () => {
-      toast.success(`Deleting ${app.name}`);
+      toast.success(`Deleting ${app.displayName}`);
       qc.invalidateQueries({ queryKey: ["apps"] });
       navigate("/");
     },
@@ -1690,10 +1696,11 @@ function DestroyDialog({ app }: { app: AppDetail }) {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Destroy {app.name}?</DialogTitle>
+          <DialogTitle>Destroy {app.displayName}?</DialogTitle>
           <DialogDescription>
             This deletes the project with all its resources: builds, releases,
-            config vars and running processes. Type its name to confirm.
+            config vars and running processes. Type{" "}
+            <code className="font-mono">{app.slug}</code> to confirm.
           </DialogDescription>
         </DialogHeader>
         {doomed.length > 0 && (
@@ -1725,7 +1732,7 @@ function DestroyDialog({ app }: { app: AppDetail }) {
         <Input
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
-          placeholder={app.name}
+          placeholder={app.slug}
           autoComplete="off"
         />
         <DialogFooter>
@@ -1735,7 +1742,7 @@ function DestroyDialog({ app }: { app: AppDetail }) {
           <Button
             variant="destructive"
             onClick={() => destroy.mutate()}
-            disabled={confirm !== app.name || destroy.isPending}
+            disabled={confirm !== app.slug || destroy.isPending}
           >
             Destroy project
           </Button>
@@ -1756,23 +1763,23 @@ function ResourcesCard({
 }) {
   const qc = useQueryClient();
   const resources = useQuery({
-    queryKey: ["resources", app.namespace],
+    queryKey: ["resources", app.slug],
     queryFn: () => api.resources(app.namespace),
     refetchInterval: 5000,
   });
   const volumes = useQuery({
-    queryKey: ["volumes", app.namespace],
+    queryKey: ["volumes", app.slug],
     queryFn: () => api.volumes(app.namespace),
     refetchInterval: 5000,
   });
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["resources", app.namespace] });
-    qc.invalidateQueries({ queryKey: ["volumes", app.namespace] });
+    qc.invalidateQueries({ queryKey: ["resources", app.slug] });
+    qc.invalidateQueries({ queryKey: ["volumes", app.slug] });
     onChanged();
   };
   const removeVolume = useMutation({
     mutationFn: (v: VolumeInfo) =>
-      api.deleteVolume(app.namespace, v.name, v.mountedBy.length > 0),
+      api.deleteVolume(app.slug, v.name, v.mountedBy.length > 0),
     onSuccess: (_, v) => {
       toast.success(`Deleted volume ${v.name}`);
       refresh();
@@ -1781,9 +1788,7 @@ function ResourcesCard({
   });
   const removeResource = useMutation({
     mutationFn: (r: ResourceInfo) =>
-      api.deleteResource(
-        app.namespace,
-        r.kind,
+      api.deleteResource(app.slug, r.kind,
         r.name,
         r.attachedTo.length > 0,
       ),
@@ -1795,7 +1800,7 @@ function ResourcesCard({
   });
   const attach = useMutation({
     mutationFn: (r: ResourceInfo) =>
-      api.attach(app.namespace, app.name, { kind: r.kind, name: r.name }),
+      api.attach(app.slug, { kind: r.kind, name: r.name }),
     onSuccess: (_, r) => {
       toast.success(
         `Attached ${r.kind} ${r.name}: ${defaultPrefix(r.kind)}_URL and friends`,
@@ -1806,7 +1811,7 @@ function ResourcesCard({
   });
   const detach = useMutation({
     mutationFn: (r: ResourceInfo) =>
-      api.detach(app.namespace, app.name, r.kind, r.name),
+      api.detach(app.slug, r.kind, r.name),
     onSuccess: (_, r) => {
       toast.success(`Detached ${r.kind} ${r.name}`);
       refresh();
@@ -1817,7 +1822,7 @@ function ResourcesCard({
     !!app.spec.bindings?.some((b) => b.kind === r.kind && b.name === r.name);
   const list = resources.data ?? [];
   const volumeOf = (name: string) => volumes.data?.find((v) => v.name === name);
-  const perms = usePerms(app.name);
+  const perms = usePerms(app.slug);
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
@@ -2024,8 +2029,8 @@ function VolumeDialog({
   const save = useMutation({
     mutationFn: () =>
       resize
-        ? api.resizeVolume(app.namespace, resize.name, size.trim())
-        : api.createVolume(app.namespace, {
+        ? api.resizeVolume(app.slug, resize.name, size.trim())
+        : api.createVolume(app.slug, {
             name: name.trim(),
             size: size.trim(),
             shared,
@@ -2158,9 +2163,9 @@ const roleHelp: Record<string, string> = {
 
 function MembersCard({ app }: { app: AppDetail }) {
   const qc = useQueryClient();
-  const perms = usePerms(app.name);
+  const perms = usePerms(app.slug);
   const members = useQuery({
-    queryKey: ["members", app.namespace],
+    queryKey: ["members", app.slug],
     queryFn: () => api.members(app.namespace),
     retry: false,
   });
@@ -2175,25 +2180,25 @@ function MembersCard({ app }: { app: AppDetail }) {
     "developer",
   );
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["members", app.namespace] });
+    qc.invalidateQueries({ queryKey: ["members", app.slug] });
     qc.invalidateQueries({ queryKey: ["me"] });
   };
   const add = useMutation({
     mutationFn: () =>
-      api.addMember(app.namespace, {
+      api.addMember(app.slug, {
         role,
         user: kind === "user" ? subject.trim() : undefined,
         team: kind === "team" ? subject.trim() : undefined,
       }),
     onSuccess: () => {
-      toast.success(`${subject.trim()} is now ${role} on ${app.name}`);
+      toast.success(`${subject.trim()} is now ${role} on ${app.displayName}`);
       setSubject("");
       refresh();
     },
     onError: (e: Error) => toast.error(e.message),
   });
   const remove = useMutation({
-    mutationFn: (m: Member) => api.removeMember(app.namespace, m.name),
+    mutationFn: (m: Member) => api.removeMember(app.slug, m.name),
     onSuccess: refresh,
     onError: (e: Error) => toast.error(e.message),
   });
@@ -2327,8 +2332,8 @@ function MembersCard({ app }: { app: AppDetail }) {
 
 function AuditCard({ app }: { app: AppDetail }) {
   const audit = useQuery({
-    queryKey: ["audit", app.namespace, app.name],
-    queryFn: () => api.audit(app.namespace, app.name, 30),
+    queryKey: ["audit", app.slug],
+    queryFn: () => api.audit(app.slug, 30),
     refetchInterval: 15_000,
     retry: false,
   });
@@ -2359,7 +2364,7 @@ function AuditCard({ app }: { app: AppDetail }) {
                 <span className="font-medium">{e.actor}</span>
                 <span className="text-muted-foreground">
                   {e.action}
-                  {e.target && e.target !== app.name ? ` ${e.target}` : ""}
+                  {e.target && e.target !== app.slug ? ` ${e.target}` : ""}
                   {e.detail ? ` · ${e.detail}` : ""}
                 </span>
                 <span className="ml-auto text-[10px] uppercase text-muted-foreground">
@@ -2490,7 +2495,7 @@ function ResourceDialog({
         spec.persistent = persistent;
         if (persistent) spec.storage = storage.trim();
       }
-      return api.createResource(app.namespace, {
+      return api.createResource(app.slug, {
         kind,
         name: name.trim(),
         spec,
@@ -2648,6 +2653,92 @@ function ResourceDialog({
             </Button>
             <Button type="submit" disabled={!name.trim() || save.isPending}>
               Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Renames the project: the display name changes, the slug never does. */
+function RenameButton({ app, onDone }: { app: AppDetail; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(app.displayName);
+  const qc = useQueryClient();
+  const rename = useMutation({
+    mutationFn: () => api.renameApp(app.slug, name.trim()),
+    onSuccess: () => {
+      toast.success(`Renamed to ${name.trim()}`);
+      qc.invalidateQueries({ queryKey: ["apps"] });
+      onDone();
+      setOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setName(app.displayName);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground"
+          aria-label="Rename project"
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Rename project</DialogTitle>
+          <DialogDescription>
+            The name is what people see. The slug{" "}
+            <code className="font-mono">{app.slug}</code> stays: it is the URL,
+            the hostname and what the CLI uses.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) rename.mutate();
+          }}
+        >
+          <div className="grid gap-1.5">
+            <Label htmlFor="rename-name">Name</Label>
+            <Input
+              id="rename-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                !name.trim() ||
+                name.trim() === app.displayName ||
+                rename.isPending
+              }
+            >
+              {rename.isPending && (
+                <Loader2 className="animate-spin" data-icon="inline-start" />
+              )}
+              Save
             </Button>
           </DialogFooter>
         </form>

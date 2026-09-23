@@ -49,7 +49,7 @@ func main() {
 		)
 	})
 
-	log.Printf("hello-world listening on :%s (pod %s)", port, host)
+	log.Printf("hello-world listening on :%s (instance %s)", port, host)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
@@ -74,8 +74,8 @@ const page = `<!doctype html>
 <body>
   <main>
     <h1>%s</h1>
-    <p>Served by pod <code>%s</code></p>
-    <p>Request #%d on this pod &middot; up for %s</p>
+    <p>Served by instance <code>%s</code></p>
+    <p>Request #%d on this instance &middot; up for %s</p>
     <p>%s</p>
     <span class="tag">built with Paketo buildpacks, deployed by shpyrd</span>
   </main>

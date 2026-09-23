@@ -1,0 +1,107 @@
+// Package project holds the naming rules of a project (RFC-0011): a human
+// display name, a URL-safe slug derived from it, and the namespace scheme.
+package project
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
+
+	shpyrdv1 "shpyrd/api/v1alpha1"
+)
+
+// MaxSlugLength keeps hostnames (<slug>.<domain>) and namespaces
+// (app-<slug>) within DNS label limits.
+const MaxSlugLength = 40
+
+var slugRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$`)
+
+// ValidSlug reports whether s is a slug as produced by Slug.
+func ValidSlug(s string) bool { return slugRe.MatchString(s) }
+
+// Slug derives the identifier of a project from its display name:
+// lowercase ASCII letters and digits separated by single dashes, accents
+// stripped, at most MaxSlugLength characters. It returns an error when
+// nothing usable is left.
+func Slug(displayName string) (string, error) {
+	var b strings.Builder
+	dash := true // suppress leading dashes
+	for _, r := range norm.NFD.String(displayName) {
+		switch {
+		case unicode.Is(unicode.Mn, r):
+			continue // combining mark left by NFD (accent)
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(unicode.ToLower(r))
+			dash = false
+		default:
+			if !dash {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	s := b.String()
+	if len(s) > MaxSlugLength {
+		s = s[:MaxSlugLength]
+	}
+	s = strings.TrimRight(s, "-")
+	if s == "" {
+		return "", fmt.Errorf("cannot derive a slug from %q: use at least one letter or digit", displayName)
+	}
+	return s, nil
+}
+
+// ValidateSlug explains why a slug given explicitly is not acceptable.
+func ValidateSlug(s string) error {
+	if !ValidSlug(s) {
+		return fmt.Errorf("invalid slug %q: use lowercase letters, digits and dashes (max %d characters)", s, MaxSlugLength)
+	}
+	return nil
+}
+
+// Namespace of a project.
+func Namespace(slug string) string { return "app-" + slug }
+
+// FromNamespace maps app-<slug> to <slug>.
+func FromNamespace(ns string) string { return strings.TrimPrefix(ns, "app-") }
+
+// DisplayName of an App: its annotation, or the slug.
+func DisplayName(a *shpyrdv1.App) string {
+	if a == nil {
+		return ""
+	}
+	if n := strings.TrimSpace(a.Annotations[shpyrdv1.AnnotationDisplayName]); n != "" {
+		return n
+	}
+	return a.Name
+}
+
+// SetDisplayName records the display name on the App, dropping the
+// annotation when it adds nothing over the slug.
+func SetDisplayName(a *shpyrdv1.App, name string) {
+	name = strings.TrimSpace(name)
+	if name == "" || name == a.Name {
+		delete(a.Annotations, shpyrdv1.AnnotationDisplayName)
+		return
+	}
+	if a.Annotations == nil {
+		a.Annotations = map[string]string{}
+	}
+	a.Annotations[shpyrdv1.AnnotationDisplayName] = name
+}
+
+// Label formats a project for people: "My Shop (my-shop)", or just the
+// slug when the two coincide.
+func Label(a *shpyrdv1.App) string {
+	n := DisplayName(a)
+	if n == a.Name {
+		return n
+	}
+	return n + " (" + a.Name + ")"
+}
