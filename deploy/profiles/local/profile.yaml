@@ -8,6 +8,11 @@ vars:
   # tag, a development build the latest release); --set overrides it.
   SHPYRD_HTTP_PORT: "80"
   SHPYRD_HTTPS_PORT: "443"
+  # Who owns 80/443 on the machine (RFC-0057): kind itself, or an existing
+  # Caddy proxying to kind's HTTP port; and whether *.<domain> resolves
+  # locally through dnsmasq. `shpyrd cluster create` detects and records both.
+  SHPYRD_FRONT_DOOR: kind
+  SHPYRD_LOCAL_DNS: "false"
   # kind's default pod network; project network policies exclude it from
   # the "internet" egress rule so projects cannot reach each other.
   SHPYRD_POD_CIDR: 10.244.0.0/16

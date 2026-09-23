@@ -51,8 +51,10 @@ func (s *Server) rolesOf(c *gin.Context) (authz.Roles, error) {
 func (s *Server) require(action authz.Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		project := c.Param("slug")
-		if project != "" && !project_.ValidSlug(project) {
-			abort(c, http.StatusNotFound, errors.New("project not found"))
+		if project != "" && (!project_.ValidSlug(project) || strings.HasPrefix(project, "app-")) {
+			// Slugs never start with "app-": that is the namespace prefix,
+			// so a client passing a namespace here is a bug worth a loud 404.
+			abort(c, http.StatusNotFound, errors.New("project not found (paths take the project slug, not its namespace)"))
 			return
 		}
 		roles, err := s.rolesOf(c)

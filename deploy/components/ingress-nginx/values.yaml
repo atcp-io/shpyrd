@@ -7,7 +7,9 @@ controller:
   watchIngressWithoutClass: true
 
   config:
-    use-forwarded-headers: "true"
+    # Trust X-Forwarded-* only when a front door (Caddy) sits in front of
+    # the controller (RFC-0057); on the public port the header is a lie.
+    use-forwarded-headers: "${SHPYRD_FORWARDED_HEADERS}"
     # Per-host metrics power the shpyrd "web app" dashboards.
     enable-metrics: "true"
 

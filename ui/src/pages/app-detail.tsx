@@ -1667,7 +1667,7 @@ function DestroyDialog({ app }: { app: AppDetail }) {
   const [confirm, setConfirm] = useState("");
   const resources = useQuery({
     queryKey: ["resources", app.slug],
-    queryFn: () => api.resources(app.namespace),
+    queryFn: () => api.resources(app.slug),
     enabled: open,
   });
   // Resources holding data go first so they are not missed.
@@ -1764,12 +1764,12 @@ function ResourcesCard({
   const qc = useQueryClient();
   const resources = useQuery({
     queryKey: ["resources", app.slug],
-    queryFn: () => api.resources(app.namespace),
+    queryFn: () => api.resources(app.slug),
     refetchInterval: 5000,
   });
   const volumes = useQuery({
     queryKey: ["volumes", app.slug],
-    queryFn: () => api.volumes(app.namespace),
+    queryFn: () => api.volumes(app.slug),
     refetchInterval: 5000,
   });
   const refresh = () => {
@@ -2166,7 +2166,7 @@ function MembersCard({ app }: { app: AppDetail }) {
   const perms = usePerms(app.slug);
   const members = useQuery({
     queryKey: ["members", app.slug],
-    queryFn: () => api.members(app.namespace),
+    queryFn: () => api.members(app.slug),
     retry: false,
   });
   const teams = useQuery({

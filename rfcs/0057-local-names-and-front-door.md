@@ -1,14 +1,14 @@
 # RFC-0057 Local names and front door
 
-**Status:** implementable
+**Status:** implemented
 
-**Owner:** unassigned
+**Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
 **Depends on:** RFC-0001 (implemented)
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-22
+**Last update:** 2026-09-23
 
 ## Summary
 
@@ -106,3 +106,28 @@ site file and, with `--local-dns`, offers to remove the resolver entries.
 
 - 2026-09-22: RFC written after a look at a platform2 laptop setup (Homebrew Caddy on 443
   with `tls internal`, dnsmasq `address=/.test/127.0.0.1`, `/etc/resolver/test`).
+- 2026-09-23: implemented and verified on that laptop: the running cluster moved from
+  `https://shpyrd.127.0.0.1.nip.io:8443` to `https://shpyrd.shpyrd.test` behind the existing
+  Caddy with one `cluster init --domain shpyrd.test --front-door caddy`. Notes:
+  - `pkg/localnet`: ports (dial + IPv4 bind probe; a dual-stack wildcard listen does not
+    conflict with a loopback socket on macOS), Caddy detection (admin API, Caddyfile from
+    the process command line or Homebrew's path), site file, import line, reload
+    (`caddy reload` or `POST /load`), local DNS status/setup/removal.
+  - The site file adds `flush_interval -1` so log streams are not buffered by Caddy.
+  - `use-forwarded-headers` was already on unconditionally; it is now derived
+    (`SHPYRD_FORWARDED_HEADERS`) and true only behind the front door.
+  - Public URLs: derived `SHPYRD_URL_PORT` ("443" behind Caddy, else kind's https port) feeds
+    the server's `SHPYRD_HTTPS_PORT`, so the CLI, the API and the App controller agree
+    without changing the server. `SHPYRD_HTTP_PORT`/`SHPYRD_HTTPS_PORT` keep meaning the host
+    ports kind maps.
+  - `cluster init` now seeds domain, ports, front door and local DNS from the install
+    record when the flags are not given; before, a bare re-run silently reset them.
+  - Dex reads its config at start only: its pod template now carries the URLs as an
+    annotation so a domain or front-door change rolls it (otherwise the issuer stays stale
+    and the local provider cannot register).
+  - `cluster destroy` reads the record before deleting the cluster, removes the Caddy site
+    (and reloads), and offers to remove the dnsmasq rule only when shpyrd wrote it.
+  - Recorded: `SHPYRD_FRONT_DOOR`, `SHPYRD_LOCAL_DNS`; `cluster status` prints
+    "Names: dnsmasq (*.shpyrd.test) · Front door: Caddy on 443 -> kind :8080".
+  - Prompts default to Yes and are answered by `--yes` or a non-terminal stdin, so CI keeps
+    working non-interactively.

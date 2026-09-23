@@ -294,13 +294,8 @@ func newAppsDestroyCmd(g *globalFlags) *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Warning: this deletes the data on volume(s) %s.\n", strings.Join(names, ", "))
 			}
-			if !yes {
-				fmt.Fprintf(cmd.OutOrStdout(), "Delete project %s with all its resources? [y/N] ", project.Label(app))
-				var answer string
-				fmt.Fscanln(os.Stdin, &answer)
-				if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
-					return fmt.Errorf("aborted")
-				}
+			if !confirm(cmd, yes, fmt.Sprintf("Delete project %s with all its resources?", project.Label(app)), false) {
+				return fmt.Errorf("aborted")
 			}
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNamespace(name)}}
 			if err := ac.c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {

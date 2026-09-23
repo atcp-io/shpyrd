@@ -27,6 +27,17 @@ const (
 	VarDashboardURL = "SHPYRD_DASHBOARD_URL" // external dashboard URL
 	VarAuthURL      = "SHPYRD_AUTH_URL"      // external URL of the login issuer (auth.<domain>)
 	VarServerImage  = "SHPYRD_SERVER_IMAGE"  // server image; derived from the version unless set
+	// Local names and front door (RFC-0057).
+	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
+	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine
+	VarURLPort          = "SHPYRD_URL_PORT"          // derived: the https port public URLs carry ("443" behind Caddy)
+	VarForwardedHeaders = "SHPYRD_FORWARDED_HEADERS" // derived: ingress-nginx trusts X-Forwarded-* only behind the front door
+)
+
+// Front door modes.
+const (
+	FrontDoorKind  = "kind"
+	FrontDoorCaddy = "caddy"
 )
 
 // ServerImageRepo is where release workflows publish the server image.
@@ -56,9 +67,14 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 		names = append(names, x.Extension)
 	}
 	out := map[string]string{
-		VarDashboardURL: base("shpyrd"),
-		VarAuthURL:      base("auth"),
-		VarExtensions:   strings.Join(names, ","),
+		VarDashboardURL:     base("shpyrd"),
+		VarAuthURL:          base("auth"),
+		VarExtensions:       strings.Join(names, ","),
+		VarURLPort:          URLPort(vars),
+		VarForwardedHeaders: "false",
+	}
+	if vars[VarFrontDoor] == FrontDoorCaddy {
+		out[VarForwardedHeaders] = "true"
 	}
 	if vars[VarServerImage] == "" {
 		out[VarServerImage] = DefaultServerImage(vars[VarVersion])
@@ -66,14 +82,26 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 	return out
 }
 
+// URLPort is the https port public URLs carry: 443 when a front door
+// terminates TLS on the standard port, else the port kind maps.
+func URLPort(vars map[string]string) string {
+	if vars[VarFrontDoor] == FrontDoorCaddy {
+		return "443"
+	}
+	if p := vars[VarHTTPSPort]; p != "" {
+		return p
+	}
+	return "443"
+}
+
 // BaseURL returns a function building https URLs for <name>.<domain>,
 // including the port when it is not 443.
 func BaseURL(vars map[string]string) func(name string) string {
 	domain := vars[VarDomain]
-	port := vars[VarHTTPSPort]
+	port := URLPort(vars)
 	return func(name string) string {
 		u := "https://" + name + "." + domain
-		if port != "" && port != "443" {
+		if port != "443" {
 			u += ":" + port
 		}
 		return u

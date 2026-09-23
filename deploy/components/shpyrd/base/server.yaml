@@ -39,8 +39,10 @@ spec:
               value: ${SHPYRD_REGISTRY_HOST}
             - name: SHPYRD_VERSION
               value: ${SHPYRD_VERSION}
+            # The port public URLs carry: 443 behind a front door even when
+            # kind itself listens on a high port (RFC-0057).
             - name: SHPYRD_HTTPS_PORT
-              value: "${SHPYRD_HTTPS_PORT}"
+              value: "${SHPYRD_URL_PORT}"
             - name: SHPYRD_DASHBOARD_URL
               value: ${SHPYRD_DASHBOARD_URL}
             - name: SHPYRD_AUTH_URL

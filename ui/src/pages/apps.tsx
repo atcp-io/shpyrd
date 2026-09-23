@@ -256,7 +256,7 @@ export function NewAppDialog() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
-  const valid = name.trim() !== "" && slugRe.test(slug);
+  const valid = name.trim() !== "" && validSlug(slug);
 
   return (
     <Dialog
@@ -305,11 +305,11 @@ export function NewAppDialog() {
               onChange={(e) => setSlugEdit(e.target.value.toLowerCase())}
               placeholder="my-service"
               className="font-mono"
-              aria-invalid={slug !== "" && !slugRe.test(slug)}
+              aria-invalid={slug !== "" && !validSlug(slug)}
             />
             <p className="text-xs text-muted-foreground">
-              {slug && !slugRe.test(slug)
-                ? "Lowercase letters, digits and dashes, up to 40 characters."
+              {slug && !validSlug(slug)
+                ? "Lowercase letters, digits and dashes, up to 40 characters; not starting with app-."
                 : `Used in URLs and the CLI. Becomes https://${slug || "my-service"}.<domain>`}
             </p>
           </div>
@@ -364,8 +364,13 @@ export function NewAppDialog() {
 
 const slugRe = /^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$/;
 
+/** Mirrors pkg/project.ValidateSlug: the namespace prefix is not a slug. */
+function validSlug(slug: string): boolean {
+  return slugRe.test(slug) && !slug.startsWith("app-");
+}
+
 /** Mirrors pkg/project.Slug: lowercase ASCII, dashes between words, accents
- * stripped, at most 40 characters. */
+ * stripped, at most 40 characters, never starting with app-. */
 function slugify(name: string): string {
   return name
     .normalize("NFD")
@@ -374,5 +379,6 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+/, "")
     .slice(0, 40)
-    .replace(/-+$/, "");
+    .replace(/-+$/, "")
+    .replace(/^app-+/, "");
 }

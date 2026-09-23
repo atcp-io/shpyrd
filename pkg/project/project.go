@@ -51,6 +51,8 @@ func Slug(displayName string) (string, error) {
 		s = s[:MaxSlugLength]
 	}
 	s = strings.TrimRight(s, "-")
+	s = strings.TrimPrefix(s, "app-") // the namespace prefix is not a valid slug start
+	s = strings.TrimLeft(s, "-")
 	if s == "" {
 		return "", fmt.Errorf("cannot derive a slug from %q: use at least one letter or digit", displayName)
 	}
@@ -58,9 +60,14 @@ func Slug(displayName string) (string, error) {
 }
 
 // ValidateSlug explains why a slug given explicitly is not acceptable.
+// Slugs never start with "app-", the namespace prefix, so a namespace can
+// never be mistaken for a slug.
 func ValidateSlug(s string) error {
 	if !ValidSlug(s) {
 		return fmt.Errorf("invalid slug %q: use lowercase letters, digits and dashes (max %d characters)", s, MaxSlugLength)
+	}
+	if strings.HasPrefix(s, "app-") {
+		return fmt.Errorf("invalid slug %q: slugs cannot start with \"app-\"", s)
 	}
 	return nil
 }

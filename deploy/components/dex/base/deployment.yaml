@@ -11,6 +11,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: dex
+      annotations:
+        # Dex reads its ConfigMap at start only: roll the Deployment when
+        # the URLs baked into the config change (domain or front door).
+        shpyrd.io/config-urls: "${SHPYRD_AUTH_URL} ${SHPYRD_DASHBOARD_URL}"
     spec:
       serviceAccountName: dex
       securityContext:

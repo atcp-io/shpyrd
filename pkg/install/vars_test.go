@@ -26,3 +26,25 @@ func TestDefaultServerImage(t *testing.T) {
 		t.Error("an explicit image must not be overridden")
 	}
 }
+
+func TestFrontDoorVars(t *testing.T) {
+	kind := map[string]string{VarDomain: "127.0.0.1.nip.io", VarHTTPSPort: "8443", VarFrontDoor: FrontDoorKind}
+	if u := BaseURL(kind)("shpyrd"); u != "https://shpyrd.127.0.0.1.nip.io:8443" {
+		t.Errorf("kind mode URL = %s", u)
+	}
+	d := derivedVars(kind, nil)
+	if d[VarURLPort] != "8443" || d[VarForwardedHeaders] != "false" || d[VarAuthURL] != "https://auth.127.0.0.1.nip.io:8443" {
+		t.Errorf("kind mode derived = %v", d)
+	}
+	caddy := map[string]string{VarDomain: "shpyrd.test", VarHTTPPort: "8080", VarHTTPSPort: "8443", VarFrontDoor: FrontDoorCaddy}
+	if u := BaseURL(caddy)("shpyrd"); u != "https://shpyrd.shpyrd.test" {
+		t.Errorf("caddy mode URL = %s", u)
+	}
+	d = derivedVars(caddy, nil)
+	if d[VarURLPort] != "443" || d[VarForwardedHeaders] != "true" || d[VarDashboardURL] != "https://shpyrd.shpyrd.test" {
+		t.Errorf("caddy mode derived = %v", d)
+	}
+	if URLPort(map[string]string{}) != "443" {
+		t.Error("URLPort default")
+	}
+}

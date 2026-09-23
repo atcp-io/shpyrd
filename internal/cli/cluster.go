@@ -27,6 +27,7 @@ import (
 	"shpyrd/pkg/kind"
 	"shpyrd/pkg/kube"
 	"shpyrd/pkg/localca"
+	"shpyrd/pkg/localnet"
 )
 
 const (
@@ -46,11 +47,17 @@ type initFlags struct {
 	yes       bool
 	httpPort  int
 	httpsPort int
+	// Local names and front door (RFC-0057).
+	frontDoor string // auto, kind or caddy
+	localDNS  bool
+	caddy     *localnet.Caddy
 }
 
 func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.profile, "profile", "local", "installer profile (local)")
-	cmd.Flags().StringVar(&f.domain, "domain", defaultDomain, "wildcard domain for projects and the dashboard")
+	cmd.Flags().StringVar(&f.domain, "domain", defaultDomain, "wildcard domain for projects and the dashboard (shpyrd.test with --local-dns)")
+	cmd.Flags().StringVar(&f.frontDoor, "front-door", frontDoorAuto, "who serves 443: kind (host ports), caddy (an existing Caddy proxies to kind), or auto (detect and ask)")
+	cmd.Flags().BoolVar(&f.localDNS, "local-dns", false, "make *.<domain> resolve to this machine with dnsmasq and /etc/resolver (macOS)")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
@@ -70,6 +77,10 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 	if f.httpsPort != 0 {
 		vars[install.VarHTTPSPort] = strconv.Itoa(f.httpsPort)
 	}
+	if f.frontDoor != "" && f.frontDoor != frontDoorAuto {
+		vars[install.VarFrontDoor] = f.frontDoor
+	}
+	vars[install.VarLocalDNS] = strconv.FormatBool(f.localDNS)
 	for _, kv := range f.set {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok || !strings.HasPrefix(k, "SHPYRD_") {
@@ -327,7 +338,11 @@ an image registry, kpack, monitoring and the shpyrd server.
 
 Host ports 80 and 443 are mapped to the cluster so apps are reachable at
 https://<app>.<domain>; the default domain 127.0.0.1.nip.io resolves to the
-local machine without any configuration.`,
+local machine without any configuration. When a Caddy already serves 443,
+it can be the front door instead (--front-door caddy): kind takes high ports,
+Caddy proxies *.<domain> to it, URLs carry no port and certificates come from
+Caddy's CA. With --local-dns (or when Caddy is the front door), *.shpyrd.test
+resolves to this machine through dnsmasq.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			p := kind.NewProvider()
@@ -335,12 +350,23 @@ local machine without any configuration.`,
 			if err != nil {
 				return err
 			}
+			flags.httpPort, flags.httpsPort = httpPort, httpsPort
 			if exists {
 				fmt.Fprintf(cmd.OutOrStdout(), "kind cluster %q already exists, skipping creation\n", name)
-			} else {
-				if err := checkPortsFree(httpPort, httpsPort, 30050); err != nil {
+				if err := seedFromRecord(ctx, cmd, kube.Options{Kubeconfig: g.kubeconfig, Context: kind.ContextName(name)}, &flags); err != nil {
 					return err
 				}
+			} else {
+				if err := planLocal(cmd, &flags, cmd.Flags().Changed("domain"), cmd.Flags().Changed("http-port") || cmd.Flags().Changed("https-port")); err != nil {
+					return err
+				}
+				if err := checkPortsFree(flags.httpPort, flags.httpsPort, 30050); err != nil {
+					return err
+				}
+				if err := ensureLocalDNS(cmd, &flags); err != nil {
+					return err
+				}
+				httpPort, httpsPort = flags.httpPort, flags.httpsPort
 				cfg := kind.Defaults(name)
 				cfg.Workers = workers
 				cfg.NodeImage = image
@@ -352,7 +378,6 @@ local machine without any configuration.`,
 					return err
 				}
 			}
-			flags.httpPort, flags.httpsPort = httpPort, httpsPort
 			if noInit {
 				fmt.Fprintf(cmd.OutOrStdout(), "Cluster ready. Run `shpyrd cluster init --context %s` to install the base stack.\n", kind.ContextName(name))
 				return nil
@@ -401,7 +426,22 @@ func newClusterInitCmd(g *globalFlags) *cobra.Command {
 		Short: "Install or upgrade the shpyrd base stack on the current cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
-			return runInit(ctx, cmd, kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx}, name, &flags, false)
+			kopts := kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx}
+			if err := seedFromRecord(ctx, cmd, kopts, &flags); err != nil {
+				return err
+			}
+			if flags.frontDoor == install.FrontDoorCaddy && flags.httpPort == 0 {
+				return errors.New("--front-door caddy needs the host port kind maps to ingress HTTP: pass --http-port")
+			}
+			if flags.frontDoor == frontDoorAuto {
+				flags.frontDoor = install.FrontDoorKind
+			}
+			if cmd.Flags().Changed("local-dns") || cmd.Flags().Changed("domain") {
+				if err := ensureLocalDNS(cmd, &flags); err != nil {
+					return err
+				}
+			}
+			return runInit(ctx, cmd, kopts, name, &flags, false)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", defaultClusterName, "logical cluster name (SHPYRD_CLUSTER)")
@@ -464,15 +504,52 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		return err
 	}
 
+	if flags.frontDoor == install.FrontDoorCaddy {
+		if err := setupFrontDoor(ctx, cmd, flags); err != nil {
+			return err
+		}
+	}
+
 	base := install.BaseURL(eng.Vars())
 	fmt.Fprintf(out, "\nshpyrd is ready.\n\n")
 	fmt.Fprintf(out, "  Dashboard:  %s\n", base("shpyrd"))
 	fmt.Fprintf(out, "  Grafana:    %s\n", base("grafana"))
 	fmt.Fprintf(out, "  Registry:   %s (host: localhost:30050)\n", eng.Vars()[install.VarRegistryHost])
-	if caDir, err := localca.DefaultDir(); err == nil {
+	if caDir, err := localca.DefaultDir(); err == nil && flags.frontDoor != install.FrontDoorCaddy {
 		fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
 	}
-	fmt.Fprintf(out, "\nRun `shpyrd cluster trust-ca` once so your browser trusts the development CA.\n")
+	printLocalSummary(out, eng.Vars())
+	return nil
+}
+
+// seedFromRecord fills flags the user did not pass from the install record,
+// so `cluster init` keeps the domain, ports and front door the cluster was
+// created with.
+func seedFromRecord(ctx context.Context, cmd *cobra.Command, kopts kube.Options, flags *initFlags) error {
+	k, err := kube.Connect(kopts)
+	if err != nil {
+		return nil // runInit reports connection problems
+	}
+	info, err := install.ReadInstallInfo(ctx, k, "")
+	if err != nil || info == nil {
+		return nil // first install
+	}
+	f := cmd.Flags()
+	if !f.Changed("domain") && info.Vars[install.VarDomain] != "" {
+		flags.domain = info.Vars[install.VarDomain]
+	}
+	if !f.Changed("http-port") && flags.httpPort == 0 {
+		flags.httpPort, _ = strconv.Atoi(info.Vars[install.VarHTTPPort])
+	}
+	if !f.Changed("https-port") && flags.httpsPort == 0 {
+		flags.httpsPort, _ = strconv.Atoi(info.Vars[install.VarHTTPSPort])
+	}
+	if !f.Changed("front-door") && info.Vars[install.VarFrontDoor] != "" {
+		flags.frontDoor = info.Vars[install.VarFrontDoor]
+	}
+	if !f.Changed("local-dns") {
+		flags.localDNS = info.Vars[install.VarLocalDNS] == "true"
+	}
 	return nil
 }
 
@@ -507,7 +584,8 @@ func newClusterStatusCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Profile: %s  Version: %s  Domain: %s  Updated: %s\n\n", info.Profile, info.Version, info.Vars[install.VarDomain], info.UpdatedAt)
+			fmt.Fprintf(out, "Profile: %s  Version: %s  Domain: %s  Updated: %s\n", info.Profile, info.Version, info.Vars[install.VarDomain], info.UpdatedAt)
+			fmt.Fprintf(out, "%s\n\n", describeLocal(info.Vars))
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "RUNLEVEL\tCOMPONENT\tSTATUS\tVERSION\tAPPLIED")
 			allReady := true
@@ -550,15 +628,24 @@ func newClusterDestroyCmd(g *globalFlags) *cobra.Command {
 			if !exists {
 				return fmt.Errorf("kind cluster %q does not exist", name)
 			}
-			if !yes {
-				fmt.Fprintf(cmd.OutOrStdout(), "Delete kind cluster %q and everything in it? [y/N] ", name)
-				var answer string
-				fmt.Fscanln(os.Stdin, &answer)
-				if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
-					return fmt.Errorf("aborted")
+			if !confirm(cmd, yes, fmt.Sprintf("Delete kind cluster %q and everything in it?", name), false) {
+				return fmt.Errorf("aborted")
+			}
+			// The record dies with the cluster: read it first to know what
+			// was written on this machine (RFC-0057).
+			var domain, frontDoor string
+			var localDNS bool
+			if k, err := kube.Connect(kube.Options{Kubeconfig: g.kubeconfig, Context: kind.ContextName(name)}); err == nil {
+				if info, err := install.ReadInstallInfo(signalContext(), k, ""); err == nil && info != nil {
+					domain, frontDoor = info.Vars[install.VarDomain], info.Vars[install.VarFrontDoor]
+					localDNS = info.Vars[install.VarLocalDNS] == "true"
 				}
 			}
-			return p.Delete(name, g.kubeconfig)
+			if err := p.Delete(name, g.kubeconfig); err != nil {
+				return err
+			}
+			teardownLocal(signalContext(), cmd, yes, domain, frontDoor, localDNS)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", defaultClusterName, "kind cluster name")

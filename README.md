@@ -46,10 +46,18 @@ Everything is reachable under a wildcard domain that resolves to your machine
 - `https://grafana.127.0.0.1.nip.io` Grafana (admin / shpyrd on the local profile)
 - `localhost:30050` registry (in-cluster address `10.96.0.50:5000`)
 
+Names and ports adapt to the machine (RFC-0057). When a Caddy already serves
+443, `cluster create` offers to make it the front door: kind takes high ports,
+Caddy proxies `*.shpyrd.test` to it with certificates from its own trusted CA,
+and URLs carry no port (`https://shpyrd.shpyrd.test`). `*.shpyrd.test` resolves
+locally through dnsmasq (`--local-dns`, one sudo prompt, macOS). `cluster status`
+shows the choice: `Names: dnsmasq (*.shpyrd.test) · Front door: Caddy on 443 -> kind :8080`.
+
 Useful commands:
 
 ```sh
 shpyrd cluster create --http-port 8080 --https-port 8443   # when 80/443 are taken
+shpyrd cluster create --front-door caddy --local-dns       # behind an existing Caddy, *.shpyrd.test
 shpyrd cluster init --only shpyrd            # re-apply one component
 shpyrd cluster init --skip monitoring        # lighter install
 shpyrd cluster export -o ./gitops            # render everything for Flux / Argo CD
