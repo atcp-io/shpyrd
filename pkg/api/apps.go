@@ -93,6 +93,7 @@ type AppDetailSpec struct {
 	Env         []corev1.EnvVar             `json:"env,omitempty"`
 	Domains     []string                    `json:"domains,omitempty"`
 	Build       *shpyrdv1.Build             `json:"build,omitempty"`
+	Bindings    []shpyrdv1.Binding          `json:"bindings,omitempty"`
 }
 
 type AppDetailStatus struct {
@@ -119,14 +120,17 @@ type ReleaseView struct {
 	Kind string `json:"kind"`
 }
 
-func releaseKind(desc string) string {
+// releaseKind classifies a release from what changed: a rollback by its
+// note, a deploy when the build changed, otherwise a config release
+// (config vars, sizes, attachments, globals).
+func releaseKind(prev *shpyrdv1.Release, cur shpyrdv1.Release) string {
 	switch {
-	case strings.HasPrefix(desc, "Rollback"):
+	case strings.HasPrefix(cur.Description, "Rollback"):
 		return "rollback"
-	case strings.HasPrefix(desc, "Set ") || strings.HasPrefix(desc, "Remove ") || strings.HasPrefix(desc, "Config"):
-		return "config"
-	default:
+	case prev == nil || prev.Image != cur.Image:
 		return "deploy"
+	default:
+		return "config"
 	}
 }
 
@@ -142,6 +146,7 @@ func detail(a *shpyrdv1.App, buildByDigest map[string]int) AppDetail {
 			Env:         a.Spec.Env,
 			Domains:     a.Spec.Domains,
 			Build:       a.Spec.Build,
+			Bindings:    a.Spec.Bindings,
 		},
 		Status: AppDetailStatus{
 			Phase:       firstNonEmpty(a.Status.Phase, shpyrdv1.PhasePending),
@@ -162,11 +167,15 @@ func detail(a *shpyrdv1.App, buildByDigest map[string]int) AppDetail {
 		src.Blob = &blob
 		d.Spec.Source = &src
 	}
-	for _, r := range a.Status.Releases {
+	for i, r := range a.Status.Releases {
 		dg := Digest(r.Image)
+		var prev *shpyrdv1.Release
+		if i > 0 {
+			prev = &a.Status.Releases[i-1]
+		}
 		d.Status.Releases = append(d.Status.Releases, ReleaseView{
 			Number: r.Number, Digest: dg, Build: buildByDigest[dg], Source: r.Source, Description: r.Description,
-			CreatedAt: r.CreatedAt.Time, Processes: r.Processes, Kind: releaseKind(r.Description),
+			CreatedAt: r.CreatedAt.Time, Processes: r.Processes, Kind: releaseKind(prev, r),
 		})
 	}
 	return d

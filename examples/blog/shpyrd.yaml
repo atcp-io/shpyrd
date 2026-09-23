@@ -1,0 +1,7 @@
+project: blog
+processes:
+  web:
+    size: shared-s
+    volumes:
+      - name: data     # shpyrd volumes create data --size 1Gi --project blog
+        path: /data

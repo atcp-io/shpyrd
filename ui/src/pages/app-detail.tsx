@@ -2158,6 +2158,7 @@ const roleHelp: Record<string, string> = {
 
 function MembersCard({ app }: { app: AppDetail }) {
   const qc = useQueryClient();
+  const perms = usePerms(app.name);
   const members = useQuery({
     queryKey: ["members", app.namespace],
     queryFn: () => api.members(app.namespace),
@@ -2215,8 +2216,9 @@ function MembersCard({ app }: { app: AppDetail }) {
         )}
         {(members.data ?? []).length === 0 && !members.error && (
           <p className="text-sm text-muted-foreground">
-            No roles granted yet. Until the cluster has a team or a member,
-            every signed-in user is an administrator.
+            {perms.enforced
+              ? "No roles granted on this project yet: only platform admins can see it."
+              : "No roles granted yet. Until the cluster has a team or a member, every signed-in user is an administrator."}
           </p>
         )}
         {(members.data ?? []).length > 0 && (

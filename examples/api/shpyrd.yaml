@@ -1,0 +1,6 @@
+project: api
+build:
+  strategy: dockerfile
+processes:
+  web:
+    size: shared-xs

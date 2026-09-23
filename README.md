@@ -5,6 +5,8 @@ place, from deploy to monitoring: cluster bootstrap, buildpack and Dockerfile
 builds, releases and rollbacks, URLs with TLS, config vars, logs and metrics, from one
 CLI and one dashboard on top of Kubernetes.
 
+[![The shop project in the shpyrd dashboard](https://shpyrd.io/screenshots/project-overview.png)](https://shpyrd.io/docs/tour)
+
 Status: pre-alpha. The design and roadmap live in
 [RFC-0001](rfcs/0001-mvp-local-platform.md). Website: https://shpyrd.io
 
@@ -235,7 +237,7 @@ pkg/authz             roles and actions (RFC-0008); pkg/audit the audit trail
 pkg/api               HTTP API, OIDC relying party and sessions, dashboard serving
 deploy/               components and profiles embedded in the binary (incl. extension components such as dex)
 ui/                   dashboard (Vite + React 19 + Tailwind 4 + shadcn/ui)
-examples/hello        example app (Go, web + worker); examples/hello-docker the Dockerfile variant
+examples/             sample projects: shop (Go, web + worker, Postgres + Redis), blog (Node, volume), api (Python Dockerfile), hello, hello-docker
 rfcs/                 design documents
 ```
 

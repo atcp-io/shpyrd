@@ -1,0 +1,9 @@
+project: shop
+processes:
+  web:
+    size: shared-m
+  worker:
+    size: shared-xs
+build:
+  env:
+    BP_GO_TARGETS: ./cmd/web:./cmd/worker
