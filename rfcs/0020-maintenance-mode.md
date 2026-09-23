@@ -36,7 +36,7 @@ the deployment.
   `shpyrd maintenance on|off [--message] [--allow 203.0.113.0/24]`; dashboard toggle with the
   same fields.
 - The controller creates a per-project `maintenance` Deployment (1 instance,
-  `ghcr.io/atcp-io/shpyrd-maintenance`, a tiny Go server rendering the page with the
+  `ghcr.io/shpyrd-io/shpyrd-maintenance`, a tiny Go server rendering the page with the
   project's display name, the message and a `Retry-After`) and points the Ingress at it;
   with `allowFrom`, an ingress-nginx allowlist annotation lets those addresses through to the
   real service via a second Ingress.
