@@ -72,7 +72,7 @@ declare what they depend on.
 | [0042](0042-project-quotas.md) | Project quotas | implementable | 0008 |
 | [0043](0043-builds-namespace-and-pod-security.md) | Builds namespace and enforce-mode Pod Security | implementable | 0004, 0008 |
 | [0044](0044-supply-chain.md) | Supply chain and encryption at rest | implementable | 0045 |
-| [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implementable | |
+| [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implemented (signing/SBOM deferred) | |
 | [0046](0046-object-storage.md) | Object storage extension | implementable | 0002 |
 | [0047](0047-autoscaling.md) | Autoscaling (min/max mode, HPA, KEDA) | implementable | 0019, 0042 |
 | [0048](0048-cost-visibility.md) | Cost visibility | implementable | 0042 |
