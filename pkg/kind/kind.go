@@ -94,6 +94,10 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
+  - |
+    kind: KubeletConfiguration
+    containerLogMaxSize: "10Mi"
+    containerLogMaxFiles: 2
   extraPortMappings:
 {{- if .HTTPPort }}
   - containerPort: 80
@@ -112,6 +116,11 @@ nodes:
 {{- end }}
 {{- range $i := .WorkerSeq }}
 - role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    containerLogMaxSize: "10Mi"
+    containerLogMaxFiles: 2
 {{- end }}
 `))
 

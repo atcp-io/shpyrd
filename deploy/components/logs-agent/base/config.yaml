@@ -1,0 +1,76 @@
+# Vector configuration for shpyrd (RFC-0022a).
+#
+# Pipeline: kubernetes_logs source -> remap (filter, label, parse JSON) ->
+# shpyrd_logs transform -> console sink (dev) + drain sinks (added by the
+# controller from LogDrain objects, RFC-0023).
+#
+# Hot path for drain sinks: the controller writes a ConfigMap
+# vector-drains in logs-system and Vector reloads it via inotify.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector
+data:
+  vector.yaml: |
+    # Topology
+    data_dir: /var/lib/vector
+
+    api:
+      enabled: true
+      address: 0.0.0.0:8686
+
+    sources:
+      kubernetes_logs:
+        type: kubernetes_logs
+        # Read the shpyrd.io/* annotations Vector enriches from the API.
+        pod_annotation_fields:
+          pod_annotations: "kubernetes.pod_annotations"
+        extra_label_selector: "app.kubernetes.io/managed-by=shpyrd"
+        # Only collect from project namespaces (app-<slug>); platform and
+        # build namespaces stay on the Kubernetes API stream.
+        extra_namespace_label_selector: "shpyrd.io/project"
+
+    transforms:
+      shpyrd_enrich:
+        type: remap
+        inputs: [kubernetes_logs]
+        source: |
+          # Core shpyrd labels from the pod annotations and labels.
+          .project   = get!(object!(.kubernetes.pod_labels), ["shpyrd.io/app"])
+          .process   = get!(object!(.kubernetes.pod_labels), ["shpyrd.io/process"])
+          .instance  = string(get!(object!(.kubernetes.pod_annotations), ["shpyrd.io/instance"])) ?? .process
+          .pod       = .kubernetes.pod_name
+
+          # Stream: stdout / stderr.
+          if !exists(.stream) { .stream = "stdout" }
+
+          # Drop the kubernetes blob from the final event; keep only what we need.
+          del(.kubernetes)
+          del(.source_type)
+          del(.file)
+
+          # Parse JSON log lines: promote level and msg/message so drains and
+          # future storage can filter by level without re-parsing.
+          if is_string(.message) {
+            parsed, err = parse_json(.message)
+            if err == null && is_object(parsed) {
+              .level   = to_string(get(parsed, ["level"]) ?? get(parsed, ["severity"]) ?? "") ?? null
+              .msg     = to_string(get(parsed, ["msg"])   ?? get(parsed, ["message"])  ?? .message) ?? .message
+              .fields  = parsed
+              del(.fields.level); del(.fields.severity)
+              del(.fields.msg);   del(.fields.message)
+            }
+          }
+
+          if !exists(.level) { .level = null }
+          if !exists(.msg)   { .msg   = .message }
+
+    sinks:
+      # Development: log to stdout of the Vector pod so `kubectl logs -n
+      # logs-system daemonset/vector` shows the enriched stream.
+      # In production with drains this sink can be disabled.
+      console:
+        type: console
+        inputs: [shpyrd_enrich]
+        encoding:
+          codec: json

@@ -30,7 +30,8 @@ rules:
     verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [pods]
-    verbs: [delete]
+    # patch: write shpyrd.io/instance annotation for the log agent (RFC-0022a)
+    verbs: [delete, patch]
   - apiGroups: [""]
     resources: [services, configmaps, secrets, serviceaccounts]
     verbs: [get, list, watch, create, update, patch, delete]

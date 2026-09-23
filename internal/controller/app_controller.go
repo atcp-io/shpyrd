@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/logs"
 	"shpyrd/pkg/sizes"
 )
 
@@ -247,6 +248,7 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	}
 	// Cluster-wide config vars arrive through a per-project mirror the
 	// processes read first (RFC-0016).
+	r.labelRunningInstances(ctx, app)
 	globals, err := r.reconcileGlobals(ctx, app)
 	if err != nil {
 		return outcome{}, err
@@ -609,4 +611,27 @@ func labelsSubset(have, want map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// labelRunningInstances patches the running pods of an app with the
+// shpyrd.io/instance annotation (web.1, worker.2) so the Vector log agent
+// can label log lines without calling the API per line (RFC-0022a).
+func (r *AppReconciler) labelRunningInstances(ctx context.Context, app *shpyrdv1.App) {
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, client.InNamespace(app.Namespace), client.MatchingLabels{shpyrdv1.LabelApp: app.Name}); err != nil {
+		return
+	}
+	names := logs.InstanceNames(pods.Items)
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		want := names[pod.Name]
+		if want == "" || pod.Annotations[shpyrdv1.AnnotationInstance] == want {
+			continue
+		}
+		patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%q}}}`, shpyrdv1.AnnotationInstance, want)
+		_ = r.Patch(ctx, pod, client.RawPatch(types.MergePatchType, []byte(patch)))
+	}
 }

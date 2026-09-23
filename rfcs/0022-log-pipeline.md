@@ -1,6 +1,6 @@
 # RFC-0022 Log pipeline
 
-**Status:** provisional
+**Status:** provisional — see RFC-0022a and RFC-0022b
 
 **Owner:** unassigned
 
@@ -8,15 +8,29 @@
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-22
+**Last update:** 2026-09-23
 
-## Summary
+This RFC was split on 2026-09-23 into two independent parts so the log agent
+and drains can ship without first implementing object storage or Loki:
+
+- **RFC-0022a** — Log agent (Vector DaemonSet, container log size limits,
+  per-project labelling, feeds drains); no Loki, no object storage required.
+  Status: `implementable`.
+- **RFC-0022b** — Log storage (Loki as an add-on backed by object storage from
+  RFC-0046); enables `--since`, time ranges, "load earlier" in the viewer.
+  Status: `provisional` — see original text below for scope and open questions.
+
+The original scope that belongs to RFC-0022b is kept here for reference.
+
+## Original scope (RFC-0022b)
+
+### Summary
 
 Collect every project's logs with an agent and keep them in Loki so they survive
 restarts and can be searched over time; the same store keeps run logs (RFC-0024), the
 durable audit trail (RFC-0025) and feeds log drains (RFC-0023). A `logs` extension.
 
-## Motivation
+### Motivation
 
 Logs live in the container runtime today: a restart or a rollout loses them, one-off runs
 lose theirs after ten minutes, and the audit trail expires with Kubernetes Events.
@@ -25,36 +39,31 @@ lose theirs after ten minutes, and the audit trail expires with Kubernetes Event
 
 - `shpyrd logs --since 7d` and a time range in the viewer.
 - Retention configurable; storage bounded.
-- One agent with per-project routing, reusable for forwarding.
+- Loki is one backend, not the only one; the agent (RFC-0022a) already speaks
+  any OTLP/syslog/HTTP target. Loki is an add-on, not a dependency.
 
 ### Non-Goals
 
 - Full-text analytics UI beyond the project's viewer (Grafana Explore covers the rest).
 
-## Proposal
+### Proposal
 
-- Extension `logs`: Alloy (Grafana's agent) as a DaemonSet reading container logs with
-  Kubernetes metadata, labelling by project/process/instance, pushing to Loki (single
-  binary mode) with object storage from RFC-0046 (MinIO locally, S3 on cloud).
-- Server: `GET /api/projects/{slug}/logs?since=&until=&process=&query=` backed by Loki when
-  the extension is on, by the live stream otherwise; the viewer gains a time range and
-  "load earlier".
-- Retention: `SHPYRD_LOGS_RETENTION` (default 7d) and a size cap on the local bucket.
+- Extension `log-storage`: Loki in single-binary mode receiving from the Vector agent
+  (RFC-0022a) via OTLP or Loki's native protocol; object storage from RFC-0046 as the
+  backend (MinIO locally, S3 on cloud).
+- Server: `GET /api/projects/{slug}/logs?since=&until=&process=` backed by Loki when
+  the extension is on; the viewer gains a time range and "load earlier".
+- Retention: `SHPYRD_LOGS_RETENTION` (default 7d) and a size cap on the bucket.
 - Grafana gets Loki as a data source (behind RFC-0015's sign-in).
 
-## Design Details
-
-- Labels: `project`, `process`, `instance` (`web.1` via the pod → instance mapping stored as
-  a pod annotation by the controller so the agent can read it), `stream`, `run` for one-off
-  pods, `build` for build pods.
-- Network policy: project pods need no egress; the agent runs in `logs-system`.
-
-## Open questions
+### Open questions
 
 1. Retention default 7 days and a 10 GiB cap locally? Default: yes.
-2. Alloy or Vector as the agent? Default: Alloy (same vendor as Loki and Grafana, LogQL
-   pipeline stages).
 
 ## Implementation History
 
 - 2026-09-22: RFC written.
+- 2026-09-23: split into RFC-0022a (agent, implementable now) and RFC-0022b
+  (Loki/storage, provisional, depends on RFC-0046). Log storage is an optional
+  add-on; any OTLP-compatible backend can receive from the agent. RFC-0023 (drains)
+  now depends on RFC-0022a only.

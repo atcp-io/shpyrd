@@ -4,7 +4,7 @@
 
 **Owner:** unassigned
 
-**Depends on:** RFC-0022
+**Depends on:** RFC-0022a
 
 **Creation date:** 2026-09-22
 
@@ -34,8 +34,8 @@ platform should stream to them without an agent in the app.
 
 - `LogDrain` objects per project (`spec.url`, `spec.headers` from a Secret, `spec.format:
   json|syslog`, `spec.processes` filter); `shpyrd drains add|list|remove`, a Drains card.
-- The agent (RFC-0022) gets per-project sink components rendered by the controller:
-  `loki.write` stays for storage, `otelcol.exporter.otlphttp`/`syslog` for drains; failures
+- The agent (RFC-0022a, Vector) gets per-project sink components rendered by the controller:
+  `otelcol.exporter.otlphttp`/`syslog` for drains; failures (Loki storage is RFC-0022b, optional)
   surface in `status.message` and an audit event after repeated errors.
 - Payload: one JSON object per line `{time, project, process, instance, level, message,
   fields}`; syslog: RFC 5424 with the project as APP-NAME and instance as PROCID.

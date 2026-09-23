@@ -49,8 +49,9 @@ declare what they depend on.
 | [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | implemented | 0001 |
 | [0020](0020-maintenance-mode.md) | Maintenance mode | provisional | 0001 |
 | [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implementable | |
-| [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) | provisional | 0046 |
-| [0023](0023-log-drains.md) | Log drains (syslog, HTTPS) | provisional | 0022 |
+| [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) — split, see 0022a and 0022b | provisional | 0046 |
+| [0022a](0022a-log-agent.md) | Log agent (Vector DaemonSet, container log limits) | implemented | 0001 |
+| [0023](0023-log-drains.md) | Log drains (syslog, HTTPS) | provisional | 0022a |
 | [0024](0024-runs-and-scheduled-tasks.md) | Run history and scheduled tasks | provisional | 0005, 0022 |
 | [0025](0025-audit-trail-v2.md) | Audit trail v2 (durable, cluster-wide) | provisional | 0008, 0022 |
 | [0026](0026-web-terminal.md) | Web terminal | implementable | 0005, 0008 |
@@ -96,8 +97,9 @@ declare what they depend on.
 | C | 0002, 0007 | done |
 | D | 0008 | done |
 | E | 0009, 0010 | done |
-| F | 0045, 0057, 0011, 0012, 0058, 0016, 0019, 0046 | next: foundations (binaries, local names and front door, identity, sign-in page, external providers, globals, health, object storage) |
-| G | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | delivery and logs |
+| F | 0045, 0057, 0011, 0012, 0058, 0016, 0019, 0046 | done |
+| G | 0022a, 0021, 0017, 0018, 0023, 0024, 0025 | delivery and logs: agent, structured viewer, git creds, auto-deploy, drains, run history, durable audit |
+| G (old) | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | superseded by new G above |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
 | J | 0034, 0035, 0036, 0037 | domains, cloud, backup |

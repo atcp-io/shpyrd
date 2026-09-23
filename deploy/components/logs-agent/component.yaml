@@ -1,0 +1,8 @@
+name: logs-agent
+description: Vector DaemonSet — collects container logs from all project pods, attaches project/process/instance labels, feeds log drains (RFC-0022a)
+namespace: logs-system
+kustomize:
+  path: base
+wait:
+  - daemonSet: logs-system/vector
+timeout: 3m

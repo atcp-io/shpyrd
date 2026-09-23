@@ -22,6 +22,10 @@ const (
 	AnnotationDisplayName = "shpyrd.io/display-name"
 	// AnnotationConfigHash is put on pod templates so config changes roll out.
 	AnnotationConfigHash = "shpyrd.io/config-hash"
+	// AnnotationInstance on a running pod holds the human name of the
+	// instance (web.1, worker.2) so log agents can label lines without
+	// per-line API calls (RFC-0022a).
+	AnnotationInstance = "shpyrd.io/instance"
 	// AnnotationReleaseNote lets clients describe the next release
 	// (for example "Rollback to v3"); the controller consumes it.
 	AnnotationReleaseNote = "shpyrd.io/release-note"

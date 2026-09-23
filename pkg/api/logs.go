@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/logs"
 )
 
 // LogLine is one log line in the NDJSON stream.
@@ -35,31 +36,9 @@ type LogLine struct {
 	Message  string `json:"m"`
 }
 
-// InstanceNames maps pods to stable, human names ("web.1", "web.2") by
-// process type and creation order, the way Heroku names dynos.
-func InstanceNames(pods []corev1.Pod) map[string]string {
-	byProc := map[string][]corev1.Pod{}
-	for _, p := range pods {
-		byProc[p.Labels[shpyrdv1.LabelProcess]] = append(byProc[p.Labels[shpyrdv1.LabelProcess]], p)
-	}
-	out := map[string]string{}
-	for proc, list := range byProc {
-		sort.Slice(list, func(i, j int) bool {
-			if !list[i].CreationTimestamp.Equal(&list[j].CreationTimestamp) {
-				return list[i].CreationTimestamp.Before(&list[j].CreationTimestamp)
-			}
-			return list[i].Name < list[j].Name
-		})
-		for i, p := range list {
-			name := proc
-			if name == "" {
-				name = "app"
-			}
-			out[p.Name] = fmt.Sprintf("%s.%d", name, i+1)
-		}
-	}
-	return out
-}
+// InstanceNames maps pods to stable human names ("web.1", "web.2").
+// Delegated to pkg/logs so the controller can use the same function.
+func InstanceNames(pods []corev1.Pod) map[string]string { return logs.InstanceNames(pods) }
 
 // splitTimestamp separates the RFC3339Nano prefix kubelet adds with
 // Timestamps=true from the message.
