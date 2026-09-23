@@ -250,6 +250,7 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 	}
 	d.Spec.Replicas = ptr.To(p.replicas())
 	d.Spec.RevisionHistoryLimit = ptr.To[int32](3)
+	d.Spec.Strategy = rolloutStrategy(p, mounts)
 
 	container := corev1.Container{
 		Name:            "app",
@@ -269,15 +270,12 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 	if len(p.Command) == 0 && p.Name != "web" {
 		container.Command = []string{"/cnb/process/" + p.Name}
 	}
-	if port := p.port(); port > 0 {
+	port := p.port()
+	if port > 0 {
 		container.Env = append(container.Env, corev1.EnvVar{Name: "PORT", Value: fmt.Sprint(port)})
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: port, Protocol: corev1.ProtocolTCP}}
-		container.ReadinessProbe = &corev1.Probe{
-			ProbeHandler:        corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)}},
-			PeriodSeconds:       5,
-			InitialDelaySeconds: 2,
-		}
 	}
+	applyProbes(&container, p, port)
 	container.Env = append(container.Env, app.Spec.Env...)
 
 	d.Spec.Template.Labels = mergeMaps(d.Spec.Template.Labels, labels)
@@ -286,8 +284,103 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 	})
 	d.Spec.Template.Spec.EnableServiceLinks = ptr.To(false)
 	d.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}
+	hc := p.HealthCheck
+	if hc == nil || !hc.Disabled {
+		shutdown := int64(parseDurationSecs(hc.GetStr("ShutdownDelay"), 5))
+		timeout := int64(parseDurationSecs(hc.GetStr("Timeout"), 5))
+		tgp := shutdown + timeout + 5
+		d.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(tgp)
+	}
 	d.Spec.Template.Spec.Containers = []corev1.Container{container}
 	applyMounts(d, mounts)
+}
+
+// rolloutStrategy returns the Deployment strategy for a process. Processes
+// with a RWO volume use Recreate; everything else uses RollingUpdate with
+// maxSurge=1 and maxUnavailable=0 so traffic is always served (RFC-0019).
+func rolloutStrategy(p namedProcess, mounts []resolvedMount) appsv1.DeploymentStrategy {
+	for _, m := range mounts {
+		if !m.Shared {
+			return appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
+		}
+	}
+	return appsv1.DeploymentStrategy{
+		Type: appsv1.RollingUpdateDeploymentStrategyType,
+		RollingUpdate: &appsv1.RollingUpdateDeployment{
+			MaxSurge:       ptr.To(intstr.FromInt32(1)),
+			MaxUnavailable: ptr.To(intstr.FromInt32(0)),
+		},
+	}
+}
+
+// applyProbes configures the readiness, liveness and startup probes and the
+// preStop lifecycle hook according to RFC-0019. Defaults by process type:
+//   - web (port 8080): HTTP GET / on the port
+//   - explicit port (non-web): TCP on that port
+//   - no port (workers): no probe
+func applyProbes(c *corev1.Container, p namedProcess, port int32) {
+	hc := p.HealthCheck
+	if hc != nil && hc.Disabled {
+		return
+	}
+	interval := parseDurationSecs(hc.GetStr("Interval"), 10)
+	timeout := parseDurationSecs(hc.GetStr("Timeout"), 5)
+	grace := parseDurationSecs(hc.GetStr("GracePeriod"), 30)
+	shutdown := parseDurationSecs(hc.GetStr("ShutdownDelay"), 5)
+
+	var handler corev1.ProbeHandler
+	switch {
+	case hc != nil && len(hc.Command) > 0:
+		handler = corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: hc.Command}}
+	case hc != nil && hc.TCP:
+		if port > 0 {
+			handler = corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)}}
+		}
+	case hc != nil && hc.Path != "":
+		handler = corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: hc.Path, Port: intstr.FromInt32(port)}}
+	case p.Name == "web" && port > 0:
+		handler = corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/", Port: intstr.FromInt32(port)}}
+	case port > 0:
+		handler = corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)}}
+	default:
+		return // workers without a port: no probe
+	}
+
+	readiness := &corev1.Probe{ProbeHandler: handler, PeriodSeconds: interval, TimeoutSeconds: timeout, FailureThreshold: 3, SuccessThreshold: 1}
+	liveness := &corev1.Probe{ProbeHandler: handler, PeriodSeconds: interval, TimeoutSeconds: timeout, FailureThreshold: 6, SuccessThreshold: 1}
+	startup := &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: timeout, FailureThreshold: int32(grace / 5), SuccessThreshold: 1}
+	if startup.FailureThreshold < 6 {
+		startup.FailureThreshold = 6
+	}
+	c.ReadinessProbe = readiness
+	c.LivenessProbe = liveness
+	c.StartupProbe = startup
+
+	gracePeriod := int64(shutdown) + int64(timeout) + 5
+	c.TerminationMessagePolicy = corev1.TerminationMessageFallbackToLogsOnError
+	c.Lifecycle = &corev1.Lifecycle{
+		PreStop: &corev1.LifecycleHandler{Exec: &corev1.ExecAction{
+			Command: []string{"sh", "-c", fmt.Sprintf("sleep %d", shutdown)},
+		}},
+	}
+	_ = gracePeriod // applied on the pod template below (desired.go)
+}
+
+// parseDurationSecs parses a "Ns" or "Nm" string as seconds, or returns the
+// default when the input is empty or invalid.
+func parseDurationSecs(s string, def int32) int32 {
+	if s == "" {
+		return def
+	}
+	var n int32
+	var unit string
+	if _, err := fmt.Sscanf(s, "%d%s", &n, &unit); err != nil || n <= 0 {
+		return def
+	}
+	if unit == "m" {
+		return n * 60
+	}
+	return n
 }
 
 // mutateService sets the fields shpyrd owns on a process Service.

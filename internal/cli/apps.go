@@ -239,6 +239,21 @@ func printAppInfo(cmd *cobra.Command, app *shpyrdv1.App) {
 			fmt.Fprintf(out, "Path:       %s\n", app.Spec.Source.SubPath)
 		}
 	}
+	// Health check summary per process (RFC-0019).
+	if len(app.Spec.Processes) > 0 {
+		pnames := make([]string, 0, len(app.Spec.Processes))
+		for n := range app.Spec.Processes {
+			pnames = append(pnames, n)
+		}
+		sort.Strings(pnames)
+		for _, n := range pnames {
+			p := app.Spec.Processes[n]
+			probe := healthLabel(n, p)
+			if probe != "" {
+				fmt.Fprintf(out, "Health:     %s: %s\n", n, probe)
+			}
+		}
+	}
 	if len(app.Status.Processes) > 0 {
 		names := make([]string, 0, len(app.Status.Processes))
 		for n := range app.Status.Processes {

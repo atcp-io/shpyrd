@@ -110,6 +110,15 @@ type projectProcess struct {
 	// "256Mi"/"1Gi". Prefer a size.
 	CPU    string `json:"cpu,omitempty"`
 	Memory string `json:"memory,omitempty"`
+	// HealthCheck configures the readiness probe (RFC-0019). Omit for the
+	// default (HTTP / for web, TCP for other ports, none for workers).
+	// Disable all checks with `healthCheck: {disabled: true}`.
+	//
+	//   healthCheck:
+	//     path: /healthz
+	//     interval: 5s
+	//     gracePeriod: 30s
+	HealthCheck *shpyrdv1.HealthCheck `json:"healthCheck,omitempty"`
 }
 
 func (pp projectProcess) resources(cur corev1.ResourceRequirements) (corev1.ResourceRequirements, error) {
@@ -197,6 +206,15 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 	}
 	if len(pc.Domains) > 0 {
 		a.Spec.Domains = pc.Domains
+	}
+	// Carry healthCheck from shpyrd.yaml into App.Spec.Processes (RFC-0019).
+	for k, pp := range pc.Processes {
+		if pp.HealthCheck != nil {
+			if p, ok := a.Spec.Processes[k]; ok {
+				p.HealthCheck = pp.HealthCheck
+				a.Spec.Processes[k] = p
+			}
+		}
 	}
 	if pc.Globals != nil {
 		a.Spec.Globals = pc.Globals.spec()

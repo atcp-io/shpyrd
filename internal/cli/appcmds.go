@@ -524,3 +524,31 @@ func configDetail(set map[string]string, unset []string) string {
 	}
 	return strings.Join(parts, "; ")
 }
+
+// healthLabel summarises a process's probe config for `projects info`.
+func healthLabel(processName string, p shpyrdv1.Process) string {
+	hc := p.HealthCheck
+	if hc != nil && hc.Disabled {
+		return "disabled"
+	}
+	port := int32(0)
+	if p.Port != nil {
+		port = *p.Port
+	} else if processName == "web" {
+		port = shpyrdv1.DefaultWebPort
+	}
+	switch {
+	case hc != nil && len(hc.Command) > 0:
+		return "command " + strings.Join(hc.Command[:1], "") + " (custom)"
+	case hc != nil && hc.Path != "":
+		return "HTTP " + hc.Path + " (custom)"
+	case hc != nil && hc.TCP:
+		return fmt.Sprintf("TCP port %d (custom)", port)
+	case processName == "web" && port > 0:
+		return fmt.Sprintf("HTTP / on port %d (default)", port)
+	case port > 0:
+		return fmt.Sprintf("TCP port %d (default)", port)
+	default:
+		return "" // workers without a port: nothing to print
+	}
+}

@@ -471,6 +471,51 @@ spec:
                       items:
                         type: string
                       type: array
+                    healthCheck:
+                      description: |-
+                        HealthCheck configures the readiness, liveness and startup probes.
+                        Defaults to HTTP GET / on the port (web), TCP on the port (processes
+                        with an explicit port), or nothing (workers without a port). RFC-0019.
+                      properties:
+                        command:
+                          description: Command runs inside the container; exit 0 =
+                            healthy.
+                          items:
+                            type: string
+                          type: array
+                        disabled:
+                          description: |-
+                            Disabled turns off all probes for the process; the deploy does not
+                            wait for readiness.
+                          type: boolean
+                        gracePeriod:
+                          description: |-
+                            GracePeriod is how long a newly started instance has before probe
+                            failures count against it (startup probe; default 30s).
+                          pattern: ^\d+(s|m)$
+                          type: string
+                        interval:
+                          description: Interval between checks (default 10s).
+                          pattern: ^\d+(s|m)$
+                          type: string
+                        path:
+                          description: Path is the HTTP path the process answers on
+                            (GET on PORT).
+                          type: string
+                        shutdownDelay:
+                          description: |-
+                            ShutdownDelay keeps the instance in the rotation after SIGTERM is
+                            announced so the load balancer has time to drain (default 5s).
+                          pattern: ^\d+(s|m)$
+                          type: string
+                        tcp:
+                          description: TCP checks the port; no body is read.
+                          type: boolean
+                        timeout:
+                          description: Timeout per check (default 5s).
+                          pattern: ^\d+(s|m)$
+                          type: string
+                      type: object
                     port:
                       description: |-
                         Port the process listens on; exposed through a Service and, for

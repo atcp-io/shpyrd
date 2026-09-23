@@ -67,6 +67,11 @@ func (r *AppReconciler) processHealth(ctx context.Context, app *shpyrdv1.App, pr
 					why += ": " + m
 				}
 			}
+			// A running container whose readiness probe keeps failing is
+			// also "failing" from the user's perspective: it never serves.
+			if why == "" && cs.State.Running != nil && !cs.Ready {
+				why = probeFailureReason(pod)
+			}
 			if why != "" {
 				failing++
 				if reason == "" {
@@ -92,4 +97,15 @@ func shortMessage(m string) string {
 		m = m[:160] + "..."
 	}
 	return m
+}
+
+// probeFailureReason extracts the last probe failure message from a pod's
+// conditions and events (best-effort; returns a generic message when none).
+func probeFailureReason(pod corev1.Pod) string {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.ContainersReady && cond.Status == corev1.ConditionFalse && cond.Message != "" {
+			return "readiness probe: " + shortMessage(cond.Message)
+		}
+	}
+	return "readiness probe failing"
 }

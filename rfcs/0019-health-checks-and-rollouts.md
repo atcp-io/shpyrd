@@ -1,6 +1,6 @@
 # RFC-0019 Health checks and zero-downtime rollouts
 
-**Status:** provisional
+**Status:** implementable
 
 **Owner:** unassigned
 
@@ -8,7 +8,7 @@
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-22
+**Last update:** 2026-09-23
 
 ## Summary
 
@@ -19,9 +19,10 @@ requests.
 
 ## Motivation
 
-Today a process is "ready" when its port accepts TCP connections; an app that listens but
-cannot serve (database down, warm-up) receives traffic. Nobody has proven that rolling
-deploys are zero-downtime.
+Today a process is "ready" the moment its container starts; an app that is still warming
+up or waiting for a database connection receives traffic immediately. A deploy that
+crashes on startup still rolls forward. Nobody has proven that rolling deploys keep
+traffic flowing.
 
 ### Goals
 
@@ -35,25 +36,46 @@ deploys are zero-downtime.
 
 ## Proposal
 
+**Defaults (no shpyrd.yaml needed):**
+
+| Process type | Default probe |
+|---|---|
+| `web` | HTTP `GET /` on `PORT` |
+| Any process with `port:` set explicitly | TCP on that port |
+| Everything else (worker, scheduler…) | **none** — workers don't bind a port; rely on restart-on-crash |
+
+Custom checks override the default:
+
 ```yaml
 processes:
   web:
     healthcheck:
-      path: /healthz          # HTTP GET; default: TCP on the port
+      path: /healthz          # HTTP GET on PORT; removes the default / check
       interval: 5s
       timeout: 2s
       gracePeriod: 30s        # startup time allowed before checks count
       shutdownDelay: 5s       # keep serving after SIGTERM is announced
+  worker:
+    healthcheck:
+      command: [python, -c, "import app; app.is_healthy()"]
 ```
 
-- Readiness probe from `path` (or TCP), liveness probe with a higher failure threshold,
-  startup probe covering `gracePeriod`.
-- Rollout: `maxUnavailable: 0`, `maxSurge: 1`; `preStop` sleep of `shutdownDelay` so the
-  endpoint is removed before the process stops; `terminationGracePeriodSeconds` derived.
-- Dashboard: health state per instance (passing/failing with the last failure reason);
-  `shpyrd projects info` shows "health: HTTP /healthz".
-- Verification: an e2e test (`make e2e-rollout`) that runs `hey`/`vegeta` against a demo
-  app during a deploy and a `shpyrd scale` and fails on any non-2xx.
+`tcp: true` is the explicit TCP check when a non-web process binds a port.
+
+- **Probes**: readiness probe (removes from service), liveness probe (restarts the
+  instance), startup probe covering `gracePeriod`. The liveness probe has a higher failure
+  threshold than readiness so a slow-to-warm instance is removed before it is killed.
+- **Rollout**: `maxUnavailable: 0`, `maxSurge: 1` (one extra instance during rollout,
+  full count always serving). Exception: volume-pinned processes keep `Recreate`.
+- **Shutdown**: `preStop` sleep of `shutdownDelay` (default 5 s) gives the load balancer
+  time to drain; `terminationGracePeriodSeconds = shutdownDelay + timeout + 5` to avoid
+  a SIGKILL mid-drain.
+- **Failure surfacing**: a failing health check feeds the existing "failing instance"
+  detection with the probe's last message ("readiness: GET /healthz 503"). The Activity
+  panel shows the reason and a rollback button when the rollout stalls. `shpyrd projects
+  info` shows the health config ("health: HTTP /healthz every 5s").
+- **Verification**: `TestRolloutZeroDowntime` in `internal/controller` starts a deploy,
+  pumps requests through the service, and asserts no connection-refused or 5xx.
 
 ## Design Details
 
@@ -61,11 +83,19 @@ processes:
   message ("readiness: GET /healthz 503").
 - Volume-pinned processes keep `Recreate` (RFC-0006) and are documented as the exception.
 
-## Open questions
+## Settled questions
 
-1. TCP stays the default unless a path is configured? Default: yes. No path convention is
-   imposed; the examples use `/healthz`.
+1. **Worker probes**: workers have no default probe; one is added explicitly via `command:`
+   or by setting `port:`. TCP as a universal default was rejected: workers don't bind
+   ports, it would always fail and block the rollout.
+2. **Web default path**: `GET /`, not `/healthz`. Any app that listens serves `/` (even a
+   404 is from the app, not from a crashed process); `/healthz` requires extra framework
+   code and is opt-in.
+3. **Rollout strategy**: `maxUnavailable: 0, maxSurge: 1` for all multi-instance
+   processes. Singleton workers (where two concurrent instances are unsafe) can force
+   Recreate by mounting a RWO volume; a `singleton: true` shorthand is a follow-on.
 
 ## Implementation History
 
 - 2026-09-22: RFC written.
+- 2026-09-23: probe defaults settled; RFC moved to implementable.

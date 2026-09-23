@@ -225,6 +225,11 @@ type Process struct {
 	// dedicated-m, ...). Empty means the catalog default.
 	// +optional
 	Size string `json:"size,omitempty"`
+	// HealthCheck configures the readiness, liveness and startup probes.
+	// Defaults to HTTP GET / on the port (web), TCP on the port (processes
+	// with an explicit port), or nothing (workers without a port). RFC-0019.
+	// +optional
+	HealthCheck *HealthCheck `json:"healthCheck,omitempty"`
 	// Volumes mounts Volume resources of the project. A ReadWriteOnce
 	// volume pins the process to one instance with Recreate rollouts.
 	// +optional
@@ -232,6 +237,43 @@ type Process struct {
 	// Resources override the size (cpu/memory limits); rarely needed.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// HealthCheck describes the probe a process uses to report readiness.
+// Exactly one of Path, TCP or Command should be set; if none are set the
+// default for the process type is used (see Process.HealthCheck).
+type HealthCheck struct {
+	// Path is the HTTP path the process answers on (GET on PORT).
+	// +optional
+	Path string `json:"path,omitempty"`
+	// TCP checks the port; no body is read.
+	// +optional
+	TCP bool `json:"tcp,omitempty"`
+	// Command runs inside the container; exit 0 = healthy.
+	// +optional
+	Command []string `json:"command,omitempty"`
+	// Interval between checks (default 10s).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^\d+(s|m)$`
+	Interval string `json:"interval,omitempty"`
+	// Timeout per check (default 5s).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^\d+(s|m)$`
+	Timeout string `json:"timeout,omitempty"`
+	// GracePeriod is how long a newly started instance has before probe
+	// failures count against it (startup probe; default 30s).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^\d+(s|m)$`
+	GracePeriod string `json:"gracePeriod,omitempty"`
+	// ShutdownDelay keeps the instance in the rotation after SIGTERM is
+	// announced so the load balancer has time to drain (default 5s).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^\d+(s|m)$`
+	ShutdownDelay string `json:"shutdownDelay,omitempty"`
+	// Disabled turns off all probes for the process; the deploy does not
+	// wait for readiness.
+	// +optional
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // AppStatus is the observed state of an App.
@@ -404,4 +446,23 @@ func (a *App) ReleaseByNumber(n int) *Release {
 		}
 	}
 	return nil
+}
+
+// getStr is a nil-safe getter for HealthCheck string fields by name.
+// GetStr returns a HealthCheck string field by name; nil-safe.
+func (h *HealthCheck) GetStr(field string) string {
+	if h == nil {
+		return ""
+	}
+	switch field {
+	case "Interval":
+		return h.Interval
+	case "Timeout":
+		return h.Timeout
+	case "GracePeriod":
+		return h.GracePeriod
+	case "ShutdownDelay":
+		return h.ShutdownDelay
+	}
+	return ""
 }
