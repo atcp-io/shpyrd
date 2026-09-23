@@ -84,6 +84,7 @@ declare what they depend on.
 | [0054](0054-github-app.md) | GitHub App integration | implementable | 0017, 0018 |
 | [0055](0055-environments-and-promotion.md) | Environments and promotion | deferred (Git branches per environment) | |
 | [0056](0056-tracing-backend.md) | Tracing backend (Jaeger) | implementable | 0029, 0015 |
+| [0057](0057-local-names-and-front-door.md) | Local names and front door (dnsmasq wildcard, Caddy on 443) | implementable | 0001 |
 
 ## Phases
 
@@ -94,7 +95,7 @@ declare what they depend on.
 | C | 0002, 0007 | done |
 | D | 0008 | done |
 | E | 0009, 0010 | done |
-| F | 0045, 0011, 0012, 0016, 0019, 0046 | next: foundations (binaries, identity, sign-in, globals, health, object storage) |
+| F | 0045, 0057, 0011, 0012, 0016, 0019, 0046 | next: foundations (binaries, local names and front door, identity, sign-in, globals, health, object storage) |
 | G | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | delivery and logs |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
