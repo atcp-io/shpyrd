@@ -29,3 +29,4 @@ ui/dist/*
 *.tfstate.*
 .terraform
 dist/
+hack/oci/.out.env
