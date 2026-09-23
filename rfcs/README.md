@@ -71,9 +71,19 @@ declare what they depend on.
 | [0041](0041-shared-volumes.md) | Shared volumes (`storage-rwx`) | implementable | 0006 |
 | [0042](0042-project-quotas.md) | Project quotas | implementable | 0008 |
 | [0043](0043-builds-namespace-and-pod-security.md) | Builds namespace and enforce-mode Pod Security | implementable | 0004, 0008 |
-| [0044](0044-supply-chain.md) | Supply chain (pins, signing, SBOM, CVEs) | implementable | 0045 |
+| [0044](0044-supply-chain.md) | Supply chain and encryption at rest | implementable | 0045 |
 | [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implementable | |
 | [0046](0046-object-storage.md) | Object storage extension | implementable | 0002 |
+| [0047](0047-autoscaling.md) | Autoscaling (min/max mode, HPA, KEDA) | implementable | 0019, 0042 |
+| [0048](0048-cost-visibility.md) | Cost visibility | implementable | 0042 |
+| [0049](0049-gitops-export.md) | GitOps export | rejected | |
+| [0050](0050-git-push-receiver.md) | Git push deploys | rejected | |
+| [0051](0051-agents-and-background-processes.md) | Agents as a separate kind | rejected (agents are apps or runs) | |
+| [0052](0052-api-first-cli-and-login.md) | API-first CLI and `shpyrd login` | implementable | 0031, 0026 |
+| [0053](0053-mfa-and-passkeys.md) | MFA and passkeys | implementable | 0012, 0014 |
+| [0054](0054-github-app.md) | GitHub App integration | implementable | 0017, 0018 |
+| [0055](0055-environments-and-promotion.md) | Environments and promotion | deferred (Git branches per environment) | |
+| [0056](0056-tracing-backend.md) | Tracing backend (Jaeger) | implementable | 0029, 0015 |
 
 ## Phases
 
@@ -90,6 +100,7 @@ declare what they depend on.
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
 | J | 0034, 0035, 0036, 0037 | domains, cloud, backup |
 | K | 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0033 | data stores, security, workspaces |
+| L | 0047, 0048, 0052, 0053, 0054, 0056 | autoscaling, cost, API-first CLI, MFA and passkeys, GitHub App, tracing |
 
 Anyone may pick an `implementable` RFC in any phase; the phases only suggest an order that
 keeps dependencies satisfied.

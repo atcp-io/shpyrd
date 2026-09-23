@@ -28,12 +28,10 @@ Options:
 - **(a) Organisational workspace**: a set of projects owned by a team; roles granted on the
   workspace apply to all its projects; workspace-level globals (RFC-0016), quotas (RFC-0042)
   and domains (RFC-0034); a Workspaces page. Projects can move between workspaces.
-- **(b) Environments**: one application with several environments (staging, production),
-  each a project, promoted between (`shpyrd promote shop-staging shop`), shared members.
-- **(c) Both**, layered: workspace → application → environments.
+- **(b) Environments** grouping was considered and set aside: environments follow Git
+  branches deploying to their own projects (RFC-0055, deferred).
 
-Default if nothing else is decided: (a), with (b) as a later RFC using promotions built on
-the release model.
+Default if nothing else is decided: (a).
 
 ## Design Details (option a)
 
@@ -43,7 +41,8 @@ the release model.
 
 ## Open questions
 
-1. Which definition: (a), (b) or (c)? Default: (a).
+1. Is the organisational grouping (a) wanted at all in the near term? Default: (a), low
+   priority.
 2. Does a workspace need its own domains, quotas or globals in the first version? Default:
    membership inheritance only; the rest follows in the RFCs that introduce them.
 
