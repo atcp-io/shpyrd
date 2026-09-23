@@ -39,7 +39,7 @@ declare what they depend on.
 | [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented; backups → 0038, pooling/rotation → 0039 | |
 | [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented; HA → 0040 | |
 | [0011](0011-project-identity-and-product-language.md) | Project identity and product language | implemented | |
-| [0012](0012-sign-in-experience.md) | Sign-in experience: shpyrd's own sign-in page (local sign-in, sign-out) | implementable | 0007 |
+| [0012](0012-sign-in-experience.md) | Sign-in experience: shpyrd's own sign-in page (local sign-in, sign-out) | implemented | 0007 |
 | [0013](0013-email-delivery.md) | Email delivery (`mail` extension) | provisional | 0002 |
 | [0014](0014-account-lifecycle.md) | Account lifecycle (invites, reset, verification, lockout) | provisional | 0012, 0013 |
 | [0015](0015-grafana-sign-in.md) | Grafana sign-in through shpyrd | provisional | 0007 |

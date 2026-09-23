@@ -1,8 +1,8 @@
 # RFC-0012 Sign-in experience: shpyrd's own sign-in page
 
-**Status:** implementable
+**Status:** implemented
 
-**Owner:** unassigned
+**Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
 **Depends on:** RFC-0007 (implemented)
 
@@ -100,3 +100,19 @@ which looks like a different product. It is the first screen anyone sees on a cl
 - 2026-09-22: RFC written (own page, local sign-in and external providers).
 - 2026-09-23: external providers split into RFC-0058 so this part can ship and be tested on
   a local cluster alone; status `implementable`.
+- 2026-09-23: implemented in shpyrd-io/shpyrd. Notes from the implementation:
+  - The password grant request is built by hand (not `oauth2.Config`) so it can carry a
+    `nonce`, which Dex echoes into the id_token; the nonce is checked like the code flow's.
+  - Dex 2.45 publishes no `end_session_endpoint`, so the id_token is kept in the session
+    only for issuers that do (none today; RFC-0058's will) and logout returns
+    `{"redirect": "/"}` on Dex. `POST /api/auth/logout` now answers JSON instead of 204.
+  - `GET /api/config` gained `auth.password` (`{id, label}`) and the password provider is
+    left out of `auth.providers`; `ext.OIDCProvider.Password` marks it.
+  - Failures are throttled per account (10/min) before reaching Dex, on top of the per-IP
+    limiter; audit records `auth.login_failed` with the email as target and
+    `auth.login` with "provider local (password)".
+  - Dex's fallback page takes a whole web tree or none, so an init container copies the
+    tree shipped in the image and lays the shpyrd theme (`styles.css`, `logo.svg`) and two
+    templates (`header.html`, `password.html`) from ConfigMap `dex-web` over it.
+  - The page keeps rendering in place of the app (no `/login` route) so a deep link is
+    honoured after sign-in without a `next` parameter in the URL.

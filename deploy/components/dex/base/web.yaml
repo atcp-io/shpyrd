@@ -1,0 +1,186 @@
+# Theme and templates for the pages Dex still serves itself (RFC-0012): the
+# connector chooser when several are configured and the password fallback.
+# Only the .theme-* classes and two templates are overridden; the init
+# container of the Deployment lays them over the tree shipped in the image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex-web
+data:
+  logo.svg: |
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" fill="none"><g fill="#ff4f00" stroke="none"><path d="m32.73,26.19c0,1.8-1.46,3.27-3.27,3.27h-6.56c-1.95,0-3.7.86-4.9,2.22-1.2-1.36-2.95-2.22-4.9-2.22h-6.56c-1.8,0-3.27-1.46-3.27-3.27v-4.09H0v4.09c0,3.61,2.93,6.54,6.54,6.54h6.56c1.8,0,3.27,1.46,3.27,3.27h3.27c0-1.8,1.46-3.27,3.27-3.27h6.56c3.61,0,6.54-2.93,6.54-6.54v-4.09h-3.27v4.09Z"></path><path d="m34,9.83h-4.49v-3.27h-.05c1.8,0,3.27-1.46,3.27-3.27h-13.1V0h-3.27v3.28H3.27c0,1.8,1.46,3.27,3.27,3.27h-.17v3.27H0v10.63h3.27v-7.36h29.47v7.36h3.27v-10.63h-2Zm-24.36-3.27h16.61v3.27H9.64v-3.27Z"></path><polygon points="13.91 26.19 17.51 26.19 22.09 16.36 18.49 16.36 13.91 26.19"></polygon><polygon points="8 21.29 10.29 26.19 13.89 26.19 11.61 21.29 13.91 16.36 10.3 16.36 8 21.29"></polygon><polygon points="25.7 26.19 28 21.26 25.71 16.36 22.11 16.36 24.39 21.26 22.09 26.19 25.7 26.19"></polygon></g></svg>
+  styles.css: |
+    .theme-body {
+      background-color: #f8fafc;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    .theme-navbar {
+      background-color: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      box-shadow: none;
+      color: #0f172a;
+      height: 56px;
+      overflow: hidden;
+      padding: 0 16px;
+    }
+    .theme-navbar__logo-wrap {
+      display: inline-block;
+      height: 100%;
+      overflow: hidden;
+      padding: 14px 8px;
+      width: 300px;
+    }
+    .theme-navbar__logo {
+      height: 100%;
+      max-height: 28px;
+    }
+    .theme-heading {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0 0 16px;
+    }
+    .theme-panel {
+      background-color: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+      padding: 32px;
+    }
+    .theme-btn-provider {
+      background-color: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      color: #0f172a;
+      min-width: 250px;
+    }
+    .theme-btn-provider:hover {
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+    .theme-btn--primary {
+      background-color: #ff4f00;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: 600;
+      min-width: 250px;
+      padding: 8px 12px;
+    }
+    .theme-btn--primary:hover {
+      background-color: #e64700;
+      color: #fff;
+    }
+    .theme-btn--success {
+      background-color: #16a34a;
+      border-radius: 8px;
+      color: #fff;
+      width: 250px;
+    }
+    .theme-btn--success:hover {
+      background-color: #15803d;
+    }
+    .theme-form-row {
+      display: block;
+      margin: 16px auto;
+    }
+    .theme-form-input {
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      box-shadow: none;
+      color: #0f172a;
+      display: block;
+      font-size: 14px;
+      height: 38px;
+      line-height: 1.4;
+      margin: auto;
+      padding: 6px 12px;
+      width: 250px;
+    }
+    .theme-form-input:focus,
+    .theme-form-input:active {
+      border-color: #ff4f00;
+      box-shadow: 0 0 0 3px rgba(255, 79, 0, 0.2);
+      outline: none;
+    }
+    .theme-form-label {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 4px auto;
+      position: relative;
+      text-align: left;
+      width: 250px;
+    }
+    .theme-link-back {
+      margin-top: 8px;
+    }
+    .dex-error-box {
+      background-color: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      color: #b91c1c;
+    }
+  header.html: |
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Sign in to shpyrd</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="{{ url .ReqPath "static/main.css" }}" rel="stylesheet">
+        <link href="{{ url .ReqPath "theme/styles.css" }}" rel="stylesheet">
+        <link rel="icon" href="{{ url .ReqPath "theme/logo.svg" }}">
+      </head>
+
+      <body class="theme-body">
+        <div class="theme-navbar">
+          <div class="theme-navbar__logo-wrap">
+            <img class="theme-navbar__logo" src="{{ url .ReqPath logo }}" alt="shpyrd">
+          </div>
+        </div>
+
+        <div class="dex-container">
+  password.html: |
+    {{ template "header.html" . }}
+
+    <div class="theme-panel">
+      <h2 class="theme-heading">Sign in to shpyrd</h2>
+      <form method="post" action="{{ .PostURL }}">
+        <div class="theme-form-row">
+          <div class="theme-form-label">
+            <label for="login">{{ .UsernamePrompt }}</label>
+          </div>
+          <input tabindex="1" required id="login" name="login" type="text" class="theme-form-input" placeholder="{{ .UsernamePrompt | lower }}" {{ if .Username }} value="{{ .Username }}" {{ else }} autofocus {{ end }}/>
+        </div>
+        <div class="theme-form-row">
+          <div class="theme-form-label">
+            <label for="password">Password</label>
+          </div>
+          <input tabindex="2" required id="password" name="password" type="password" class="theme-form-input" placeholder="password" {{ if .Invalid }} autofocus {{ end }}/>
+        </div>
+
+        {{ if .Invalid }}
+          <div id="login-error" class="dex-error-box">
+            Wrong {{ .UsernamePrompt | lower }} or password.
+          </div>
+        {{ end }}
+
+        <button tabindex="3" id="submit-login" type="submit" class="dex-btn theme-btn--primary">Sign in</button>
+
+      </form>
+      {{ if .BackLink }}
+      <div class="theme-link-back">
+        <a class="dex-subtle-text" href="{{ .BackLink }}">Choose another way to sign in.</a>
+      </div>
+      {{ end }}
+    </div>
+
+    <script type="text/javascript">
+      document.querySelector('form').onsubmit = function(e) {
+        var el = document.querySelector('#submit-login');
+        el.setAttribute('disabled', 'disabled');
+      };
+    </script>
+
+    {{ template "footer.html" . }}

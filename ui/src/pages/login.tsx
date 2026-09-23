@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRound, LogIn } from "lucide-react";
+import { KeyRound, Loader2, LogIn } from "lucide-react";
 import { api } from "@/lib/api";
 import { setToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -16,20 +16,31 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Wordmark } from "@/components/brand";
 
+/**
+ * The sign-in page (RFC-0012). Renders in place of the app whenever the
+ * server wants a signed-in user: email and password when a provider
+ * accepts them, a button per external provider, and the admin token only
+ * when the cluster still accepts it.
+ */
 export function LoginPage() {
-  const [value, setValue] = useState("");
   const config = useQuery({ queryKey: ["config"], queryFn: api.config });
-  const providers = config.data?.auth?.providers ?? [];
-  const [showToken, setShowToken] = useState(providers.length === 0);
+  const auth = config.data?.auth;
+  const providers = auth?.providers ?? [];
+  const password = auth?.password;
+  const tokenAllowed = auth?.token ?? true;
+  const accounts = !!password || providers.length > 0;
+  const [showToken, setShowToken] = useState(false);
+  const tokenForm = tokenAllowed && (showToken || !accounts);
+
   const params = new URLSearchParams(window.location.search);
-  const loginError = params.get("login_error");
+  const redirectError = params.get("login_error");
   // After signing in, come back to the page the user asked for.
   const next =
     window.location.pathname === "/"
       ? "/"
       : window.location.pathname + window.location.search;
-  const tokenAllowed = config.data?.auth?.token ?? true;
-  const tokenForm = tokenAllowed && (showToken || providers.length === 0);
+
+  if (config.isLoading) return null;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -39,10 +50,10 @@ export function LoginPage() {
             <Wordmark className="h-8" />
           </CardTitle>
           <CardDescription>
-            {providers.length > 0 ? (
+            {accounts ? (
               <>
-                Sign in to the dashboard with your account.
-                {!tokenAllowed && " The admin token is disabled on this cluster."}
+                Sign in to shpyrd
+                {config.data?.domain ? ` on ${config.data.domain}` : ""}.
               </>
             ) : (
               <>
@@ -60,21 +71,27 @@ export function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {loginError && (
+          {redirectError && (
             <Alert variant="destructive">
               <AlertTitle>Sign-in failed</AlertTitle>
-              <AlertDescription>{loginError}</AlertDescription>
+              <AlertDescription>{redirectError}</AlertDescription>
             </Alert>
           )}
+          {password && <PasswordForm next={next} />}
+          {password && providers.length > 0 && <Divider label="or" />}
           {providers.map((p) => (
-            <Button key={p.id} asChild size="lg">
+            <Button
+              key={p.id}
+              asChild
+              size="lg"
+              variant={password ? "outline" : "default"}
+            >
               <a href={api.loginUrl(p.id, next)}>
-                <LogIn data-icon="inline-start" /> Sign in with{" "}
-                {p.label.toLowerCase()}
+                <LogIn data-icon="inline-start" /> Sign in with {p.label}
               </a>
             </Button>
           ))}
-          {providers.length > 0 && !showToken && tokenAllowed && (
+          {accounts && !showToken && tokenAllowed && (
             <button
               type="button"
               className="text-xs text-muted-foreground underline-offset-4 hover:underline"
@@ -83,47 +100,125 @@ export function LoginPage() {
               Use the admin token instead
             </button>
           )}
-          {tokenForm && (
-            <form
-              className="grid gap-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (value.trim()) setToken(value.trim());
-              }}
-            >
-              <div className="grid gap-2">
-                <Label htmlFor="token">Admin token</Label>
-                <Input
-                  id="token"
-                  type="password"
-                  autoComplete="off"
-                  autoFocus={providers.length === 0}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  placeholder="64 hex characters"
-                />
-              </div>
-              <Button
-                type="submit"
-                variant={providers.length > 0 ? "outline" : "default"}
-                disabled={!value.trim()}
-              >
-                <KeyRound data-icon="inline-start" /> Sign in with the token
-              </Button>
-            </form>
-          )}
+          {tokenForm && <TokenForm secondary={accounts} />}
           {config.data && !config.data.authRequired && (
             <p className="text-xs text-muted-foreground">
               This server does not require a token.
             </p>
           )}
-          {config.data?.domain && (
+          {config.data?.version && (
             <p className="text-xs text-muted-foreground">
-              Cluster domain {config.data.domain} · {config.data.version}
+              shpyrd {config.data.version}
             </p>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function PasswordForm({ next }: { next: string }) {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !pw) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.passwordLogin({ email: email.trim(), password: pw, next });
+      window.location.assign(r.next || "/");
+    } catch (err) {
+      setError((err as Error).message);
+      setPw("");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="grid gap-4" onSubmit={submit} noValidate>
+      <div className="grid gap-2">
+        <Label htmlFor="email">Email</Label>
+        <Input
+          id="email"
+          type="email"
+          autoComplete="username"
+          autoFocus
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="password">Password</Label>
+        <Input
+          id="password"
+          type="password"
+          autoComplete="current-password"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          aria-invalid={!!error}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <Button type="submit" size="lg" disabled={busy || !email.trim() || !pw}>
+        {busy ? (
+          <Loader2 className="animate-spin" data-icon="inline-start" />
+        ) : (
+          <LogIn data-icon="inline-start" />
+        )}
+        Sign in
+      </Button>
+    </form>
+  );
+}
+
+function TokenForm({ secondary }: { secondary: boolean }) {
+  const [value, setValue] = useState("");
+  return (
+    <form
+      className="grid gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) setToken(value.trim());
+      }}
+    >
+      <div className="grid gap-2">
+        <Label htmlFor="token">Admin token</Label>
+        <Input
+          id="token"
+          type="password"
+          autoComplete="off"
+          autoFocus={!secondary}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="64 hex characters"
+        />
+      </div>
+      <Button
+        type="submit"
+        variant={secondary ? "outline" : "default"}
+        disabled={!value.trim()}
+      >
+        <KeyRound data-icon="inline-start" /> Sign in with the token
+      </Button>
+    </form>
+  );
+}
+
+function Divider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      {label}
+      <span className="h-px flex-1 bg-border" />
     </div>
   );
 }

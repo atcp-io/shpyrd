@@ -13,12 +13,19 @@ data:
       http: 0.0.0.0:5556
     telemetry:
       http: 0.0.0.0:5558
+    # The pages Dex still serves (connector chooser, password fallback) use
+    # the shpyrd theme assembled by the web init container (RFC-0012).
     frontend:
+      dir: /web
       issuer: shpyrd
-      theme: light
+      theme: shpyrd
+      logoURL: theme/logo.svg
     oauth2:
       skipApprovalScreen: true
       responseTypes: [code]
+      # The dashboard signs local accounts in through the password grant
+      # from its own page (RFC-0012).
+      passwordConnector: local
     expiry:
       idTokens: 24h
       refreshTokens:

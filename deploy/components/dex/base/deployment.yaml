@@ -18,6 +18,30 @@ spec:
         runAsUser: 1001
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Dex takes a whole web tree or none: copy the one shipped in the
+        # image and lay the shpyrd theme and templates over it (RFC-0012).
+        - name: web
+          image: ghcr.io/dexidp/dex:v2.45.1
+          command:
+            - sh
+            - -ec
+            - |
+              cp -R /srv/dex/web/. /web/
+              mkdir -p /web/themes/shpyrd
+              cp /theme/styles.css /theme/logo.svg /web/themes/shpyrd/
+              cp /theme/header.html /theme/password.html /web/templates/
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: web
+              mountPath: /web
+            - name: theme
+              mountPath: /theme
+              readOnly: true
       containers:
         - name: dex
           image: ghcr.io/dexidp/dex:v2.45.1
@@ -60,12 +84,20 @@ spec:
             - name: config
               mountPath: /etc/dex
               readOnly: true
+            - name: web
+              mountPath: /web
+              readOnly: true
             - name: tmp # dex expands its config into a temp file
               mountPath: /tmp
       volumes:
         - name: config
           configMap:
             name: dex
+        - name: theme
+          configMap:
+            name: dex-web
+        - name: web
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
 ---

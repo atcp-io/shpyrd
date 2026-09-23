@@ -72,7 +72,7 @@ func registerProvider(ctx context.Context, deps ext.Deps, issuer string) {
 		sec, err := deps.Kube.Kube.CoreV1().Secrets(deps.SystemNamespace).Get(ctx, install.OIDCClientSecretName, metav1.GetOptions{})
 		if err == nil {
 			err = deps.Auth.AddOIDC(ctx, ext.OIDCProvider{
-				ID: ProviderID, Label: "Email and password", Issuer: issuer,
+				ID: ProviderID, Label: "Email and password", Issuer: issuer, Password: true,
 				ClientID: strings.TrimSpace(string(sec.Data["client-id"])), ClientSecret: strings.TrimSpace(string(sec.Data["client-secret"])),
 			})
 		}

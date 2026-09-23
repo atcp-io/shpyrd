@@ -36,10 +36,16 @@ func (s *Server) audit(c *gin.Context, project, action, target, detail string) {
 
 // auditAnonymous records a security event of an unauthenticated client.
 func (s *Server) auditAnonymous(c *gin.Context, action, detail string) {
+	s.auditFailure(c, action, c.ClientIP(), detail)
+}
+
+// auditFailure records a failed attempt against a named target (an account
+// that was tried) by an unauthenticated client.
+func (s *Server) auditFailure(c *gin.Context, action, target, detail string) {
 	if s.kube == nil || s.kube.Kube == nil {
 		return
 	}
-	entry := audit.Entry{Actor: "anonymous", Action: action, Target: c.ClientIP(), Detail: detail, From: c.ClientIP(), Via: "api"}
+	entry := audit.Entry{Actor: "anonymous", Action: action, Target: target, Detail: detail, From: c.ClientIP(), Via: "api"}
 	if err := audit.Record(c.Request.Context(), s.kube.Kube, audit.ClusterRef(s.deps().SystemNamespace), entry); err != nil {
 		s.log.Warn("audit: cannot record", "action", action, "error", err)
 	}

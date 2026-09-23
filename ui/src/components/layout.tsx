@@ -95,10 +95,14 @@ function UserMenu() {
       setToken(null);
       return;
     }
+    // The server names the destination: the issuer's sign-out page when it
+    // has one (RFC-0012), else the root.
+    let to = "/";
     try {
-      await api.logout();
+      const r = await api.logout();
+      if (r?.redirect) to = r.redirect;
     } finally {
-      window.location.href = "/";
+      window.location.href = to;
     }
   };
   const label = me.data?.email || me.data?.name || "admin token";

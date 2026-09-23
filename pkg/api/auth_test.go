@@ -32,6 +32,11 @@ type fakeIssuer struct {
 	// pkce records the code_challenge sent to /auth to check /token's verifier.
 	challenge string
 	verifier  string
+	// passwords accepted by the password grant; endSession publishes an
+	// end_session_endpoint in discovery (Dex does not, corporate IdPs do).
+	passwords        map[string]string
+	passwordAttempts int
+	endSession       bool
 }
 
 func newFakeIssuer(t *testing.T) *fakeIssuer {
@@ -40,15 +45,19 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fi := &fakeIssuer{key: key, codes: map[string]bool{}}
+	fi := &fakeIssuer{key: key, codes: map[string]bool{}, passwords: map[string]string{"ada@example.test": "correct-horse"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		doc := map[string]any{
 			"issuer": fi.srv.URL, "authorization_endpoint": fi.srv.URL + "/auth", "token_endpoint": fi.srv.URL + "/token",
 			"jwks_uri": fi.srv.URL + "/keys", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"},
 			"id_token_signing_alg_values_supported": []string{"RS256"},
-		})
+		}
+		if fi.endSession {
+			doc["end_session_endpoint"] = fi.srv.URL + "/logout"
+		}
+		_ = json.NewEncoder(w).Encode(doc)
 	})
 	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -74,6 +83,31 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = r.ParseForm()
+		if u, p, ok := r.BasicAuth(); !ok || u != "shpyrd" || p != "sekret" {
+			http.Error(w, `{"error":"invalid_client"}`, 401)
+			return
+		}
+		if r.Form.Get("grant_type") == "password" {
+			// Dex's password grant: 401 access_denied on wrong credentials,
+			// nonce echoed into the id_token when given.
+			fi.passwordAttempts++
+			user := strings.ToLower(r.Form.Get("username"))
+			if fi.passwords[user] == "" || fi.passwords[user] != r.Form.Get("password") {
+				http.Error(w, `{"error":"access_denied","error_description":"Invalid username or password"}`, 401)
+				return
+			}
+			if !strings.Contains(r.Form.Get("scope"), "openid") {
+				http.Error(w, `{"error":"invalid_request","error_description":"missing openid scope"}`, 400)
+				return
+			}
+			now := time.Now()
+			claims := map[string]any{
+				"iss": fi.srv.URL, "sub": "user-1", "aud": "shpyrd", "exp": now.Add(time.Hour).Unix(), "iat": now.Unix(),
+				"nonce": r.Form.Get("nonce"), "email": "Ada@Example.test", "name": "Ada Lovelace", "groups": []string{"dev"},
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at", "token_type": "Bearer", "id_token": fi.sign(t, claims)})
+			return
+		}
 		code := r.Form.Get("code")
 		if !fi.codes[code] {
 			http.Error(w, `{"error":"invalid_grant"}`, 400)
@@ -84,10 +118,6 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 		sum := sha256.Sum256([]byte(fi.verifier))
 		if base64.RawURLEncoding.EncodeToString(sum[:]) != fi.challenge {
 			http.Error(w, `{"error":"invalid_grant","error_description":"pkce"}`, 400)
-			return
-		}
-		if u, p, ok := r.BasicAuth(); !ok || u != "shpyrd" || p != "sekret" {
-			http.Error(w, `{"error":"invalid_client"}`, 401)
 			return
 		}
 		now := time.Now()
@@ -192,8 +222,9 @@ func TestOIDCLoginFlow(t *testing.T) {
 		t.Errorf("token identity: %s", rec.Body.String())
 	}
 
-	// 5. Logout ends the session.
-	if rec := doCookie(t, s, "POST", "/api/auth/logout", "", sid, csrf); rec.Code != http.StatusNoContent {
+	// 5. Logout ends the session; without an end_session_endpoint the page
+	// goes back to the root.
+	if rec := doCookie(t, s, "POST", "/api/auth/logout", "", sid, csrf); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"redirect":"/"`) {
 		t.Fatalf("logout: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doCookie(t, s, "GET", "/api/me", "", sid, ""); rec.Code != http.StatusUnauthorized {
@@ -349,5 +380,141 @@ func TestFailedTokenAttemptsThrottled(t *testing.T) {
 	sid, _ := signIn(t, s, ext.Identity{Subject: "u", Email: "ada@example.test", Provider: "local"})
 	if rec := doCookie(t, s, "GET", "/api/me", "", sid, ""); rec.Code != http.StatusOK {
 		t.Errorf("session while token throttled: %d", rec.Code)
+	}
+}
+
+// RFC-0012: email and password on shpyrd's own page go through the issuer's
+// password grant; the provider becomes a form, not a button.
+func TestPasswordSignIn(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	s, _ := newTestServer(t, nil, nil)
+	if err := s.rp.AddOIDC(context.Background(), ext.OIDCProvider{ID: "local", Label: "Email and password", Issuer: issuer.srv.URL, ClientID: "shpyrd", ClientSecret: "sekret", Password: true}); err != nil {
+		t.Fatalf("AddOIDC: %v", err)
+	}
+	if err := s.rp.AddOIDC(context.Background(), ext.OIDCProvider{ID: "okta", Label: "Okta", Issuer: issuer.srv.URL, ClientID: "shpyrd", ClientSecret: "sekret"}); err != nil {
+		t.Fatalf("AddOIDC: %v", err)
+	}
+
+	// /api/config: the password provider is advertised as the form, the
+	// other as a button.
+	rec := do(t, s, "GET", "/api/config", "", false)
+	if !strings.Contains(rec.Body.String(), `"providers":[{"id":"okta","label":"Okta"}]`) || !strings.Contains(rec.Body.String(), `"password":{"id":"local","label":"Email and password"}`) {
+		t.Fatalf("config = %s", rec.Body.String())
+	}
+
+	// Wrong password: 401 with a message, audited by email, no cookies.
+	rec = do(t, s, "POST", "/api/auth/password", `{"email":"Ada@Example.test","password":"nope"}`, false)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "wrong email or password") || cookieValue(rec, sessionCookie) != "" {
+		t.Fatalf("wrong password: %d %s", rec.Code, rec.Body.String())
+	}
+	// Missing fields: 400.
+	if rec := do(t, s, "POST", "/api/auth/password", `{"email":"ada@example.test"}`, false); rec.Code != http.StatusBadRequest {
+		t.Errorf("missing password: %d", rec.Code)
+	}
+
+	// Right password: session cookies, identity normalised, next honoured.
+	rec = do(t, s, "POST", "/api/auth/password", `{"email":"Ada@Example.test","password":"correct-horse","next":"/projects/shop"}`, false)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"next":"/projects/shop"`) {
+		t.Fatalf("sign in: %d %s", rec.Code, rec.Body.String())
+	}
+	sid, csrf := cookieValue(rec, sessionCookie), cookieValue(rec, csrfCookie)
+	if sid == "" || csrf == "" {
+		t.Fatalf("cookies not set: %v", rec.Result().Cookies())
+	}
+	me := doCookie(t, s, "GET", "/api/me", "", sid, "")
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"email":"ada@example.test"`) || !strings.Contains(me.Body.String(), `"provider":"local"`) {
+		t.Fatalf("me: %d %s", me.Code, me.Body.String())
+	}
+	// An unsafe next falls back to the root.
+	rec = do(t, s, "POST", "/api/auth/password", `{"email":"ada@example.test","password":"correct-horse","next":"https://evil.test/"}`, false)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"next":"/"`) {
+		t.Errorf("unsafe next: %d %s", rec.Code, rec.Body.String())
+	}
+	// Dex has no end_session_endpoint: no id_token is kept and logout goes
+	// to the root.
+	if sess, _ := s.rp.sessions.get(sid); sess.IDToken != "" {
+		t.Error("id_token must not be kept for an issuer without end_session_endpoint")
+	}
+	if rec := doCookie(t, s, "POST", "/api/auth/logout", "", sid, csrf); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"redirect":"/"`) {
+		t.Errorf("logout: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Audit: one failure by email, successes by email.
+	evs, _ := s.kube.Kube.CoreV1().Events("shpyrd-system").List(context.Background(), metav1.ListOptions{})
+	var failed, ok int
+	for _, ev := range evs.Items {
+		switch ev.Annotations["shpyrd.io/action"] {
+		case "auth.login_failed":
+			if ev.Annotations["shpyrd.io/target"] == "ada@example.test" {
+				failed++
+			}
+		case "auth.login":
+			if ev.Annotations["shpyrd.io/target"] == "ada@example.test" && strings.Contains(ev.Annotations["shpyrd.io/detail"], "password") {
+				ok++
+			}
+		}
+	}
+	if failed != 1 || ok != 2 {
+		t.Errorf("audit: %d failures, %d sign-ins", failed, ok)
+	}
+}
+
+// Wrong passwords for one account are throttled before they reach the
+// issuer; other accounts are unaffected.
+func TestPasswordFailuresThrottled(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	s, _ := newTestServer(t, nil, nil)
+	if err := s.rp.AddOIDC(context.Background(), ext.OIDCProvider{ID: "local", Label: "Email and password", Issuer: issuer.srv.URL, ClientID: "shpyrd", ClientSecret: "sekret", Password: true}); err != nil {
+		t.Fatal(err)
+	}
+	s.passwordFailures = newRateLimiter(3)
+	for i := 0; i < 3; i++ {
+		if rec := do(t, s, "POST", "/api/auth/password", `{"email":"ada@example.test","password":"nope"}`, false); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: %d", i, rec.Code)
+		}
+	}
+	rec := do(t, s, "POST", "/api/auth/password", `{"email":"ADA@example.test","password":"correct-horse"}`, false)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("4th attempt must be throttled: %d %s", rec.Code, rec.Body.String())
+	}
+	if issuer.passwordAttempts != 3 {
+		t.Errorf("issuer saw %d attempts, want 3 (the throttled one must not reach it)", issuer.passwordAttempts)
+	}
+	if rec := do(t, s, "POST", "/api/auth/password", `{"email":"grace@example.test","password":"x"}`, false); rec.Code != http.StatusUnauthorized {
+		t.Errorf("other account: %d", rec.Code)
+	}
+}
+
+// Issuers that publish end_session_endpoint get RP-initiated logout: the
+// id_token is kept for the hint and logout points the page at the issuer.
+func TestLogoutAtIssuer(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	issuer.endSession = true
+	s, _ := newTestServer(t, nil, nil)
+	s.rp.baseURL = "https://shpyrd.example.test"
+	if err := s.rp.AddOIDC(context.Background(), ext.OIDCProvider{ID: "local", Label: "Email and password", Issuer: issuer.srv.URL, ClientID: "shpyrd", ClientSecret: "sekret", Password: true}); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, s, "POST", "/api/auth/password", `{"email":"ada@example.test","password":"correct-horse"}`, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sign in: %d %s", rec.Code, rec.Body.String())
+	}
+	sid, csrf := cookieValue(rec, sessionCookie), cookieValue(rec, csrfCookie)
+	sess, _ := s.rp.sessions.get(sid)
+	if sess == nil || sess.IDToken == "" {
+		t.Fatal("id_token must be kept for an issuer with end_session_endpoint")
+	}
+	rec = doCookie(t, s, "POST", "/api/auth/logout", "", sid, csrf)
+	var out struct{ Redirect string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	u, err := url.Parse(out.Redirect)
+	if err != nil || !strings.HasPrefix(out.Redirect, issuer.srv.URL+"/logout?") {
+		t.Fatalf("logout redirect = %q", out.Redirect)
+	}
+	if u.Query().Get("id_token_hint") != sess.IDToken || u.Query().Get("post_logout_redirect_uri") != "https://shpyrd.example.test/" {
+		t.Errorf("end session query = %v", u.Query())
+	}
+	if _, ok := s.rp.sessions.get(sid); ok {
+		t.Error("session should be gone")
 	}
 }

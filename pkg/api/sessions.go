@@ -20,7 +20,9 @@ import (
 
 // Sessions of signed-in dashboard users (RFC-0007). They are kept in memory
 // and mirrored into a Secret so a server restart does not sign everyone
-// out. A session holds the identity, never the issuer's tokens.
+// out. A session holds the identity, never the issuer's access or refresh
+// tokens; the id_token is kept only for issuers that support RP-initiated
+// logout (RFC-0012).
 
 // SessionsSecretName is the Secret mirroring the sessions.
 const SessionsSecretName = "shpyrd-sessions"
@@ -36,6 +38,9 @@ type session struct {
 	Identity  ext.Identity `json:"identity"`
 	CreatedAt time.Time    `json:"createdAt"`
 	LastSeen  time.Time    `json:"lastSeen"`
+	// IDToken is kept only when the issuer supports RP-initiated logout,
+	// to pass as id_token_hint when the session ends (RFC-0012).
+	IDToken string `json:"idToken,omitempty"`
 }
 
 func (s *session) expired(now time.Time) bool {
@@ -107,7 +112,7 @@ func (st *sessionStore) persist(ctx context.Context) {
 	}
 }
 
-func (st *sessionStore) create(ctx context.Context, id ext.Identity) (*session, error) {
+func (st *sessionStore) create(ctx context.Context, id ext.Identity, idToken string) (*session, error) {
 	sid, err := randomToken(32)
 	if err != nil {
 		return nil, err
@@ -117,7 +122,7 @@ func (st *sessionStore) create(ctx context.Context, id ext.Identity) (*session, 
 		return nil, err
 	}
 	now := st.now()
-	s := &session{ID: sid, CSRF: csrf, Identity: id, CreatedAt: now, LastSeen: now}
+	s := &session{ID: sid, CSRF: csrf, Identity: id, CreatedAt: now, LastSeen: now, IDToken: idToken}
 	st.mu.Lock()
 	st.sessions[sid] = s
 	// Housekeeping while we hold the lock.

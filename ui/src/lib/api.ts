@@ -10,7 +10,13 @@ export type PublicConfig = {
   dashboardUrl?: string;
   authRequired: boolean;
   metrics: boolean;
-  auth: { token: boolean; providers: { id: string; label: string }[] };
+  auth: {
+    token: boolean;
+    /** Sign-in buttons (external providers). */
+    providers: { id: string; label: string }[];
+    /** Provider behind the email/password form, when one is enabled. */
+    password?: { id: string; label: string };
+  };
   extensions: string[];
 };
 
@@ -369,7 +375,29 @@ const project = (slug: string) => `/api/projects/${encodeURIComponent(slug)}`;
 export const api = {
   config: () => request<PublicConfig>("/api/config"),
   me: () => request<Identity>("/api/me"),
-  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  logout: () =>
+    request<{ redirect: string }>("/api/auth/logout", { method: "POST" }),
+  /** Email/password sign-in on our own page (RFC-0012). Errors keep the
+   * server's message: a wrong password is a 401 like any other, but here
+   * it must not be mistaken for an expired session. */
+  passwordLogin: async (body: {
+    email: string;
+    password: string;
+    next?: string;
+  }): Promise<{ next: string }> => {
+    const res = await fetch("/api/auth/password", json("POST", body));
+    if (!res.ok) {
+      let msg = `${res.status} ${res.statusText}`;
+      try {
+        const b = await res.json();
+        if (b?.error) msg = b.error;
+      } catch {
+        // not json
+      }
+      throw new ApiError(res.status, msg);
+    }
+    return (await res.json()) as { next: string };
+  },
   loginUrl: (provider: string, next: string) =>
     `/api/auth/login?provider=${encodeURIComponent(provider)}&next=${encodeURIComponent(next)}`,
   teams: () => request<Team[]>("/api/teams"),

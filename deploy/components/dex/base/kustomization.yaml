@@ -8,5 +8,6 @@ labels:
 resources:
   - rbac.yaml
   - config.yaml
+  - web.yaml
   - deployment.yaml
   - ingress.yaml

@@ -5,8 +5,10 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -47,8 +49,11 @@ type ProviderInfo struct {
 type AuthConfig struct {
 	// Token says the admin token is accepted.
 	Token bool `json:"token"`
-	// Providers are the sign-in options, in registration order.
+	// Providers are the sign-in buttons, in registration order.
 	Providers []ProviderInfo `json:"providers"`
+	// Password is the provider behind the email/password form, if any
+	// (RFC-0012); it is not repeated in Providers.
+	Password *ProviderInfo `json:"password,omitempty"`
 }
 
 type oidcProvider struct {
@@ -56,6 +61,17 @@ type oidcProvider struct {
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
 	client   *http.Client
+	// endSession is the issuer's end_session_endpoint, "" when it has none
+	// (Dex publishes none; corporate issuers usually do).
+	endSession string
+}
+
+// idTokenClaims are the claims the dashboard reads from an id_token.
+type idTokenClaims struct {
+	Email             string   `json:"email"`
+	Name              string   `json:"name"`
+	PreferredUsername string   `json:"preferred_username"`
+	Groups            []string `json:"groups"`
 }
 
 // pendingLogin is an authorization request waiting for its callback.
@@ -110,14 +126,19 @@ func (rp *relyingParty) AddOIDC(ctx context.Context, p ext.OIDCProvider) error {
 		return fmt.Errorf("discover %s: %w", p.Issuer, err)
 	}
 	scopes := append([]string{oidc.ScopeOpenID, "email", "profile"}, p.Scopes...)
+	var discovery struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}
+	_ = provider.Claims(&discovery)
 	op := &oidcProvider{
 		OIDCProvider: p,
 		oauth: oauth2.Config{
 			ClientID: p.ClientID, ClientSecret: p.ClientSecret, Endpoint: provider.Endpoint(),
 			RedirectURL: rp.redirectURI(), Scopes: scopes,
 		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: p.ClientID}),
-		client:   client,
+		verifier:   provider.Verifier(&oidc.Config{ClientID: p.ClientID}),
+		client:     client,
+		endSession: discovery.EndSessionEndpoint,
 	}
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -161,14 +182,127 @@ func (rp *relyingParty) httpClient() *http.Client {
 	return &http.Client{Transport: transport, Timeout: 20 * time.Second}
 }
 
+// providerList returns the sign-in buttons: every provider except the one
+// behind the password form.
 func (rp *relyingParty) providerList() []ProviderInfo {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
 	out := make([]ProviderInfo, 0, len(rp.order))
 	for _, id := range rp.order {
-		out = append(out, ProviderInfo{ID: id, Label: rp.providers[id].Label})
+		if p := rp.providers[id]; !p.Password {
+			out = append(out, ProviderInfo{ID: id, Label: p.Label})
+		}
 	}
 	return out
+}
+
+// passwordProvider is the provider that accepts the password grant, if any.
+func (rp *relyingParty) passwordProvider() *oidcProvider {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	for _, id := range rp.order {
+		if p := rp.providers[id]; p.Password {
+			return p
+		}
+	}
+	return nil
+}
+
+// provider looks a registered provider up by id.
+func (rp *relyingParty) provider(id string) *oidcProvider {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	return rp.providers[id]
+}
+
+// errBadCredentials is the password grant's "wrong email or password".
+var errBadCredentials = errors.New("wrong email or password")
+
+// password signs a user in with the OAuth2 password grant (RFC-0012): the
+// credentials go to the issuer's token endpoint server to server, and the
+// id_token that comes back is verified like the code flow's. The request is
+// built by hand because oauth2.Config cannot carry the nonce Dex accepts.
+func (rp *relyingParty) password(ctx context.Context, email, password string) (ext.Identity, string, error) {
+	p := rp.passwordProvider()
+	if p == nil {
+		return ext.Identity{}, "", errors.New("password sign-in is not enabled")
+	}
+	nonce, err := randomToken(24)
+	if err != nil {
+		return ext.Identity{}, "", err
+	}
+	form := url.Values{
+		"grant_type": {"password"}, "username": {email}, "password": {password},
+		"scope": {strings.Join(p.oauth.Scopes, " ")}, "nonce": {nonce},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.oauth.Endpoint.TokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return ext.Identity{}, "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(p.ClientSecret))
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return ext.Identity{}, "", fmt.Errorf("token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var tok struct {
+		IDToken          string `json:"id_token"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	_ = json.Unmarshal(body, &tok)
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || tok.Error == "access_denied" || tok.Error == "invalid_grant":
+		return ext.Identity{}, "", errBadCredentials
+	case resp.StatusCode/100 != 2:
+		return ext.Identity{}, "", fmt.Errorf("token endpoint: %s (%s)", resp.Status, firstNonEmpty(tok.ErrorDescription, tok.Error))
+	case tok.IDToken == "":
+		return ext.Identity{}, "", errors.New("issuer returned no id_token")
+	}
+	id, err := rp.identity(ctx, p, tok.IDToken, nonce)
+	if err != nil {
+		return ext.Identity{}, "", err
+	}
+	return id, tok.IDToken, nil
+}
+
+// identity verifies a raw id_token from provider p and reads the user out
+// of it; wantNonce must match the token's nonce.
+func (rp *relyingParty) identity(ctx context.Context, p *oidcProvider, raw, wantNonce string) (ext.Identity, error) {
+	idt, err := p.verifier.Verify(oidc.ClientContext(ctx, p.client), raw)
+	if err != nil {
+		return ext.Identity{}, fmt.Errorf("verify id_token: %w", err)
+	}
+	if idt.Nonce != wantNonce {
+		return ext.Identity{}, errors.New("id_token nonce mismatch")
+	}
+	var claims idTokenClaims
+	if err := idt.Claims(&claims); err != nil {
+		return ext.Identity{}, fmt.Errorf("read claims: %w", err)
+	}
+	return ext.Identity{
+		Subject: idt.Subject, Email: strings.ToLower(claims.Email), Name: firstNonEmpty(claims.Name, claims.PreferredUsername, claims.Email),
+		Groups: claims.Groups, Provider: p.ID, Admin: true,
+	}, nil
+}
+
+// endSessionURL asks the issuer to end its own session too, when it can.
+func (rp *relyingParty) endSessionURL(sess *session) string {
+	p := rp.provider(sess.Identity.Provider)
+	if p == nil || p.endSession == "" || sess.IDToken == "" {
+		return ""
+	}
+	q := url.Values{"id_token_hint": {sess.IDToken}}
+	if rp.baseURL != "" {
+		q.Set("post_logout_redirect_uri", rp.baseURL+"/")
+	}
+	sep := "?"
+	if strings.Contains(p.endSession, "?") {
+		sep = "&"
+	}
+	return p.endSession + sep + q.Encode()
 }
 
 // begin starts the authorization code flow and returns the issuer URL.
@@ -204,45 +338,30 @@ func (rp *relyingParty) begin(providerID, next string) (string, error) {
 	return p.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
 }
 
-// complete exchanges the callback code for an identity.
-func (rp *relyingParty) complete(ctx context.Context, state, code string) (ext.Identity, string, error) {
+// complete exchanges the callback code for an identity, the raw id_token
+// and the post-login destination.
+func (rp *relyingParty) complete(ctx context.Context, state, code string) (ext.Identity, string, string, error) {
 	rp.mu.Lock()
 	pl, ok := rp.pending[state]
 	delete(rp.pending, state)
 	p := rp.providers[pl.provider]
 	rp.mu.Unlock()
 	if !ok || p == nil || rp.now().Sub(pl.created) > loginTTL {
-		return ext.Identity{}, "", errors.New("login expired or unknown; start again")
+		return ext.Identity{}, "", "", errors.New("login expired or unknown; start again")
 	}
 	tok, err := p.oauth.Exchange(oidc.ClientContext(ctx, p.client), code, oauth2.VerifierOption(pl.verifier))
 	if err != nil {
-		return ext.Identity{}, "", fmt.Errorf("token exchange: %w", err)
+		return ext.Identity{}, "", "", fmt.Errorf("token exchange: %w", err)
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	if raw == "" {
-		return ext.Identity{}, "", errors.New("issuer returned no id_token")
+		return ext.Identity{}, "", "", errors.New("issuer returned no id_token")
 	}
-	idt, err := p.verifier.Verify(oidc.ClientContext(ctx, p.client), raw)
+	id, err := rp.identity(ctx, p, raw, pl.nonce)
 	if err != nil {
-		return ext.Identity{}, "", fmt.Errorf("verify id_token: %w", err)
+		return ext.Identity{}, "", "", err
 	}
-	if idt.Nonce != pl.nonce {
-		return ext.Identity{}, "", errors.New("id_token nonce mismatch")
-	}
-	var claims struct {
-		Email             string   `json:"email"`
-		Name              string   `json:"name"`
-		PreferredUsername string   `json:"preferred_username"`
-		Groups            []string `json:"groups"`
-	}
-	if err := idt.Claims(&claims); err != nil {
-		return ext.Identity{}, "", fmt.Errorf("read claims: %w", err)
-	}
-	id := ext.Identity{
-		Subject: idt.Subject, Email: strings.ToLower(claims.Email), Name: firstNonEmpty(claims.Name, claims.PreferredUsername, claims.Email),
-		Groups: claims.Groups, Provider: pl.provider, Admin: true,
-	}
-	return id, pl.next, nil
+	return id, raw, pl.next, nil
 }
 
 // safeNext only allows same-origin paths as post-login destinations.
@@ -267,8 +386,85 @@ func (s *Server) authConfig() AuthConfig {
 	cfg := AuthConfig{Token: s.opts.Token != "" && !s.opts.TokenDisabled, Providers: []ProviderInfo{}}
 	if s.rp != nil {
 		cfg.Providers = s.rp.providerList()
+		if p := s.rp.passwordProvider(); p != nil {
+			cfg.Password = &ProviderInfo{ID: p.ID, Label: p.Label}
+		}
 	}
 	return cfg
+}
+
+// PasswordLoginRequest is the email/password form (RFC-0012).
+type PasswordLoginRequest struct {
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required"`
+	Next     string `json:"next"`
+}
+
+// authPassword signs in with email and password through the issuer's
+// password grant and opens a session. Wrong credentials are 401 with a
+// message the page shows in place; failures per account are throttled and
+// every attempt is audited by email.
+func (s *Server) authPassword(c *gin.Context) {
+	var req PasswordLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, errors.New("email and password are required"))
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if s.rp == nil || s.rp.passwordProvider() == nil {
+		abort(c, http.StatusNotFound, errors.New("password sign-in is not enabled"))
+		return
+	}
+	if s.passwordFailures.exhausted(email) {
+		c.Header("Retry-After", "60")
+		abort(c, http.StatusTooManyRequests, errors.New("too many failed attempts for this account; try again in a minute"))
+		return
+	}
+	id, idToken, err := s.rp.password(c.Request.Context(), email, req.Password)
+	if err != nil {
+		s.log.Warn("password sign-in failed", "email", email, "error", err, "remote", c.ClientIP())
+		if errors.Is(err, errBadCredentials) {
+			s.passwordFailures.allow(email)
+			s.auditFailure(c, "auth.login_failed", email, "wrong password")
+			abort(c, http.StatusUnauthorized, err)
+			return
+		}
+		s.auditFailure(c, "auth.login_failed", email, err.Error())
+		abort(c, http.StatusBadGateway, errors.New("the sign-in service is not reachable; try again"))
+		return
+	}
+	next, ok := s.openSession(c, id, idToken, "password")
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"next": firstNonEmpty(safeNextOrEmpty(req.Next), next)})
+}
+
+// safeNextOrEmpty is safeNext without the "/" default.
+func safeNextOrEmpty(next string) string {
+	if next == "" {
+		return ""
+	}
+	return safeNext(next)
+}
+
+// openSession creates the session for a verified identity, sets the
+// cookies and audits the sign-in. The id_token is kept only when the
+// issuer can end sessions (RFC-0012). It returns "/" as destination.
+func (s *Server) openSession(c *gin.Context, id ext.Identity, idToken, how string) (string, bool) {
+	if p := s.rp.provider(id.Provider); p == nil || p.endSession == "" {
+		idToken = ""
+	}
+	sess, err := s.rp.sessions.create(c.Request.Context(), id, idToken)
+	if err != nil {
+		abort(c, http.StatusInternalServerError, err)
+		return "", false
+	}
+	s.setSessionCookies(c, sess)
+	s.log.Info("user signed in", "email", id.Email, "provider", id.Provider, "how", how)
+	ext.SetIdentity(c, id)
+	s.audit(c, "", "auth.login", firstNonEmpty(id.Email, id.Name, id.Subject), "provider "+id.Provider+" ("+how+")")
+	return "/", true
 }
 
 // authLogin redirects the browser to the issuer.
@@ -295,22 +491,16 @@ func (s *Server) authCallback(c *gin.Context) {
 		s.loginFailed(c, fmt.Errorf("%s: %s", e, c.Query("error_description")))
 		return
 	}
-	id, next, err := s.rp.complete(c.Request.Context(), c.Query("state"), c.Query("code"))
+	id, idToken, next, err := s.rp.complete(c.Request.Context(), c.Query("state"), c.Query("code"))
 	if err != nil {
 		s.log.Warn("login failed", "error", err, "remote", c.ClientIP())
 		s.auditAnonymous(c, "auth.login_failed", err.Error())
 		s.loginFailed(c, err)
 		return
 	}
-	sess, err := s.rp.sessions.create(c.Request.Context(), id)
-	if err != nil {
-		abort(c, http.StatusInternalServerError, err)
+	if _, ok := s.openSession(c, id, idToken, "redirect"); !ok {
 		return
 	}
-	s.setSessionCookies(c, sess)
-	s.log.Info("user signed in", "email", id.Email, "provider", id.Provider)
-	ext.SetIdentity(c, id)
-	s.audit(c, "", "auth.login", id.Email, "provider "+id.Provider)
 	c.Redirect(http.StatusFound, next)
 }
 
@@ -332,7 +522,7 @@ func (s *Server) authTicket(c *gin.Context) {
 		return
 	}
 	id := ext.Identity{Subject: "kubeconfig:" + actor, Name: actor, Provider: "kubeconfig", Admin: true}
-	sess, err := s.rp.sessions.create(c.Request.Context(), id)
+	sess, err := s.rp.sessions.create(c.Request.Context(), id, "")
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
 		return
@@ -365,15 +555,23 @@ func (s *Server) clearSessionCookies(c *gin.Context) {
 	}
 }
 
-// authLogout ends the session (cookie authenticated, CSRF checked by auth()).
+// authLogout ends the session (cookie authenticated, CSRF checked by auth())
+// and tells the page where to go next: the issuer's end-session endpoint
+// when it has one, so the user is signed out there too, else the root.
 func (s *Server) authLogout(c *gin.Context) {
+	redirect := "/"
 	if s.rp != nil {
 		if sid, err := c.Cookie(sessionCookie); err == nil && sid != "" {
+			if sess, ok := s.rp.sessions.get(sid); ok {
+				if u := s.rp.endSessionURL(sess); u != "" {
+					redirect = u
+				}
+			}
 			s.rp.sessions.delete(c.Request.Context(), sid)
 		}
 	}
 	s.clearSessionCookies(c)
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"redirect": redirect})
 }
 
 // Me is the caller's identity with the roles the dashboard hides actions by.

@@ -88,6 +88,8 @@ type Server struct {
 	authz   *authz.Resolver
 	// tokenFailures throttles clients presenting wrong admin tokens.
 	tokenFailures *rateLimiter
+	// passwordFailures throttles wrong passwords per account (RFC-0012).
+	passwordFailures *rateLimiter
 }
 
 // New wires the routes.
@@ -141,6 +143,7 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus}
 	s.authz = &authz.Resolver{Client: opts.Apps}
 	s.tokenFailures = newRateLimiter(20)
+	s.passwordFailures = newRateLimiter(10)
 	s.engine = gin.New()
 	s.engine.Use(gin.Recovery(), s.requestLogger(), securityHeaders())
 	_ = s.engine.SetTrustedProxies(nil)
@@ -229,6 +232,7 @@ func (s *Server) routes() error {
 	pub.GET("/auth/login", login, s.authLogin)
 	pub.GET("/auth/callback", login, s.authCallback)
 	pub.GET("/auth/ticket", login, s.authTicket)
+	pub.POST("/auth/password", login, s.authPassword) // RFC-0012
 
 	// Every protected route names the action it performs (RFC-0008); the
 	// caller's roles decide.

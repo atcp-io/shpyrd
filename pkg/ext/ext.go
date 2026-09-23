@@ -94,6 +94,10 @@ type OIDCProvider struct {
 	ClientSecret string
 	// Scopes beyond openid, email and profile.
 	Scopes []string
+	// Password says the issuer accepts the OAuth2 password grant for this
+	// client: the dashboard shows an email/password form for the provider
+	// instead of a button and exchanges the credentials itself (RFC-0012).
+	Password bool
 }
 
 // CLIGlobals gives extension commands access to the CLI's connection flags.
