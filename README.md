@@ -244,6 +244,28 @@ project (the card says how many before it applies). Values are write-only.
 and mark project vars that override one. A project opts out in `shpyrd.yaml`
 with `globals: false` or `globals: {exclude: [OPENAI_API_KEY]}` (RFC-0016).
 
+## Logs: agent and drains
+
+The `logs-agent` extension runs Vector on every node: it reads container logs,
+labels every line with `project`, `process` and `instance` (`web.1`), parses
+JSON lines (`level`, `msg`), and forwards them to **log drains** (RFC-0022a,
+RFC-0023). Each node keeps at most 20 MiB of logs per container. A drain is
+an HTTPS receiver (JSON, one object per line, custom headers for API keys) or
+a syslog receiver (RFC 5424 over TCP, `syslog+tls://` for TLS), per project or
+for the whole cluster:
+
+```sh
+shpyrd extensions enable logs-agent
+shpyrd drains add https://in.logs.betterstack.com/ --header "Authorization: Bearer ..." --project shop
+shpyrd drains add syslog+tls://logs.papertrailapp.com:6514 --cluster    # every project, labelled
+shpyrd drains list --project shop        # delivery status and last delivery
+```
+
+The project page and the Cluster page have a Log drains card with the same
+form. Header values are stored in the cluster and never shown again. Log
+storage with a time range (`--since`) is RFC-0022b, a drain to Loki plus a
+query API, still to come.
+
 The API behind the dashboard (`/api/...`) requires the token; only `/api/healthz`,
 `/api/config` and content-addressed source archives are public.
 

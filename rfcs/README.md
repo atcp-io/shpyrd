@@ -51,7 +51,7 @@ declare what they depend on.
 | [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implementable | |
 | [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) — split, see 0022a and 0022b | provisional | 0046 |
 | [0022a](0022a-log-agent.md) | Log agent (Vector DaemonSet, container log limits) | implemented | 0001 |
-| [0023](0023-log-drains.md) | Log drains (syslog, HTTPS) | provisional | 0022a |
+| [0023](0023-log-drains.md) | Log drains (project and cluster scope, syslog, HTTPS) | implemented | 0022a |
 | [0024](0024-runs-and-scheduled-tasks.md) | Run history and scheduled tasks | provisional | 0005, 0022 |
 | [0025](0025-audit-trail-v2.md) | Audit trail v2 (durable, cluster-wide) | provisional | 0008, 0022 |
 | [0026](0026-web-terminal.md) | Web terminal | implementable | 0005, 0008 |

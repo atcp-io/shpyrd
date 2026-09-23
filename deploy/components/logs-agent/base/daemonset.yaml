@@ -27,7 +27,19 @@ spec:
       containers:
         - name: vector
           image: timberio/vector:0.58.0-alpine
-          args: [--config, /etc/vector/vector.yaml]
+          # drains.yaml is rendered by the LogDrain controller (RFC-0023);
+          # --watch-config reloads both files when they change. Header
+          # values reach the config as ${ENV} references only: they live in
+          # Secrets mirrored into this namespace and injected as env, so the
+          # rendered file never carries a secret. Vector 0.58 gates env
+          # interpolation behind this flag.
+          args:
+            - --config
+            - /etc/vector/vector.yaml
+            - --config
+            - /etc/vector/drains/drains.yaml
+            - --watch-config
+            - --dangerously-allow-env-var-interpolation
           env:
             - name: VECTOR_SELF_NODE_NAME
               valueFrom:
@@ -44,6 +56,8 @@ spec:
           ports:
             - name: api
               containerPort: 8686
+            - name: metrics
+              containerPort: 9598
           readinessProbe:
             httpGet:
               path: /health
@@ -66,6 +80,9 @@ spec:
             - name: config
               mountPath: /etc/vector
               readOnly: true
+            - name: drains
+              mountPath: /etc/vector/drains
+              readOnly: true
             - name: data
               mountPath: /var/lib/vector
             - name: varlog
@@ -78,6 +95,9 @@ spec:
         - name: config
           configMap:
             name: vector
+        - name: drains
+          configMap:
+            name: vector-drains
         - name: data
           emptyDir: {}
         - name: varlog
@@ -86,3 +106,17 @@ spec:
         - name: varlibdockercontainers
           hostPath:
             path: /var/lib/docker/containers
+---
+# One pod answers for delivery metrics; every pod runs the same sinks.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector
+  namespace: logs-system
+spec:
+  selector:
+    app.kubernetes.io/name: vector
+  ports:
+    - name: metrics
+      port: 9598
+      targetPort: metrics

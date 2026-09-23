@@ -6,6 +6,7 @@ import { ago, bytes } from "@/lib/format";
 import { MetricChart } from "@/components/metric-chart";
 import { SizesEditor } from "@/components/sizes-editor";
 import { GlobalsEditor } from "@/components/globals-editor";
+import { DrainsCard } from "@/components/drains-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -162,6 +163,12 @@ export function ClusterPage() {
 
       <SizesEditor readOnly={!perms.clusterAdmin} />
       {perms.clusterAdmin && <GlobalsEditor />}
+      {perms.clusterAdmin && (
+        <DrainsCard
+          scope={{ kind: "cluster" }}
+          agentEnabled={config.data?.extensions?.includes("logs-agent") ?? true}
+        />
+      )}
 
       <Card>
         <CardHeader>

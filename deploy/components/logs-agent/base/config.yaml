@@ -20,6 +20,10 @@ data:
       address: 0.0.0.0:8686
 
     sources:
+      # Delivery counters per drain sink, scraped by the LogDrain
+      # controller for status (RFC-0023).
+      internal_metrics:
+        type: internal_metrics
       kubernetes_logs:
         type: kubernetes_logs
         # Read the shpyrd.io/* annotations Vector enriches from the API.
@@ -31,7 +35,7 @@ data:
         extra_namespace_label_selector: "shpyrd.io/project"
 
     transforms:
-      shpyrd_enrich:
+      shpyrd_enrich_raw:
         type: remap
         inputs: [kubernetes_logs]
         source: |
@@ -65,7 +69,19 @@ data:
           if !exists(.level) { .level = null }
           if !exists(.msg)   { .msg   = .message }
 
+      # Only process instances: build pods and the pods of attached
+      # resources (Postgres, Redis) carry no shpyrd.io/process label and
+      # stay on the Kubernetes API stream. Drains read from here.
+      shpyrd_enrich:
+        type: filter
+        inputs: [shpyrd_enrich_raw]
+        condition: "exists(.process) && .process != null && .process != \"\""
+
     sinks:
+      prometheus:
+        type: prometheus_exporter
+        inputs: [internal_metrics]
+        address: 0.0.0.0:9598
       # Development: log to stdout of the Vector pod so `kubectl logs -n
       # logs-system daemonset/vector` shows the enriched stream.
       # In production with drains this sink can be disabled.
@@ -74,3 +90,15 @@ data:
         inputs: [shpyrd_enrich]
         encoding:
           codec: json
+---
+# Placeholder the LogDrain controller overwrites (RFC-0023). Shipping it
+# lets Vector start before the first drain exists.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-drains
+data:
+  drains.yaml: |
+    # Rendered by shpyrd from LogDrain objects (RFC-0023). Do not edit.
+    transforms: {}
+    sinks: {}

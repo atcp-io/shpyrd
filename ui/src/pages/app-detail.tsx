@@ -35,6 +35,7 @@ import { ago, duration } from "@/lib/format";
 import { PhaseBadge } from "@/components/phase-badge";
 import { ProcessChips } from "@/components/process-chips";
 import { MetricChart } from "@/components/metric-chart";
+import { DrainsCard } from "@/components/drains-card";
 import { AppLogView, TextLogView, useLogStream } from "@/components/log-view";
 import { Button } from "@/components/ui/button";
 import {
@@ -443,6 +444,8 @@ function Overview({
   const current = releases[0];
   const busy = isBusy(app);
   const perms = usePerms(app.slug);
+  const config = useQuery({ queryKey: ["config"], queryFn: api.config, staleTime: 60_000 });
+  const agentEnabled = config.data?.extensions?.includes("logs-agent") ?? true;
 
   const rollback = useMutation({
     mutationFn: (n: number) => api.rollback(app.slug, n),
@@ -557,6 +560,12 @@ function Overview({
       </div>
 
       <ResourcesCard app={app} onChanged={onChanged} />
+
+      <DrainsCard
+        scope={{ kind: "project", slug: app.slug, processes }}
+        readOnly={!perms.resource}
+        agentEnabled={agentEnabled}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {perms.members && <MembersCard app={app} />}

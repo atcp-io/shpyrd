@@ -8,8 +8,8 @@ import (
 
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/ext/authlocal"
-	"shpyrd/pkg/ext/logsagent"
 	"shpyrd/pkg/ext/authoidc"
+	"shpyrd/pkg/ext/logsagent"
 	"shpyrd/pkg/ext/postgres"
 	"shpyrd/pkg/ext/redis"
 )

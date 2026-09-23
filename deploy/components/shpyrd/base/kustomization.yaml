@@ -11,6 +11,7 @@ resources:
   - crds/shpyrd.io_projectmembers.yaml
   - crds/shpyrd.io_postgres.yaml
   - crds/shpyrd.io_redis.yaml
+  - crds/shpyrd.io_logdrains.yaml
   - rbac.yaml
   - storage.yaml
   - server.yaml

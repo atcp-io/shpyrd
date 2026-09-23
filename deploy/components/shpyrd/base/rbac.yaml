@@ -36,7 +36,8 @@ rules:
     resources: [services, configmaps, secrets, serviceaccounts]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [apps]
-    resources: [deployments, statefulsets, replicasets]
+    # daemonsets: the LogDrain controller patches Vector's envFrom (RFC-0023)
+    resources: [deployments, statefulsets, replicasets, daemonsets]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [apps]
     resources: [deployments/scale]

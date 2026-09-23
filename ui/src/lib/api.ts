@@ -216,6 +216,29 @@ export type BuildInfo = {
 
 export type ConfigVar = { name: string; updatedAt?: string };
 export type GlobalsResponse = { vars: ConfigVar[]; projects: number };
+
+/** A log drain (RFC-0023): header names only, never values. */
+export type Drain = {
+  name: string;
+  url: string;
+  format: "json" | "syslog";
+  processes?: string[];
+  headers?: string[];
+  cluster: boolean;
+  phase: "Pending" | "Active" | "Failing";
+  message?: string;
+  lastDeliveryAt?: string;
+  sent: number;
+  errors: number;
+  createdAt: string;
+};
+export type CreateDrain = {
+  name?: string;
+  url: string;
+  format?: "json" | "syslog";
+  headers?: Record<string, string>;
+  processes?: string[];
+};
 export type BoundVar = { name: string; provider: string };
 
 export type ResourceInfo = {
@@ -459,6 +482,21 @@ export const api = {
     request<{ vars: ConfigVar[]; bound?: BoundVar[]; global?: ConfigVar[] }>(
       `${project(slug)}/secrets`,
     ),
+  /** Log drains (RFC-0023): project scope and cluster scope. */
+  drains: (slug: string) => request<Drain[]>(`${project(slug)}/drains`),
+  createDrain: (slug: string, body: CreateDrain) =>
+    request<Drain>(`${project(slug)}/drains`, json("POST", body)),
+  deleteDrain: (slug: string, name: string) =>
+    request<void>(`${project(slug)}/drains/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
+  clusterDrains: () => request<Drain[]>("/api/drains"),
+  createClusterDrain: (body: CreateDrain) =>
+    request<Drain>("/api/drains", json("POST", body)),
+  deleteClusterDrain: (name: string) =>
+    request<void>(`/api/drains/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
   /** Global config vars (RFC-0016): names only, and how many projects get them. */
   globals: () => request<GlobalsResponse>("/api/globals"),
   updateGlobals: (body: {

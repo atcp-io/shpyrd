@@ -109,6 +109,16 @@ func TestAuthorization(t *testing.T) {
 	if rec := doCookie(t, s, "GET", "/api/projects/shop/members", "", devSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("developer members: %d", rec.Code)
 	}
+	// Drains: developers may see a project's drains but not add them; cluster drains are platform-only (RFC-0023).
+	if rec := doCookie(t, s, "GET", "/api/projects/shop/drains", "", devSID, ""); rec.Code != http.StatusOK {
+		t.Errorf("developer list drains: %d", rec.Code)
+	}
+	if rec := doCookie(t, s, "POST", "/api/projects/shop/drains", `{"url":"https://x.example.com/"}`, devSID, devCSRF); rec.Code != http.StatusForbidden {
+		t.Errorf("developer add drain: %d", rec.Code)
+	}
+	if rec := doCookie(t, s, "GET", "/api/drains", "", devSID, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("developer cluster drains: %d", rec.Code)
+	}
 	// Global config vars are a platform matter (RFC-0016).
 	if rec := doCookie(t, s, "GET", "/api/globals", "", devSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("developer globals: %d", rec.Code)

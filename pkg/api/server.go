@@ -247,6 +247,10 @@ func (s *Server) routes() error {
 	api.PUT("/sizes", s.require(authz.ClusterAdmin), s.putSizes)
 	api.GET("/globals", s.require(authz.ClusterAdmin), s.getGlobals) // RFC-0016
 	api.PUT("/globals", s.require(authz.ClusterAdmin), s.putGlobals)
+	// Cluster log drains: every project's lines (RFC-0023).
+	api.GET("/drains", s.require(authz.ClusterAdmin), s.listClusterDrains)
+	api.POST("/drains", s.require(authz.ClusterAdmin), s.createClusterDrain)
+	api.DELETE("/drains/:name", s.require(authz.ClusterAdmin), s.deleteClusterDrain)
 	api.POST("/sources", s.uploadSource) // deploys check the project right when the App is updated
 	api.GET("/teams", s.require(authz.ClusterAdmin), s.listTeams)
 	api.POST("/teams", s.require(authz.ClusterAdmin), s.putTeam)
@@ -282,6 +286,10 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/volumes", s.require(authz.ProjectResource), s.createVolume)
 	api.PUT("/projects/:slug/volumes/:name", s.require(authz.ProjectResource), s.resizeVolume)
 	api.DELETE("/projects/:slug/volumes/:name", s.require(authz.ProjectResource), s.deleteVolume)
+	// Project log drains (RFC-0023).
+	api.GET("/projects/:slug/drains", s.require(authz.ProjectView), s.listProjectDrains)
+	api.POST("/projects/:slug/drains", s.require(authz.ProjectResource), s.createProjectDrain)
+	api.DELETE("/projects/:slug/drains/:name", s.require(authz.ProjectResource), s.deleteProjectDrain)
 	api.GET("/projects/:slug/members", s.require(authz.ProjectMembers), s.listMembers)
 	api.POST("/projects/:slug/members", s.require(authz.ProjectMembers), s.addMember)
 	api.DELETE("/projects/:slug/members/:name", s.require(authz.ProjectMembers), s.removeMember)

@@ -821,3 +821,78 @@ func TestGlobals(t *testing.T) {
 		t.Errorf("audit: set=%d unset=%d", set, unset)
 	}
 }
+
+// RFC-0023: drains in two scopes; header values are written, never read.
+func TestDrains(t *testing.T) {
+	s, k := newTestServer(t, nil, []client.Object{sampleApp("shop", shpyrdv1.PhaseRunning)})
+
+	// Project drain with headers; name derived from the host.
+	rec := do(t, s, "POST", "/api/projects/shop/drains", `{"url":"https://in.logs.example.com/ingest","headers":{"Authorization":"Bearer s3cret"},"processes":["web"]}`, true)
+	if rec.Code != http.StatusCreated || strings.Contains(rec.Body.String(), "s3cret") {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var v DrainView
+	_ = json.Unmarshal(rec.Body.Bytes(), &v)
+	if v.Name != "in-logs-example-com" || v.Format != "json" || v.Cluster || len(v.Headers) != 1 || v.Headers[0] != "Authorization" || v.Phase != "Pending" {
+		t.Errorf("view = %+v", v)
+	}
+	sec := &corev1.Secret{}
+	if err := k.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "drain-in-logs-example-com-headers"}, sec); err != nil || string(sec.Data["Authorization"]) != "Bearer s3cret" {
+		t.Fatalf("headers secret: %v %v", err, sec.Data)
+	}
+	// Listing never returns values.
+	rec = do(t, s, "GET", "/api/projects/shop/drains", "", true)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "s3cret") || !strings.Contains(rec.Body.String(), `"headers":["Authorization"]`) {
+		t.Errorf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	// Bad URLs and formats are refused.
+	if rec := do(t, s, "POST", "/api/projects/shop/drains", `{"url":"ftp://x/"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("ftp: %d", rec.Code)
+	}
+	if rec := do(t, s, "POST", "/api/projects/shop/drains", `{"url":"syslog://logs.example.com","name":"nop"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("syslog without port: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/projects/shop/drains", `{"url":"https://in.logs.example.com/ingest"}`, true); rec.Code != http.StatusConflict {
+		t.Errorf("duplicate: %d", rec.Code)
+	}
+
+	// Cluster drain: syslog, format derived from the scheme, lives in the system namespace.
+	rec = do(t, s, "POST", "/api/drains", `{"name":"siem","url":"syslog+tls://siem.example.com:6514"}`, true)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"cluster":true`) || !strings.Contains(rec.Body.String(), `"format":"syslog"`) {
+		t.Fatalf("cluster drain: %d %s", rec.Code, rec.Body.String())
+	}
+	d := &shpyrdv1.LogDrain{}
+	if err := k.Get(context.Background(), types.NamespacedName{Namespace: "shpyrd-system", Name: "siem"}, d); err != nil {
+		t.Fatal(err)
+	}
+	rec = do(t, s, "GET", "/api/drains", "", true)
+	if !strings.Contains(rec.Body.String(), `"name":"siem"`) || strings.Contains(rec.Body.String(), "in-logs-example-com") {
+		t.Errorf("cluster list must not include project drains: %s", rec.Body.String())
+	}
+
+	// Delete removes the drain and its Secret.
+	if rec := do(t, s, "DELETE", "/api/projects/shop/drains/in-logs-example-com", "", true); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := k.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "drain-in-logs-example-com-headers"}, sec); err == nil {
+		t.Error("headers secret should be gone")
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/shop/drains/in-logs-example-com", "", true); rec.Code != http.StatusNotFound {
+		t.Errorf("delete twice: %d", rec.Code)
+	}
+
+	// Audit names the drain, not its headers.
+	evs, _ := s.kube.Kube.CoreV1().Events("shpyrd-system").List(context.Background(), metav1.ListOptions{})
+	found := false
+	for _, ev := range evs.Items {
+		if ev.Annotations["shpyrd.io/action"] == "drain.add" && strings.Contains(ev.Annotations["shpyrd.io/target"], "siem") {
+			found = true
+		}
+		if strings.Contains(ev.Annotations["shpyrd.io/detail"], "s3cret") {
+			t.Error("audit leaked a header value")
+		}
+	}
+	if !found {
+		t.Error("cluster drain.add not audited")
+	}
+}
