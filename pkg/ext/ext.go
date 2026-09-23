@@ -98,6 +98,11 @@ type OIDCProvider struct {
 	// client: the dashboard shows an email/password form for the provider
 	// instead of a button and exchanges the credentials itself (RFC-0012).
 	Password bool
+	// Kind picks the button's icon: "oidc" (default), "github", "google".
+	Kind string
+	// ConnectorID preselects a Dex connector (connector_id in the
+	// authorization request) so Dex's chooser is skipped (RFC-0058).
+	ConnectorID string
 }
 
 // CLIGlobals gives extension commands access to the CLI's connection flags.

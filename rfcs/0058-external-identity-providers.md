@@ -1,8 +1,8 @@
 # RFC-0058 External identity providers (Okta and OIDC, GitHub, Google)
 
-**Status:** implementable
+**Status:** implemented (Okta verified end to end; GitHub verified up to GitHub's authorization page)
 
-**Owner:** unassigned
+**Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
 **Depends on:** RFC-0012 (sign-in page), RFC-0007 (implemented)
 
@@ -108,3 +108,28 @@ evaluator asks for, right after the product looking like itself (RFC-0012).
 ## Implementation History
 
 - 2026-09-23: RFC written, split out of RFC-0012.
+- 2026-09-23: implemented in shpyrd-io/shpyrd. Notes from the implementation:
+  - Providers live entirely in Secret `shpyrd-oidc-<id>` (label `shpyrd.io/oidc-provider`),
+    not partly in install vars as first written: no server re-render to add one, and the
+    id is fixed by the label. `shpyrd auth oidc set` validates the issuer by discovery
+    before storing, then restarts the server; `check <id|url>` reports endpoints, PKCE,
+    scopes, claims and whether the issuer can end sessions.
+  - GitHub and Google are Dex `Connector` objects in Dex's Kubernetes storage
+    (`connectors.dex.coreos.com`), created by `shpyrd auth connector add`; Dex reads them
+    per request, so no Dex restart. The server lists them at startup (a Role grants
+    `get,list,watch` on connectors) and registers one provider per connector with
+    `ConnectorID`, which `begin()` sends as `connector_id` so Dex skips its chooser.
+    Client secrets in Connector objects are stored like any other Dex state (base64 in a
+    custom resource), one reason to enable etcd encryption (RFC-0044).
+  - `ext.OIDCProvider` gained `Kind` and `ConnectorID`; `GET /api/config` providers carry
+    `kind` (`oidc`, `github`, `google`) and the page shows a brand mark for the last two.
+  - Two extensions share the `shpyrd auth` command; the CLI merges subcommands of
+    top-level commands with the same name.
+  - Verified against Okta trial tenant: discovery, PKCE S256, sign-in, `end_session`
+    logout (id_token kept for the hint), audit `auth.login … provider okta (redirect)`.
+    Groups arrive once the Okta application has a groups claim (Sign On › OpenID Connect
+    ID Token › Groups claim filter), or the claim is added on a custom authorization
+    server (issuer `…/oauth2/default`, register with `--scopes -`).
+  - GitHub verified from the button to GitHub's authorization page with a placeholder
+    OAuth app (Dex requested `user:email read:org`); the round trip needs a real OAuth app
+    and is the remaining manual step. Google is configuration only, as decided.

@@ -8,6 +8,7 @@ import (
 
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/ext/authlocal"
+	"shpyrd/pkg/ext/authoidc"
 	"shpyrd/pkg/ext/postgres"
 	"shpyrd/pkg/ext/redis"
 )
@@ -16,6 +17,7 @@ import (
 func All() []ext.Extension {
 	return []ext.Extension{
 		authlocal.New(),
+		authoidc.New(),
 		postgres.New(),
 		redis.New(),
 	}

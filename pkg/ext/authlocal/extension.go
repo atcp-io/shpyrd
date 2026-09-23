@@ -71,10 +71,16 @@ func registerProvider(ctx context.Context, deps ext.Deps, issuer string) {
 	for attempt := 1; ; attempt++ {
 		sec, err := deps.Kube.Kube.CoreV1().Secrets(deps.SystemNamespace).Get(ctx, install.OIDCClientSecretName, metav1.GetOptions{})
 		if err == nil {
+			clientID, secret := strings.TrimSpace(string(sec.Data["client-id"])), strings.TrimSpace(string(sec.Data["client-secret"]))
 			err = deps.Auth.AddOIDC(ctx, ext.OIDCProvider{
 				ID: ProviderID, Label: "Email and password", Issuer: issuer, Password: true,
-				ClientID: strings.TrimSpace(string(sec.Data["client-id"])), ClientSecret: strings.TrimSpace(string(sec.Data["client-secret"])),
+				ClientID: clientID, ClientSecret: secret,
 			})
+			if err == nil {
+				// One button per Dex connector (GitHub, Google; RFC-0058):
+				// same issuer and client, Dex sent straight to the connector.
+				err = registerConnectors(ctx, deps, issuer, clientID, secret)
+			}
 		}
 		if err == nil {
 			return
@@ -171,5 +177,28 @@ func fail(c *gin.Context, err error) {
 
 // CLI returns `shpyrd users`.
 func (extension) CLI(g ext.CLIGlobals) []*cobra.Command {
-	return []*cobra.Command{newUsersCmd(g)}
+	return []*cobra.Command{newUsersCmd(g), newAuthConnectorCmd(g)}
+}
+
+func registerConnectors(ctx context.Context, deps ext.Deps, issuer, clientID, secret string) error {
+	if deps.Kube.Dynamic == nil {
+		return nil
+	}
+	store := &ConnectorStore{Dynamic: deps.Kube.Dynamic, Namespace: deps.SystemNamespace, Issuer: issuer}
+	list, err := store.List(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNotEnabled) {
+			return nil // Dex has not created its CRDs yet; nothing to register
+		}
+		return fmt.Errorf("list connectors: %w", err)
+	}
+	for _, c := range list {
+		if err := deps.Auth.AddOIDC(ctx, ext.OIDCProvider{
+			ID: c.ID, Label: c.Name, Kind: c.Type, ConnectorID: c.ID, Issuer: issuer,
+			ClientID: clientID, ClientSecret: secret,
+		}); err != nil {
+			return fmt.Errorf("connector %s: %w", c.ID, err)
+		}
+	}
+	return nil
 }

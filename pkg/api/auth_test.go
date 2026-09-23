@@ -163,7 +163,7 @@ func TestOIDCLoginFlow(t *testing.T) {
 
 	// The login page learns the providers from /api/config.
 	rec := do(t, s, "GET", "/api/config", "", false)
-	if !strings.Contains(rec.Body.String(), `"providers":[{"id":"test","label":"Test login"}]`) || !strings.Contains(rec.Body.String(), `"token":true`) {
+	if !strings.Contains(rec.Body.String(), `"providers":[{"id":"test","label":"Test login","kind":"oidc"}]`) || !strings.Contains(rec.Body.String(), `"token":true`) {
 		t.Fatalf("config = %s", rec.Body.String())
 	}
 
@@ -398,7 +398,7 @@ func TestPasswordSignIn(t *testing.T) {
 	// /api/config: the password provider is advertised as the form, the
 	// other as a button.
 	rec := do(t, s, "GET", "/api/config", "", false)
-	if !strings.Contains(rec.Body.String(), `"providers":[{"id":"okta","label":"Okta"}]`) || !strings.Contains(rec.Body.String(), `"password":{"id":"local","label":"Email and password"}`) {
+	if !strings.Contains(rec.Body.String(), `"providers":[{"id":"okta","label":"Okta","kind":"oidc"}]`) || !strings.Contains(rec.Body.String(), `"password":{"id":"local","label":"Email and password"}`) {
 		t.Fatalf("config = %s", rec.Body.String())
 	}
 
@@ -516,5 +516,24 @@ func TestLogoutAtIssuer(t *testing.T) {
 	}
 	if _, ok := s.rp.sessions.get(sid); ok {
 		t.Error("session should be gone")
+	}
+}
+
+// RFC-0058: a provider bound to a Dex connector sends connector_id so Dex
+// skips its chooser; its kind reaches the page for the icon.
+func TestConnectorProvider(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	s, _ := newTestServer(t, nil, nil)
+	if err := s.rp.AddOIDC(context.Background(), ext.OIDCProvider{ID: "github", Label: "GitHub", Kind: "github", ConnectorID: "github", Issuer: issuer.srv.URL, ClientID: "shpyrd", ClientSecret: "sekret"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, s, "GET", "/api/config", "", false)
+	if !strings.Contains(rec.Body.String(), `{"id":"github","label":"GitHub","kind":"github"}`) {
+		t.Fatalf("config = %s", rec.Body.String())
+	}
+	rec = do(t, s, "GET", "/api/auth/login?provider=github", "", false)
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || loc.Query().Get("connector_id") != "github" {
+		t.Fatalf("authorize URL = %d %s", rec.Code, loc)
 	}
 }

@@ -12,8 +12,8 @@ export type PublicConfig = {
   metrics: boolean;
   auth: {
     token: boolean;
-    /** Sign-in buttons (external providers). */
-    providers: { id: string; label: string }[];
+    /** Sign-in buttons (external providers); kind picks the icon. */
+    providers: { id: string; label: string; kind?: string }[];
     /** Provider behind the email/password form, when one is enabled. */
     password?: { id: string; label: string };
   };

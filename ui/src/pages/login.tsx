@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRound, Loader2, LogIn } from "lucide-react";
+import { Building2, KeyRound, Loader2, LogIn } from "lucide-react";
 import { api } from "@/lib/api";
 import { setToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -87,7 +87,7 @@ export function LoginPage() {
               variant={password ? "outline" : "default"}
             >
               <a href={api.loginUrl(p.id, next)}>
-                <LogIn data-icon="inline-start" /> Sign in with {p.label}
+                <ProviderIcon kind={p.kind} /> Sign in with {p.label}
               </a>
             </Button>
           ))}
@@ -221,4 +221,45 @@ function Divider({ label }: { label: string }) {
       <span className="h-px flex-1 bg-border" />
     </div>
   );
+}
+
+/** Brand marks for the providers Dex connectors bring; a generic icon for
+ * any other OpenID Connect issuer. */
+function ProviderIcon({ kind }: { kind?: string }) {
+  switch (kind) {
+    case "github":
+      return (
+        <svg
+          data-icon="inline-start"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M12 .5A11.5 11.5 0 0 0 .5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.1c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.2.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z" />
+        </svg>
+      );
+    case "google":
+      return (
+        <svg data-icon="inline-start" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="#4285F4"
+            d="M23.5 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.45a5.5 5.5 0 0 1-2.39 3.62v3h3.86c2.26-2.08 3.58-5.15 3.58-8.81Z"
+          />
+          <path
+            fill="#34A853"
+            d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.86-3a7.2 7.2 0 0 1-10.75-3.78H1.34v3.09A12 12 0 0 0 12 24Z"
+          />
+          <path
+            fill="#FBBC04"
+            d="M5.33 14.31A7.2 7.2 0 0 1 5.33 9.7V6.6H1.34a12 12 0 0 0 0 10.8l3.99-3.09Z"
+          />
+          <path
+            fill="#EA4335"
+            d="M12 4.77c1.76 0 3.34.6 4.59 1.79l3.42-3.42A11.5 11.5 0 0 0 12 0 12 12 0 0 0 1.34 6.6l3.99 3.1A7.17 7.17 0 0 1 12 4.77Z"
+          />
+        </svg>
+      );
+    default:
+      return <Building2 data-icon="inline-start" />;
+  }
 }

@@ -43,6 +43,8 @@ const (
 type ProviderInfo struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	// Kind picks the icon: "oidc", "github", "google".
+	Kind string `json:"kind,omitempty"`
 }
 
 // AuthConfig is the auth part of GET /api/config.
@@ -190,7 +192,7 @@ func (rp *relyingParty) providerList() []ProviderInfo {
 	out := make([]ProviderInfo, 0, len(rp.order))
 	for _, id := range rp.order {
 		if p := rp.providers[id]; !p.Password {
-			out = append(out, ProviderInfo{ID: id, Label: p.Label})
+			out = append(out, ProviderInfo{ID: id, Label: p.Label, Kind: firstNonEmpty(p.Kind, "oidc")})
 		}
 	}
 	return out
@@ -335,7 +337,12 @@ func (rp *relyingParty) begin(providerID, next string) (string, error) {
 	}
 	rp.pending[state] = pendingLogin{provider: providerID, nonce: nonce, verifier: verifier, next: safeNext(next), created: now}
 	rp.mu.Unlock()
-	return p.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
+	if p.ConnectorID != "" {
+		// Dex: go straight to this connector instead of its chooser.
+		opts = append(opts, oauth2.SetAuthURLParam("connector_id", p.ConnectorID))
+	}
+	return p.oauth.AuthCodeURL(state, opts...), nil
 }
 
 // complete exchanges the callback code for an identity, the raw id_token

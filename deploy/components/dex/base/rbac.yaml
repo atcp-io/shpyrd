@@ -40,6 +40,10 @@ rules:
   - apiGroups: [dex.coreos.com]
     resources: [passwords]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Connectors (GitHub, Google) become sign-in buttons (RFC-0058).
+  - apiGroups: [dex.coreos.com]
+    resources: [connectors]
+    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

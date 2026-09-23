@@ -59,7 +59,15 @@ func New() *cobra.Command {
 	// Commands contributed by extensions (they explain themselves when the
 	// extension is not enabled on the cluster).
 	for _, x := range all.All() {
-		root.AddCommand(x.CLI(g)...)
+		for _, c := range x.CLI(g) {
+			// Extensions may share a top-level command (`shpyrd auth`): the
+			// later ones add their subcommands to the first.
+			if existing := findCommand(root, c.Name()); existing != nil {
+				existing.AddCommand(c.Commands()...)
+				continue
+			}
+			root.AddCommand(c)
+		}
 	}
 	root.AddCommand(newLogsCmd(g))
 	root.AddCommand(newShellCmd(g))
@@ -75,4 +83,13 @@ func New() *cobra.Command {
 		},
 	})
 	return root
+}
+
+func findCommand(parent *cobra.Command, name string) *cobra.Command {
+	for _, c := range parent.Commands() {
+		if c.Name() == name {
+			return c
+		}
+	}
+	return nil
 }
