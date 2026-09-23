@@ -46,7 +46,7 @@ declare what they depend on.
 | [0016](0016-global-config-vars.md) | Global config vars | implemented | 0003 |
 | [0017](0017-git-credentials.md) | Git credentials for private repositories | provisional | 0004 |
 | [0018](0018-repository-monitoring.md) | Repository monitoring and auto-deploy | provisional | 0017 |
-| [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | implementable | 0001 |
+| [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | implemented | 0001 |
 | [0020](0020-maintenance-mode.md) | Maintenance mode | provisional | 0001 |
 | [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implementable | |
 | [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) | provisional | 0046 |

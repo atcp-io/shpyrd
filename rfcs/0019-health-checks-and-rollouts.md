@@ -1,8 +1,8 @@
 # RFC-0019 Health checks and zero-downtime rollouts
 
-**Status:** implementable
+**Status:** implemented
 
-**Owner:** unassigned
+**Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
 **Depends on:** RFC-0001 (implemented)
 
@@ -98,4 +98,4 @@ processes:
 ## Implementation History
 
 - 2026-09-22: RFC written.
-- 2026-09-23: probe defaults settled; RFC moved to implementable.
+- 2026-09-23: probe defaults settled; implemented in shpyrd-io/shpyrd (commit f02265a).
