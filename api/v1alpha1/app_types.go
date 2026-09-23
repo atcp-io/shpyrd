@@ -104,6 +104,20 @@ type AppSpec struct {
 	// their connection details become config vars of every process.
 	// +optional
 	Bindings []Binding `json:"bindings,omitempty"`
+	// Globals controls the cluster-wide config vars a platform admin sets
+	// with `shpyrd globals` (RFC-0016). Nil injects all of them.
+	// +optional
+	Globals *Globals `json:"globals,omitempty"`
+}
+
+// Globals is a project's opt-out from cluster-wide config vars.
+type Globals struct {
+	// Disabled leaves every global var out of this project.
+	// +optional
+	Disabled bool `json:"disabled,omitempty"`
+	// Exclude names global vars this project does not receive.
+	// +optional
+	Exclude []string `json:"exclude,omitempty"`
 }
 
 // Binding attaches a project resource to an app (RFC-0003). The resource's
@@ -256,9 +270,14 @@ type Release struct {
 	// Source identifies the code (git commit or archive sha).
 	// +optional
 	Source string `json:"source,omitempty"`
-	// ConfigHash covers env vars and the <app>-env Secret.
+	// ConfigHash covers env vars, the <app>-env Secret, bound vars, sizes
+	// and the global vars injected.
 	// +optional
-	ConfigHash  string      `json:"configHash,omitempty"`
+	ConfigHash string `json:"configHash,omitempty"`
+	// GlobalHash fingerprints the global vars injected at the time, so a
+	// release can be told apart as "Global config change" (RFC-0016).
+	// +optional
+	GlobalHash  string      `json:"globalHash,omitempty"`
 	Description string      `json:"description,omitempty"`
 	CreatedAt   metav1.Time `json:"createdAt"`
 	// Processes lists the process types the release ran with; rolling back
@@ -333,6 +352,11 @@ func init() {
 
 // EnvSecretName is the Secret holding the app's config vars.
 func (a *App) EnvSecretName() string { return a.Name + EnvSecretSuffix }
+
+// GlobalEnvSecretName is the cluster-wide config vars Secret in the system
+// namespace and the name of its filtered mirror in every project namespace
+// (RFC-0016).
+const GlobalEnvSecretName = "shpyrd-global-env"
 
 // BindingsSecretSuffix: the Secret <app>-bindings holds the config vars
 // provided by attached resources; the controller owns it.

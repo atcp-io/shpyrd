@@ -109,6 +109,13 @@ func TestAuthorization(t *testing.T) {
 	if rec := doCookie(t, s, "GET", "/api/projects/shop/members", "", devSID, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("developer members: %d", rec.Code)
 	}
+	// Global config vars are a platform matter (RFC-0016).
+	if rec := doCookie(t, s, "GET", "/api/globals", "", devSID, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("developer globals: %d", rec.Code)
+	}
+	if rec := doCookie(t, s, "PUT", "/api/globals", `{"set":{"X":"1"}}`, devSID, devCSRF); rec.Code != http.StatusForbidden {
+		t.Errorf("developer set globals: %d", rec.Code)
+	}
 	rec = doCookie(t, s, "GET", "/api/me", "", devSID, "")
 	if !strings.Contains(rec.Body.String(), `"projects":{"shop":"developer"}`) || !strings.Contains(rec.Body.String(), `"enforced":true`) || !strings.Contains(rec.Body.String(), `"admin":false`) {
 		t.Errorf("developer me: %s", rec.Body.String())

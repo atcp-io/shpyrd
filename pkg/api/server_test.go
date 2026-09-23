@@ -757,3 +757,67 @@ func TestProjectIdentity(t *testing.T) {
 		}
 	}
 }
+
+// RFC-0016: global config vars are set once, never read back, counted per
+// project, and shown read-only to project members through their mirror.
+func TestGlobals(t *testing.T) {
+	optedOut := sampleApp("quiet", shpyrdv1.PhaseRunning)
+	optedOut.Spec.Globals = &shpyrdv1.Globals{Disabled: true}
+	s, k := newTestServer(t, nil, []client.Object{sampleApp("web1", shpyrdv1.PhaseRunning), optedOut})
+
+	rec := do(t, s, "GET", "/api/globals", "", true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"vars":[]`) || !strings.Contains(rec.Body.String(), `"projects":1`) {
+		t.Fatalf("empty globals: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, s, "PUT", "/api/globals", `{"set":{"OPENAI_API_KEY":"sk-secret"},"dotenv":"REGION=eu\n"}`, true)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "sk-secret") {
+		t.Fatalf("set: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp GlobalsResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Vars) != 2 || resp.Vars[0].Name != "OPENAI_API_KEY" || resp.Vars[1].Name != "REGION" || resp.Vars[0].UpdatedAt == "" || resp.Projects != 1 {
+		t.Errorf("resp = %+v", resp)
+	}
+	sec := &corev1.Secret{}
+	if err := k.Get(context.Background(), types.NamespacedName{Namespace: "shpyrd-system", Name: shpyrdv1.GlobalEnvSecretName}, sec); err != nil || string(sec.Data["OPENAI_API_KEY"]) != "sk-secret" {
+		t.Fatalf("secret: %v %v", err, sec.Data)
+	}
+	if rec := do(t, s, "PUT", "/api/globals", `{"unset":["REGION"]}`, true); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "REGION") {
+		t.Errorf("unset: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "PUT", "/api/globals", `{"set":{"bad key":"x"}}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid key: %d", rec.Code)
+	}
+	if rec := do(t, s, "PUT", "/api/globals", `{}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("nothing to change: %d", rec.Code)
+	}
+
+	// A project's config view lists the globals it receives (from the
+	// mirror the controller writes), without values.
+	mirror := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: shpyrdv1.GlobalEnvSecretName, Namespace: "app-web1"}, Data: map[string][]byte{"OPENAI_API_KEY": []byte("sk-secret")}}
+	if err := k.Create(context.Background(), mirror); err != nil {
+		t.Fatal(err)
+	}
+	rec = do(t, s, "GET", "/api/projects/web1/secrets", "", true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"global":[{"name":"OPENAI_API_KEY"}]`) || strings.Contains(rec.Body.String(), "sk-secret") {
+		t.Errorf("project view: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Audit names the keys, never the values.
+	evs, _ := s.kube.Kube.CoreV1().Events("shpyrd-system").List(context.Background(), metav1.ListOptions{})
+	var set, unset int
+	for _, ev := range evs.Items {
+		switch ev.Annotations["shpyrd.io/action"] {
+		case "globals.set":
+			set++
+			if strings.Contains(ev.Annotations["shpyrd.io/detail"], "sk-secret") {
+				t.Error("audit leaked a value")
+			}
+		case "globals.unset":
+			unset++
+		}
+	}
+	if set != 1 || unset != 1 {
+		t.Errorf("audit: set=%d unset=%d", set, unset)
+	}
+}

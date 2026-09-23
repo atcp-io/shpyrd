@@ -231,6 +231,19 @@ to limits. The default catalog goes from `shared-xs` (0.25 CPU, 32 MiB) to
 web=shared-m`, or the project page; every change is a release. Metrics show CPU
 and memory as a percentage of the size.
 
+## Global config vars
+
+Settings every project should have (an `OPENAI_API_KEY`, a region) are set
+once by a platform admin and injected into every process of every project:
+`shpyrd globals set OPENAI_API_KEY=... REGION=eu`, `shpyrd globals unset`,
+`shpyrd globals list`, or the Cluster page's card. They come first in the
+environment, so a project's own config var of the same name wins and attached
+resources win over both; a change is a "Global config change" release in every
+project (the card says how many before it applies). Values are write-only.
+`shpyrd secrets list` and the Config tab show globals as "provided by cluster"
+and mark project vars that override one. A project opts out in `shpyrd.yaml`
+with `globals: false` or `globals: {exclude: [OPENAI_API_KEY]}` (RFC-0016).
+
 The API behind the dashboard (`/api/...`) requires the token; only `/api/healthz`,
 `/api/config` and content-addressed source archives are public.
 

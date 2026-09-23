@@ -434,6 +434,20 @@ spec:
                   - name
                   type: object
                 type: array
+              globals:
+                description: |-
+                  Globals controls the cluster-wide config vars a platform admin sets
+                  with `shpyrd globals` (RFC-0016). Nil injects all of them.
+                properties:
+                  disabled:
+                    description: Disabled leaves every global var out of this project.
+                    type: boolean
+                  exclude:
+                    description: Exclude names global vars this project does not receive.
+                    items:
+                      type: string
+                    type: array
+                type: object
               image:
                 description: |-
                   Image runs a prebuilt image instead of building Source. Set by
@@ -749,12 +763,19 @@ spec:
                         type: object
                       type: array
                     configHash:
-                      description: ConfigHash covers env vars and the <app>-env Secret.
+                      description: |-
+                        ConfigHash covers env vars, the <app>-env Secret, bound vars, sizes
+                        and the global vars injected.
                       type: string
                     createdAt:
                       format: date-time
                       type: string
                     description:
+                      type: string
+                    globalHash:
+                      description: |-
+                        GlobalHash fingerprints the global vars injected at the time, so a
+                        release can be told apart as "Global config change" (RFC-0016).
                       type: string
                     image:
                       type: string

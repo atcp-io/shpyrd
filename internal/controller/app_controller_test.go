@@ -241,16 +241,16 @@ func TestConfigHashStable(t *testing.T) {
 	app := &shpyrdv1.App{Spec: shpyrdv1.AppSpec{Env: []corev1.EnvVar{{Name: "B", Value: "2"}, {Name: "A", Value: "1"}}}}
 	sec := &corev1.Secret{Data: map[string][]byte{"Y": []byte("y"), "X": []byte("x")}}
 	sz := map[string]string{"web": "shared-s"}
-	h1 := configHash(app, sec, sz)
+	h1 := configHash(app, sec, sz, nil, nil)
 	app.Spec.Env[0], app.Spec.Env[1] = app.Spec.Env[1], app.Spec.Env[0]
-	if h2 := configHash(app, sec, sz); h1 != h2 {
+	if h2 := configHash(app, sec, sz, nil, nil); h1 != h2 {
 		t.Errorf("hash must not depend on env order: %s != %s", h1, h2)
 	}
 	sec.Data["X"] = []byte("changed")
-	if h3 := configHash(app, sec, sz); h3 == h1 {
+	if h3 := configHash(app, sec, sz, nil, nil); h3 == h1 {
 		t.Errorf("hash must change with secret values")
 	}
-	if h4 := configHash(app, sec, map[string]string{"web": "shared-m"}); h4 == configHash(app, sec, sz) {
+	if h4 := configHash(app, sec, map[string]string{"web": "shared-m"}, nil, nil); h4 == configHash(app, sec, sz, nil, nil) {
 		t.Errorf("hash must change with sizes")
 	}
 	if got := describeSizeChange(map[string]string{"web": "shared-s", "worker": "shared-s"}, map[string]string{"web": "shared-m", "worker": "shared-s"}); got != "Resize web to shared-m" {

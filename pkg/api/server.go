@@ -245,6 +245,8 @@ func (s *Server) routes() error {
 	api.GET("/cluster/metrics", s.require(authz.ClusterView), s.clusterMetrics)
 	api.GET("/sizes", s.getSizes) // any signed-in user: the size selector needs it
 	api.PUT("/sizes", s.require(authz.ClusterAdmin), s.putSizes)
+	api.GET("/globals", s.require(authz.ClusterAdmin), s.getGlobals) // RFC-0016
+	api.PUT("/globals", s.require(authz.ClusterAdmin), s.putGlobals)
 	api.POST("/sources", s.uploadSource) // deploys check the project right when the App is updated
 	api.GET("/teams", s.require(authz.ClusterAdmin), s.listTeams)
 	api.POST("/teams", s.require(authz.ClusterAdmin), s.putTeam)

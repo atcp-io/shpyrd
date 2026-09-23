@@ -215,6 +215,7 @@ export type BuildInfo = {
 };
 
 export type ConfigVar = { name: string; updatedAt?: string };
+export type GlobalsResponse = { vars: ConfigVar[]; projects: number };
 export type BoundVar = { name: string; provider: string };
 
 export type ResourceInfo = {
@@ -455,9 +456,16 @@ export const api = {
     },
   ) => request<AppSummary>(`${project(slug)}/deploy`, json("POST", body)),
   configVars: (slug: string) =>
-    request<{ vars: ConfigVar[]; bound?: BoundVar[] }>(
+    request<{ vars: ConfigVar[]; bound?: BoundVar[]; global?: ConfigVar[] }>(
       `${project(slug)}/secrets`,
     ),
+  /** Global config vars (RFC-0016): names only, and how many projects get them. */
+  globals: () => request<GlobalsResponse>("/api/globals"),
+  updateGlobals: (body: {
+    set?: Record<string, string>;
+    unset?: string[];
+    dotenv?: string;
+  }) => request<GlobalsResponse>("/api/globals", json("PUT", body)),
   updateConfigVars: (
     slug: string,
     body: { set?: Record<string, string>; unset?: string[]; dotenv?: string },

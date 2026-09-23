@@ -258,18 +258,11 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 		Args:            p.Args,
 		Resources:       res,
 		SecurityContext: hardenedSecurityContext(),
-		// Config vars, then the vars of attached resources: with envFrom the
-		// last source wins, so bound vars take precedence (RFC-0003).
-		EnvFrom: []corev1.EnvFromSource{
-			{SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: app.EnvSecretName()},
-				Optional:             ptr.To(true),
-			}},
-			{SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: app.BindingsSecretName()},
-				Optional:             ptr.To(true),
-			}},
-		},
+		// Global vars, then the project's config vars, then the vars of
+		// attached resources: with envFrom the last source wins, so project
+		// vars override globals and bound vars win over both (RFC-0003,
+		// RFC-0016).
+		EnvFrom: EnvSources(app),
 	}
 	// Buildpack images expose every process type as /cnb/process/<type>;
 	// "web" is the image entrypoint so it also works for plain images.
@@ -369,4 +362,22 @@ func hardenedSecurityContext() *corev1.SecurityContext {
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
+}
+
+// EnvSources lists the Secrets a process reads its environment from, in
+// precedence order (later wins): globals, the project's config vars, bound
+// vars. Every source is optional: a project may have no config vars, no
+// attachments or no globals yet. One-off commands use the same list.
+func EnvSources(app *shpyrdv1.App) []corev1.EnvFromSource {
+	optional := func(name string) corev1.EnvFromSource {
+		return corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: name},
+			Optional:             ptr.To(true),
+		}}
+	}
+	var out []corev1.EnvFromSource
+	if !globalsDisabled(app) {
+		out = append(out, optional(shpyrdv1.GlobalEnvSecretName))
+	}
+	return append(out, optional(app.EnvSecretName()), optional(app.BindingsSecretName()))
 }

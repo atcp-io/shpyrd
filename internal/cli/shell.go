@@ -18,6 +18,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/internal/controller"
 	"shpyrd/pkg/api"
 	"shpyrd/pkg/kexec"
 	"shpyrd/pkg/sizes"
@@ -295,10 +296,9 @@ func runPod(app *shpyrdv1.App, image string, command []string, res corev1.Resour
 				TTY:       tty,
 				Resources: res,
 				Env:       append([]corev1.EnvVar{{Name: "SHPYRD_RUN", Value: "1"}}, app.Spec.Env...),
-				EnvFrom: []corev1.EnvFromSource{
-					{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.EnvSecretName()}, Optional: ptr.To(true)}},
-					{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: app.BindingsSecretName()}, Optional: ptr.To(true)}},
-				},
+				// Globals, config vars, bound vars: the same sources and
+				// order as the deployed processes (RFC-0016).
+				EnvFrom: controller.EnvSources(app),
 				// Same hardening as deployed processes (RFC-0008).
 				SecurityContext: &corev1.SecurityContext{
 					AllowPrivilegeEscalation: ptr.To(false),

@@ -79,8 +79,8 @@ func TestBindingsRenderSecretAndRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	ef := d.Spec.Template.Spec.Containers[0].EnvFrom
-	if len(ef) != 2 || ef[0].SecretRef.Name != "demo-env" || ef[1].SecretRef.Name != "demo-bindings" {
-		t.Errorf("envFrom order (bound vars last, so they win) = %+v", ef)
+	if len(ef) != 3 || ef[0].SecretRef.Name != "shpyrd-global-env" || ef[1].SecretRef.Name != "demo-env" || ef[2].SecretRef.Name != "demo-bindings" {
+		t.Errorf("envFrom order (globals first, bound vars last, so they win) = %+v", ef)
 	}
 
 	// Two bindings providing the same var need distinct prefixes.

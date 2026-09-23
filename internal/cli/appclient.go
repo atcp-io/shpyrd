@@ -53,12 +53,47 @@ func validateAppName(slug string) error {
 //	  env:
 //	    BP_GO_TARGETS: ./cmd/web:./cmd/worker
 //	domains: [my-service.example.com]
+//	globals: false            # or: globals: { exclude: [OPENAI_API_KEY] }
 type projectConfig struct {
 	Project   string                    `json:"project"`
 	App       string                    `json:"app"` // deprecated alias of project
 	Processes map[string]projectProcess `json:"processes,omitempty"`
 	Build     *projectBuild             `json:"build,omitempty"`
 	Domains   []string                  `json:"domains,omitempty"`
+	Globals   *projectGlobals           `json:"globals,omitempty"`
+}
+
+// projectGlobals is the `globals` key (RFC-0016): `false` opts the project
+// out of every global config var, `{exclude: [NAME]}` out of some.
+type projectGlobals struct {
+	Disabled bool
+	Exclude  []string
+}
+
+func (g *projectGlobals) UnmarshalJSON(b []byte) error {
+	var enabled bool
+	if err := json.Unmarshal(b, &enabled); err == nil {
+		g.Disabled = !enabled
+		return nil
+	}
+	var obj struct {
+		Exclude []string `json:"exclude"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return fmt.Errorf("globals: expected false or {exclude: [NAME...]}: %w", err)
+	}
+	g.Exclude = obj.Exclude
+	return nil
+}
+
+func (g *projectGlobals) spec() *shpyrdv1.Globals {
+	if g == nil {
+		return nil
+	}
+	if !g.Disabled && len(g.Exclude) == 0 {
+		return nil // `globals: true`: everything, the default
+	}
+	return &shpyrdv1.Globals{Disabled: g.Disabled, Exclude: g.Exclude}
 }
 
 type projectProcess struct {
@@ -162,6 +197,9 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 	}
 	if len(pc.Domains) > 0 {
 		a.Spec.Domains = pc.Domains
+	}
+	if pc.Globals != nil {
+		a.Spec.Globals = pc.Globals.spec()
 	}
 	return nil
 }

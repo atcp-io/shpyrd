@@ -96,7 +96,7 @@ func (r *AppReconciler) builder(mgr ctrl.Manager) *builder.Builder {
 		Owns(&networkingv1.Ingress{}).
 		Owns(kpackImage).
 		Owns(&batchv1.Job{}).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(envSecretToApp)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToApps)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.sizesToAllApps)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(runPodToApp), builder.WithPredicates(isRunPod)).
 		Watches(&shpyrdv1.Volume{}, handler.EnqueueRequestsFromMapFunc(r.volumeToApps))
@@ -245,7 +245,14 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 		}
 		return outcome{}, err
 	}
-	hash := configHash(app, secret, sizeByProcess, bindings)
+	// Cluster-wide config vars arrive through a per-project mirror the
+	// processes read first (RFC-0016).
+	globals, err := r.reconcileGlobals(ctx, app)
+	if err != nil {
+		return outcome{}, err
+	}
+	ghash := globalHash(globals)
+	hash := configHash(app, secret, sizeByProcess, bindings, globals)
 	if err := r.ensureNamespaceLabels(ctx, app); err != nil {
 		return outcome{}, err
 	}
@@ -339,12 +346,15 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	configDesc := ""
 	if cur := app.CurrentRelease(); cur != nil && cur.Image == image && cur.ConfigHash != hash {
 		configDesc = r.describeConfigChangeSince(ctx, app, cur.Number, secret)
+		if (configDesc == "" || configDesc == "Config change") && cur.GlobalHash != ghash {
+			configDesc = "Global config change"
+		}
 	}
 	source := sourceID(app, kpackBuild)
 	if build.Revision != "" && app.Spec.Source != nil && app.Spec.Source.Git != nil {
 		source = short(build.Revision)
 	}
-	if recordRelease(app, image, hash, source, metav1.Now(), configDesc, sizeByProcess) {
+	if recordRelease(app, image, hash, ghash, source, metav1.Now(), configDesc, sizeByProcess) {
 		out.newRelease = app.CurrentRelease()
 		for _, p := range processes(app) {
 			out.newRelease.Processes = append(out.newRelease.Processes, p.Name)

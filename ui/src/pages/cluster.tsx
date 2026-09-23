@@ -5,6 +5,7 @@ import { usePerms } from "@/lib/me";
 import { ago, bytes } from "@/lib/format";
 import { MetricChart } from "@/components/metric-chart";
 import { SizesEditor } from "@/components/sizes-editor";
+import { GlobalsEditor } from "@/components/globals-editor";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -160,6 +161,7 @@ export function ClusterPage() {
       </Card>
 
       <SizesEditor readOnly={!perms.clusterAdmin} />
+      {perms.clusterAdmin && <GlobalsEditor />}
 
       <Card>
         <CardHeader>

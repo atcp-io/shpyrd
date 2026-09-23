@@ -25,6 +25,9 @@ type ConfigVarsResponse struct {
 	// Bound are read-only variables provided by attached resources
 	// (RFC-0003); they win over Vars with the same name.
 	Bound []BoundVar `json:"bound,omitempty"`
+	// Global are read-only variables provided by the cluster (RFC-0016); a
+	// project var of the same name overrides them.
+	Global []configvars.Var `json:"global,omitempty"`
 }
 
 // ConfigVarsUpdate sets and/or unsets config vars. Dotenv is parsed as
@@ -57,6 +60,7 @@ func (s *Server) appSecretKeys(c *gin.Context) {
 		resp.Vars = configvars.List(sec)
 	}
 	resp.Bound = s.boundVars(c.Request.Context(), app)
+	resp.Global = s.globalVars(c.Request.Context(), app)
 	c.JSON(http.StatusOK, resp)
 }
 

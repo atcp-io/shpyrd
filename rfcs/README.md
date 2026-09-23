@@ -43,7 +43,7 @@ declare what they depend on.
 | [0013](0013-email-delivery.md) | Email delivery (`mail` extension) | provisional | 0002 |
 | [0014](0014-account-lifecycle.md) | Account lifecycle (invites, reset, verification, lockout) | provisional | 0012, 0013 |
 | [0015](0015-grafana-sign-in.md) | Grafana sign-in through shpyrd | provisional | 0007 |
-| [0016](0016-global-config-vars.md) | Global config vars | provisional | 0003 |
+| [0016](0016-global-config-vars.md) | Global config vars | implemented | 0003 |
 | [0017](0017-git-credentials.md) | Git credentials for private repositories | provisional | 0004 |
 | [0018](0018-repository-monitoring.md) | Repository monitoring and auto-deploy | provisional | 0017 |
 | [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | provisional | 0001 |

@@ -94,7 +94,13 @@ write-only: they are never printed back.`,
 			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name + shpyrdv1.BindingsSecretSuffix}, bound); err != nil {
 				bound = nil
 			}
-			if sec == nil && bound == nil {
+			// Global vars the project receives (RFC-0016), from the mirror
+			// the controller keeps in the project namespace.
+			global := &corev1.Secret{}
+			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: shpyrdv1.GlobalEnvSecretName}, global); err != nil {
+				global = nil
+			}
+			if sec == nil && bound == nil && global == nil {
 				fmt.Fprintln(cmd.OutOrStdout(), "no config vars set")
 				return nil
 			}
@@ -106,7 +112,27 @@ write-only: they are never printed back.`,
 					if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
 						when = age(metav1.NewTime(t))
 					}
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, "-")
+					note := "-"
+					if global != nil {
+						if _, shadowed := global.Data[v.Name]; shadowed {
+							note = "- (overrides global)"
+						}
+					}
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, note)
+				}
+			}
+			if global != nil {
+				for _, v := range configvars.List(global) {
+					if sec != nil {
+						if _, shadowed := sec.Data[v.Name]; shadowed {
+							continue // the project's own value is in effect
+						}
+					}
+					when := "-"
+					if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
+						when = age(metav1.NewTime(t))
+					}
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, "cluster")
 				}
 			}
 			if bound != nil {

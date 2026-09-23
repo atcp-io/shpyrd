@@ -43,8 +43,10 @@ func TestRunPodBuildpackImage(t *testing.T) {
 	if !c.TTY || !c.Stdin || !c.StdinOnce {
 		t.Error("interactive runs need stdin (once) and a tty")
 	}
-	if c.EnvFrom[0].SecretRef.Name != "demo-env" || c.EnvFrom[0].SecretRef.Optional == nil || !*c.EnvFrom[0].SecretRef.Optional {
-		t.Errorf("config vars secret: %+v", c.EnvFrom)
+	// Globals first, then config vars, then bound vars: the same order as
+	// the deployed processes (RFC-0016).
+	if len(c.EnvFrom) != 3 || c.EnvFrom[0].SecretRef.Name != "shpyrd-global-env" || c.EnvFrom[1].SecretRef.Name != "demo-env" || c.EnvFrom[1].SecretRef.Optional == nil || !*c.EnvFrom[1].SecretRef.Optional {
+		t.Errorf("env sources: %+v", c.EnvFrom)
 	}
 	if c.Env[0].Name != "SHPYRD_RUN" || c.Env[1].Name != "GREETING" {
 		t.Errorf("env: %+v", c.Env)

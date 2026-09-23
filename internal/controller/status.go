@@ -19,11 +19,16 @@ import (
 const maxReleases = 20
 
 // configHash fingerprints everything that changes the running configuration
-// without changing the image: plain env vars, the <app>-env Secret and the
-// instance size of each process type.
-func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]string, bindings ...*corev1.Secret) string {
+// without changing the image: plain env vars, the <app>-env Secret, bound
+// vars, the global vars the project receives and the instance size of each
+// process type.
+func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]string, bindings, globals *corev1.Secret) string {
 	h := sha256.New()
-	for _, b := range bindings {
+	for _, src := range []struct {
+		prefix string
+		sec    *corev1.Secret
+	}{{"binding:", bindings}, {"global:", globals}} {
+		prefix, b := src.prefix, src.sec
 		if b == nil {
 			continue
 		}
@@ -33,7 +38,7 @@ func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]strin
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			h.Write([]byte("binding:" + k + "="))
+			h.Write([]byte(prefix + k + "="))
 			h.Write(b.Data[k])
 			h.Write([]byte{0})
 		}
@@ -151,7 +156,7 @@ func short(s string) string {
 // returns true when the history was modified. configDesc describes a
 // config-only change (see describeConfigChange); size changes are described
 // from the previous release's sizes.
-func recordRelease(app *shpyrdv1.App, image, hash, source string, now metav1.Time, configDesc string, sizes map[string]string) bool {
+func recordRelease(app *shpyrdv1.App, image, hash, globalHash, source string, now metav1.Time, configDesc string, sizes map[string]string) bool {
 	cur := app.CurrentRelease()
 	if cur != nil && cur.Image == image && cur.ConfigHash == hash {
 		return false
@@ -181,6 +186,7 @@ func recordRelease(app *shpyrdv1.App, image, hash, source string, now metav1.Tim
 		Image:       image,
 		Source:      source,
 		ConfigHash:  hash,
+		GlobalHash:  globalHash,
 		Description: desc,
 		CreatedAt:   now,
 		Sizes:       sizes,

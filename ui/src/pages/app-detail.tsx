@@ -1340,6 +1340,11 @@ function Config({ app }: { app: AppDetail }) {
                     ) : (
                       <span className="font-mono text-xs text-muted-foreground">
                         ••••••••
+                        {vars.data?.global?.some((g) => g.name === v.name) && (
+                          <span className="ml-2 font-sans text-[11px] text-amber-700 dark:text-amber-400">
+                            overrides global
+                          </span>
+                        )}
                       </span>
                     )}
                   </TableCell>
@@ -1385,6 +1390,22 @@ function Config({ app }: { app: AppDetail }) {
                   <TableCell />
                 </TableRow>
               ))}
+              {vars.data?.global
+                ?.filter((g) => !vars.data?.vars.some((v) => v.name === g.name))
+                .map((g) => (
+                  <TableRow key={"global-" + g.name} className="bg-muted/30">
+                    <TableCell className="font-mono text-xs">{g.name}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      provided by{" "}
+                      <span className="font-medium text-foreground">cluster</span>{" "}
+                      (read-only; a config var of the same name overrides it)
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {g.updatedAt ? ago(g.updatedAt) : "-"}
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                ))}
             </TableBody>
           </Table>
           <form
