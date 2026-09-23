@@ -1,6 +1,6 @@
 # RFC-0007 Authentication
 
-**Status:** implemented (3.1 local users); 3.2 → RFC-0014, 3.3 → RFC-0012
+**Status:** implemented (3.1 local users); 3.2 → RFC-0014, 3.3 → RFC-0012 + RFC-0058
 
 **Creation date:** 2026-09-22
 

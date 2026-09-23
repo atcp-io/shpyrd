@@ -34,12 +34,12 @@ declare what they depend on.
 | [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented | |
 | [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI); browser terminal → 0026 | |
 | [0006](0006-persistent-volumes.md) | Persistent volumes | implemented (RWO); shared → 0041 | |
-| [0007](0007-authentication.md) | Authentication (OIDC, Dex) | implemented (3.1 local users); 3.2 → 0014, 3.3 → 0012 | |
+| [0007](0007-authentication.md) | Authentication (OIDC, Dex) | implemented (3.1 local users); 3.2 → 0014, 3.3 → 0012 + 0058 | |
 | [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented; quotas → 0042, enforce PSS → 0043, supply chain → 0044, tokens → 0031, durable audit → 0025 | |
 | [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented; backups → 0038, pooling/rotation → 0039 | |
 | [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented; HA → 0040 | |
 | [0011](0011-project-identity-and-product-language.md) | Project identity and product language | implemented | |
-| [0012](0012-sign-in-experience.md) | Sign-in experience (own login page, Okta/OIDC, GitHub/Google) | provisional | 0007 |
+| [0012](0012-sign-in-experience.md) | Sign-in experience: shpyrd's own sign-in page (local sign-in, sign-out) | implementable | 0007 |
 | [0013](0013-email-delivery.md) | Email delivery (`mail` extension) | provisional | 0002 |
 | [0014](0014-account-lifecycle.md) | Account lifecycle (invites, reset, verification, lockout) | provisional | 0012, 0013 |
 | [0015](0015-grafana-sign-in.md) | Grafana sign-in through shpyrd | provisional | 0007 |
@@ -85,6 +85,7 @@ declare what they depend on.
 | [0055](0055-environments-and-promotion.md) | Environments and promotion | deferred (Git branches per environment) | |
 | [0056](0056-tracing-backend.md) | Tracing backend (Jaeger) | implementable | 0029, 0015 |
 | [0057](0057-local-names-and-front-door.md) | Local names and front door (dnsmasq wildcard, Caddy on 443) | implementable | 0001 |
+| [0058](0058-external-identity-providers.md) | External identity providers (Okta and OIDC, GitHub, Google) | implementable | 0012 |
 
 ## Phases
 
@@ -95,7 +96,7 @@ declare what they depend on.
 | C | 0002, 0007 | done |
 | D | 0008 | done |
 | E | 0009, 0010 | done |
-| F | 0045, 0057, 0011, 0012, 0016, 0019, 0046 | next: foundations (binaries, local names and front door, identity, sign-in, globals, health, object storage) |
+| F | 0045, 0057, 0011, 0012, 0058, 0016, 0019, 0046 | next: foundations (binaries, local names and front door, identity, sign-in page, external providers, globals, health, object storage) |
 | G | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | delivery and logs |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
