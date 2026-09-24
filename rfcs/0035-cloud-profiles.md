@@ -37,8 +37,8 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 
 ### Non-Goals
 
-- Provisioning the managed cluster from shpyrd (the scripts in `hack/<provider>` and the
-  docs do it; a proper provisioner is a later RFC).
+- Provisioning the managed cluster from shpyrd (the Terraform in `contrib/<provider>` and
+  the docs do it; a provisioner inside shpyrd is a later RFC).
 - Provider-managed databases (RDS, OCI Database) as Postgres resources.
 
 ## Proposal
@@ -60,15 +60,15 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
   pods and build Jobs, mounts a docker config for BuildKit; every platform image reference
   is fully qualified (CRI-O enforces short-name rules).
 - Per provider: `deploy/profiles/<name>/profile.yaml` with overlays for ingress-nginx
-  (load balancer annotations), monitoring and kpack; `hack/<name>/` scripts for the
+  (load balancer annotations), monitoring and kpack; `contrib/<name>/terraform` for the
   recommended network and cluster; a docs page with the walkthrough, costs and caveats.
 
 ### Oracle Cloud (`oci`) — implemented
 
-- Layout created by `hack/oci`: VCN 10.0.0.0/16 with subnets for the API endpoint
+- Layout created by `contrib/oci/terraform`: VCN 10.0.0.0/16 with subnets for the API endpoint
   (private), workers (private), pods (VCN-native pod networking), public and private load
   balancers and a bastion; internet, NAT and service gateways; NSGs. OKE Basic cluster,
-  private endpoint reached through an OCI Bastion port-forward (`hack/oci/tunnel.sh`),
+  private endpoint reached through an OCI Bastion port-forward (`contrib/oci/tunnel.sh`),
   one node pool of `VM.Standard.E5.Flex` workers (ARM `A1` shapes were out of capacity in
   the region).
 - Registry: OCIR in the proof of concept (`<region>.ocir.io/<tenancy-namespace>`, auth
@@ -141,8 +141,13 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 - 2026-09-23: `oci` profile implemented and released in v0.1.2/v0.1.3: profile and
   overlays, `letsencrypt-issuers` and `registry-credentials` components, cloud flow in
   `cluster init` (two phases, load balancer and DNS waits), registry credential plumbing in
-  the controller, fully qualified images for CRI-O, `hack/oci` scripts; the proof of
+  the controller, fully qualified images for CRI-O, `hack/oci` scripts (since replaced by
+  Terraform); the proof of
   concept runs at `oci.shpyrd.io` with a project on Postgres and Redis.
 - 2026-09-24: Retitled to cover cloud profiles in general; OKE network policy finding
   recorded and the `network-policy` component (Calico policy-only) proposed as the `oci`
   default; AWS section kept provisional.
+- 2026-09-24: Infrastructure moved from `oci` CLI scripts to Terraform in
+  `contrib/oci/terraform` (plain resources, OpenTofu-compatible), with a reserved public
+  address for the load balancer (`SHPYRD_LB_IP`) and an optional OCI DNS zone with the
+  wildcard record; the proof of concept was rebuilt from it in one apply.

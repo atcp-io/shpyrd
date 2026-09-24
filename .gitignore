@@ -30,3 +30,6 @@ ui/dist/*
 .terraform
 dist/
 hack/oci/.out.env
+
+# terraform (contrib): the lock file is committed, local variables are not
+terraform.tfvars

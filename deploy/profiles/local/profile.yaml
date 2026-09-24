@@ -18,6 +18,7 @@ vars:
   # locally through dnsmasq. `shpyrd cluster create` detects and records both.
   SHPYRD_FRONT_DOOR: kind
   SHPYRD_LOCAL_DNS: "false"
+  SHPYRD_LB_IP: ""                   # cloud profiles: reserved load balancer address
   # kind's default pod network; project network policies exclude it from
   # the "internet" egress rule so projects cannot reach each other.
   SHPYRD_POD_CIDR: 10.244.0.0/16

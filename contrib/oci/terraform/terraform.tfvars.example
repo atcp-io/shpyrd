@@ -1,0 +1,21 @@
+# Copy to terraform.tfvars (ignored by git) and fill in.
+
+tenancy_ocid = "ocid1.tenancy.oc1..aaaa"
+region       = "sa-saopaulo-1"
+# compartment_ocid = "ocid1.compartment.oc1..aaaa"   # default: the tenancy root
+
+name               = "shpyrd-poc"
+kubernetes_version = "v1.36.1"
+cluster_type       = "BASIC_CLUSTER" # ENHANCED_CLUSTER for workload identity (per-cluster fee)
+
+# VM.Standard.A1.Flex is Always Free (arm64) when the region has capacity.
+node_shape     = "VM.Standard.E5.Flex"
+node_ocpus     = 2
+node_memory_gb = 12
+node_count     = 2
+
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+# admin_cidrs = ["203.0.113.4/32"]   # default: this machine's address
+
+# Public zone in OCI DNS for the platform (delegate from the parent zone); empty for none.
+dns_zone = "oci.example.com"

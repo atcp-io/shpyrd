@@ -1,9 +1,12 @@
 # OCI profile: a public OCI Load Balancer (flexible shape, 10 Mbps: the
-# Always Free size) in the cluster's default LB subnet. A private load
-# balancer for internal hostnames is RFC-0036.
+# Always Free size) in the cluster's default LB subnet, on the reserved
+# public address when SHPYRD_LB_IP is set (contrib/oci/terraform reserves
+# one so DNS survives a cluster rebuild). A private load balancer for
+# internal hostnames is RFC-0036.
 controller:
   service:
     type: LoadBalancer
+    loadBalancerIP: "${SHPYRD_LB_IP}"
     annotations:
       oci.oraclecloud.com/load-balancer-type: "lb"
       service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"

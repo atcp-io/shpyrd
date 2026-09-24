@@ -70,8 +70,8 @@ own the DNS console. The platform knows every hostname it serves; it should publ
 
 ### What the operator does
 
-Once, in either case: create the public zone in OCI DNS (`hack/oci/create-dns.sh` does it)
-and delegate it at the registrar — for a domain at DNSimple, NS records for the platform
+Once, in either case: create the public zone in OCI DNS (`contrib/oci/terraform` does it with
+`dns_zone`) and delegate it at the registrar — for a domain at DNSimple, NS records for the platform
 subdomain pointing at the zone's name servers. Then, by cluster type:
 
 | | Enhanced cluster (workload identity) | Basic cluster (API key) |
@@ -122,8 +122,9 @@ instead of leaving the zone silently empty.
   `PatchZoneRecords` per zone per sync.
 - Zone: a public OCI DNS zone for the platform domain (a subdomain of the company domain,
   delegated from the parent with the zone's NS records; propagation up to 48 hours the
-  first time). No per-zone fee; queries are billed per million. `hack/oci` gains
-  `create-dns.sh` (zone, policy) and the docs the DNSimple delegation steps.
+  first time). No per-zone fee; queries are billed per million. `contrib/oci/terraform`
+  creates the zone (`dns_zone`) and the wildcard record today; it gains the IAM policy or
+  the `shpyrd-dns` user and key, and the docs the DNSimple delegation steps.
 - Rate limits: Let's Encrypt allows 50 certificates per registered domain per week; the
   wildcard reduces the platform to one.
 - Disabling: `--dns none` on a later `cluster init` removes ExternalDNS (records stay,
