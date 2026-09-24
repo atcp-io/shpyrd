@@ -3,9 +3,11 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ptr "k8s.io/utils/ptr"
 
@@ -127,5 +129,58 @@ func TestRolloutStrategyWithVolume(t *testing.T) {
 	}
 	if dep.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
 		t.Errorf("volume-pinned process must use Recreate, got %v", dep.Spec.Strategy.Type)
+	}
+}
+
+// A running instance that is not ready yet is starting, not failing, until
+// its startup budget (startup probe window + one round of readiness
+// failures) has passed.
+func TestProcessHealthStartupBudget(t *testing.T) {
+	app := sampleApp("grace")
+	started := metav1.NewTime(time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC))
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "grace-web-1", Namespace: app.Namespace, Labels: map[string]string{shpyrdv1.LabelApp: app.Name, shpyrdv1.LabelProcess: "web"}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name:           "app",
+			StartupProbe:   &corev1.Probe{PeriodSeconds: 5, FailureThreshold: 6},
+			ReadinessProbe: &corev1.Probe{PeriodSeconds: 10, FailureThreshold: 3},
+		}}},
+		Status: corev1.PodStatus{
+			Phase:      corev1.PodRunning,
+			Conditions: []corev1.PodCondition{{Type: corev1.ContainersReady, Status: corev1.ConditionFalse, Message: "containers with unready status: [app]"}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "app",
+				Ready: false,
+				State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: started}},
+			}},
+		},
+	}
+	r, _ := newTestReconciler(t, app, pod)
+
+	// 30 s startup + 30 s readiness = 60 s budget.
+	r.Now = func() time.Time { return started.Add(20 * time.Second) }
+	if failing, reason := r.processHealth(context.Background(), app, "web"); failing != 0 || reason != "" {
+		t.Errorf("20s after start: failing=%d reason=%q, want starting", failing, reason)
+	}
+	r.Now = func() time.Time { return started.Add(59 * time.Second) }
+	if failing, _ := r.processHealth(context.Background(), app, "web"); failing != 0 {
+		t.Errorf("59s after start: still within budget, got failing=%d", failing)
+	}
+	r.Now = func() time.Time { return started.Add(75 * time.Second) }
+	failing, reason := r.processHealth(context.Background(), app, "web")
+	if failing != 1 || reason != "not ready after 1m15s: readiness probe failing" {
+		t.Errorf("75s after start: failing=%d reason=%q", failing, reason)
+	}
+
+	// Without probes on the pod the minimum budget applies.
+	if got := startupBudget(corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}}}); got != minStartupBudget {
+		t.Errorf("budget without probes = %s", got)
+	}
+	// A crash loop is failing regardless of age.
+	pod.Status.ContainerStatuses[0].State = corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}
+	r2, _ := newTestReconciler(t, app, pod)
+	r2.Now = func() time.Time { return started.Add(time.Second) }
+	if failing, reason := r2.processHealth(context.Background(), app, "web"); failing != 1 || reason != "CrashLoopBackOff" {
+		t.Errorf("crash loop: failing=%d reason=%q", failing, reason)
 	}
 }

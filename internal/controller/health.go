@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,8 +70,11 @@ func (r *AppReconciler) processHealth(ctx context.Context, app *shpyrdv1.App, pr
 			}
 			// A running container whose readiness probe keeps failing is
 			// also "failing" from the user's perspective: it never serves.
+			// Until its startup budget has passed it is merely starting.
 			if why == "" && cs.State.Running != nil && !cs.Ready {
-				why = probeFailureReason(pod)
+				if unready := r.now().Sub(cs.State.Running.StartedAt.Time); unready > startupBudget(pod) {
+					why = probeFailureReason(pod, unready)
+				}
 			}
 			if why != "" {
 				failing++
@@ -99,13 +103,58 @@ func shortMessage(m string) string {
 	return m
 }
 
-// probeFailureReason extracts the last probe failure message from a pod's
-// conditions and events (best-effort; returns a generic message when none).
-func probeFailureReason(pod corev1.Pod) string {
-	for _, cond := range pod.Status.Conditions {
-		if cond.Type == corev1.ContainersReady && cond.Status == corev1.ConditionFalse && cond.Message != "" {
-			return "readiness probe: " + shortMessage(cond.Message)
+// now is swappable for tests.
+func (r *AppReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
+}
+
+// minStartupBudget is how long a freshly started instance may stay unready
+// before it counts as failing when its probes allow less than that.
+const minStartupBudget = 30 * time.Second
+
+// startupBudget is how long the app container of pod may legitimately be
+// running without being ready: the whole startup probe window plus one round
+// of readiness failures, as configured on the pod (RFC-0019).
+func startupBudget(pod corev1.Pod) time.Duration {
+	budget := minStartupBudget
+	for _, c := range pod.Spec.Containers {
+		if c.Name != "app" {
+			continue
+		}
+		var secs int32
+		for _, p := range []*corev1.Probe{c.StartupProbe, c.ReadinessProbe} {
+			if p == nil {
+				continue
+			}
+			period, threshold := p.PeriodSeconds, p.FailureThreshold
+			if period == 0 {
+				period = 10 // kubelet default
+			}
+			if threshold == 0 {
+				threshold = 3
+			}
+			secs += p.InitialDelaySeconds + period*threshold
+		}
+		if d := time.Duration(secs) * time.Second; d > budget {
+			budget = d
 		}
 	}
-	return "readiness probe failing"
+	return budget
+}
+
+// probeFailureReason explains a container that has been running but unready
+// for longer than its startup budget, quoting the pod's condition when it
+// says more than "containers with unready status".
+func probeFailureReason(pod corev1.Pod, unready time.Duration) string {
+	why := fmt.Sprintf("not ready after %s: readiness probe failing", unready.Truncate(time.Second))
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.ContainersReady && cond.Status == corev1.ConditionFalse && cond.Message != "" &&
+			!strings.HasPrefix(cond.Message, "containers with unready status") {
+			return why + ": " + shortMessage(cond.Message)
+		}
+	}
+	return why
 }

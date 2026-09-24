@@ -46,6 +46,8 @@ type AppReconciler struct {
 	Scheme    *runtime.Scheme
 	Recorder  record.EventRecorder
 	Config    Config
+	// Now returns the current time; nil means time.Now (tests override it).
+	Now func() time.Time
 }
 
 // SetupWithManager registers the controller and its watches.
