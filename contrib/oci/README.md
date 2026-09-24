@@ -28,7 +28,7 @@ terraform apply                                # about 15 minutes
 cd ..
 ./kubeconfig.sh
 ./tunnel.sh &                                  # sessions live 3 hours; run again
-kubectl --context oke-shpyrd-poc get nodes
+kubectl --context oke-shpyrd-dev get nodes
 ```
 
 `terraform output next_steps` prints the `shpyrd cluster init` command with the reserved
@@ -62,8 +62,10 @@ reserved address, so the platform's hostnames resolve as soon as the delegation 
 
 ## Tear down
 
-Delete the Kubernetes objects that own cloud resources first (LoadBalancer Services,
-PersistentVolumeClaims) or they outlive the cluster, then `terraform destroy`.
+`shpyrd cluster destroy --context oke-<name>` removes what the platform created in the
+cloud through Kubernetes (projects with their data, load balancers, disks) and waits for
+the cloud to confirm, so nothing outlives the cluster; then `terraform destroy` removes
+the cluster, the network and the DNS zone.
 
 ## Caveats
 

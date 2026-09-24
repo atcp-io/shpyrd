@@ -997,8 +997,21 @@ func newClusterDestroyCmd(g *globalFlags) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "destroy",
-		Short: "Delete the local kind cluster",
+		Short: "Delete the local kind cluster, or the platform on a cloud cluster",
+		Long: `Without --context: deletes the local kind cluster and everything in it,
+and undoes what was set up on this machine for it (Caddy site, local DNS).
+
+With --context pointing at a cloud cluster: deletes what the platform
+created in the cloud through Kubernetes, in order, waiting for the cloud to
+confirm each step: every project (apps, databases, caches and volumes, with
+their data), the load balancers, then the remaining disks (registry, server
+data, monitoring). It ends with the command that removes the cluster and its
+network, which belong to the infrastructure tooling (Terraform for Oracle
+Cloud, see contrib/oci).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if g.kubeCtx != "" && !isKindContext(g.kubeCtx) {
+				return destroyCloud(signalContext(), cmd, g, yes)
+			}
 			p := kind.NewProvider()
 			exists, err := p.Exists(name)
 			if err != nil {

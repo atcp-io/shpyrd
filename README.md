@@ -7,8 +7,8 @@ CLI and one dashboard on top of Kubernetes.
 
 [![The shop project in the shpyrd dashboard](https://shpyrd.io/screenshots/project-overview.png)](https://shpyrd.io/docs/tour)
 
-Status: pre-alpha. The design and roadmap live in
-[RFC-0001](rfcs/0001-mvp-local-platform.md). Website: https://shpyrd.io
+Status: beta. It runs on a local kind cluster and on Oracle Cloud (OKE); the
+design record and roadmap live in [rfcs/](rfcs/README.md). Website: https://shpyrd.io
 
 ## Quick start (local)
 
@@ -61,7 +61,7 @@ shpyrd cluster create --front-door caddy --local-dns       # behind an existing 
 shpyrd cluster init --only shpyrd            # re-apply one component
 shpyrd cluster init --skip monitoring        # lighter install
 shpyrd cluster export -o ./gitops            # render everything for Flux / Argo CD
-shpyrd cluster destroy
+shpyrd cluster destroy                       # the kind cluster; --context <cloud> empties a cloud cluster first
 ```
 
 Docker Desktop must use cgroup v2 (the default). With the deprecated cgroup v1

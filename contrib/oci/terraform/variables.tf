@@ -6,7 +6,7 @@ variable "tenancy_ocid" {
 }
 
 variable "compartment_ocid" {
-  description = "Compartment for every resource; the tenancy root when empty (fine for a proof of concept)."
+  description = "Compartment for every resource; the tenancy root when empty (fine for a development cluster; production wants its own compartment)."
   type        = string
   default     = ""
 }
@@ -25,7 +25,7 @@ variable "config_file_profile" {
 variable "name" {
   description = "Name of the platform; prefixes every resource and names the cluster."
   type        = string
-  default     = "shpyrd-poc"
+  default     = "shpyrd-dev"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{1,30}$", var.name))
