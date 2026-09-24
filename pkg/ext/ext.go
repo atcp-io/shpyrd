@@ -75,6 +75,14 @@ type Deps struct {
 	Auth AuthRegistry
 }
 
+// Var reads an install variable, "" when none is configured.
+func (d Deps) Var(name string) string {
+	if d.Vars == nil {
+		return ""
+	}
+	return d.Vars(name)
+}
+
 // AuthRegistry is implemented by the server's relying party.
 type AuthRegistry interface {
 	// AddOIDC registers an OpenID Connect provider users can sign in with.

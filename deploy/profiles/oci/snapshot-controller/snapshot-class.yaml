@@ -1,0 +1,10 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ${SHPYRD_SNAPSHOT_CLASS}
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+driver: blockvolume.csi.oraclecloud.com
+deletionPolicy: Delete
+parameters:
+  backupType: incremental

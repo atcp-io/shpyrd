@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/install"
 )
 
 // VolumeView is a project volume as shown to users.
@@ -32,13 +33,19 @@ type VolumeView struct {
 	Message      string    `json:"message,omitempty"`
 	MountedBy    []string  `json:"mountedBy"`
 	CreatedAt    time.Time `json:"createdAt"`
+	// RestoredFrom is the snapshot the volume was restored from (RFC-0060).
+	RestoredFrom string `json:"restoredFrom,omitempty"`
+	// Note explains a provider rule applied at creation, such as a size
+	// rounded up to the provider's minimum (RFC-0060).
+	Note string `json:"note,omitempty"`
 }
 
 func volumeView(v shpyrdv1.Volume) VolumeView {
 	out := VolumeView{
 		Name: v.Name, Namespace: v.Namespace, Size: v.Spec.Size.String(), Capacity: v.Status.Capacity,
-		Shared: v.Shared(), StorageClass: v.Spec.StorageClass, Phase: firstNonEmpty(v.Status.Phase, shpyrdv1.VolumePending),
+		Shared: v.Shared(), StorageClass: firstNonEmpty(v.Status.StorageClass, v.Spec.StorageClass), Phase: firstNonEmpty(v.Status.Phase, shpyrdv1.VolumePending),
 		Message: v.Status.Message, MountedBy: v.Status.MountedBy, CreatedAt: v.CreationTimestamp.Time,
+		RestoredFrom: v.Status.RestoredFrom,
 	}
 	if out.MountedBy == nil {
 		out.MountedBy = []string{}
@@ -54,6 +61,9 @@ type CreateVolumeRequest struct {
 	Size         string `json:"size" binding:"required"`
 	StorageClass string `json:"storageClass,omitempty"`
 	Shared       bool   `json:"shared,omitempty"`
+	// FromSnapshot starts the volume from a snapshot of the project
+	// (RFC-0060) instead of empty.
+	FromSnapshot string `json:"fromSnapshot,omitempty"`
 }
 
 // ResizeVolumeRequest grows a volume.
@@ -90,12 +100,33 @@ func (s *Server) createVolume(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
+	// Provider minimum (RFC-0060): the disk would be that size anyway; say
+	// so before it exists instead of after the bill. Shared volumes are
+	// file systems, which have no such minimum and ignore the size.
+	var note string
+	if req.Shared {
+		if s.vars(install.VarFSSMountTarget) != "" {
+			note = "shared volumes are Oracle Cloud File Storage file systems: the size is not enforced, the volume grows as needed and billing follows use"
+		}
+	} else {
+		size, note = s.applyVolumeMinimum(size)
+	}
 	vol := &shpyrdv1.Volume{
 		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: projectNamespace(c), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
-		Spec:       shpyrdv1.VolumeSpec{Size: size, StorageClass: req.StorageClass, AccessMode: corev1.ReadWriteOnce},
+		Spec:       shpyrdv1.VolumeSpec{Size: size, StorageClass: req.StorageClass, AccessMode: corev1.ReadWriteOnce, FromSnapshot: req.FromSnapshot},
 	}
 	if req.Shared {
 		vol.Spec.AccessMode = corev1.ReadWriteMany
+	}
+	if req.FromSnapshot != "" {
+		if err := s.checkSnapshotUsable(c.Request.Context(), vol.Namespace, req.FromSnapshot, &vol.Spec.Size); err != nil {
+			abort(c, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if err := s.checkVolumeClass(c.Request.Context(), vol); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
 	}
 	if err := s.apps.Create(c.Request.Context(), vol); err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -105,8 +136,59 @@ func (s *Server) createVolume(c *gin.Context) {
 		}
 		return
 	}
-	s.audit(c, c.Param("slug"), "volume.create", vol.Name, req.Size)
-	c.JSON(http.StatusCreated, volumeView(*vol))
+	s.audit(c, c.Param("slug"), "volume.create", vol.Name, vol.Spec.Size.String())
+	view := volumeView(*vol)
+	view.Note = note
+	c.JSON(http.StatusCreated, view)
+}
+
+// applyVolumeMinimum rounds a request up to the profile's minimum volume
+// size and explains it.
+func (s *Server) applyVolumeMinimum(size resource.Quantity) (resource.Quantity, string) {
+	minStr := s.vars(install.VarVolumeMinSize)
+	if minStr == "" {
+		return size, ""
+	}
+	minimum, err := resource.ParseQuantity(minStr)
+	if err != nil || size.Cmp(minimum) >= 0 {
+		return size, ""
+	}
+	provider := "volumes on this cluster"
+	if s.vars(install.VarProfile) == "oci" {
+		provider = "Oracle Cloud block volumes"
+	}
+	return minimum, fmt.Sprintf("%s start at %s: created at %s instead of %s", provider, minimum.String(), minimum.String(), size.String())
+}
+
+// checkVolumeClass refuses a volume whose storage class does not exist on
+// the cluster before anything is created: the shared class in particular
+// is installed only where the profile's shared storage is set up.
+func (s *Server) checkVolumeClass(ctx context.Context, vol *shpyrdv1.Volume) error {
+	class := vol.Spec.StorageClass
+	if class == "" {
+		if vol.Shared() {
+			class = s.vars(install.VarStorageClassShared)
+		} else {
+			class = s.vars(install.VarStorageClass)
+		}
+	}
+	if class == "" || s.kube == nil || s.kube.Kube == nil {
+		return nil
+	}
+	_, err := s.kube.Kube.StorageV1().StorageClasses().Get(ctx, class, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err) && vol.Spec.StorageClass == "" && vol.Shared():
+		hint := "no ReadWriteMany storage class is installed"
+		if s.vars(install.VarProfile) == "oci" {
+			hint = "create the File Storage mount target with contrib/oci/terraform (shared_storage = true) and pass --set SHPYRD_FSS_MOUNT_TARGET and --set SHPYRD_FSS_AD to `shpyrd cluster init`"
+		}
+		return fmt.Errorf("shared volumes are not set up on this cluster (storage class %s does not exist): %s", class, hint)
+	case apierrors.IsNotFound(err):
+		return fmt.Errorf("storage class %q does not exist on this cluster", class)
+	case err != nil:
+		return fmt.Errorf("check storage class %s: %w", class, err)
+	}
+	return nil
 }
 
 func (s *Server) resizeVolume(c *gin.Context) {
@@ -129,6 +211,11 @@ func (s *Server) resizeVolume(c *gin.Context) {
 	if floor := volumeFloor(vol); size.Cmp(floor) < 0 {
 		abort(c, http.StatusBadRequest, fmt.Errorf("volumes cannot shrink (currently %s)", floor.String()))
 		return
+	}
+	if !vol.Shared() {
+		if rounded, note := s.applyVolumeMinimum(size); note != "" {
+			size = rounded
+		}
 	}
 	vol.Spec.Size = size
 	if err := s.apps.Update(c.Request.Context(), vol); err != nil {

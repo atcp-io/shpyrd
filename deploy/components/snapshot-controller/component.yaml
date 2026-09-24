@@ -1,0 +1,10 @@
+name: snapshot-controller
+description: CSI volume snapshots (external-snapshotter CRDs and controller) and the profile's snapshot class, for `shpyrd volumes snapshot` (RFC-0060)
+namespace: kube-system
+kustomize:
+  path: base
+wait:
+  - crd: volumesnapshots.snapshot.storage.k8s.io
+  - crd: volumesnapshotclasses.snapshot.storage.k8s.io
+  - deployment: kube-system/snapshot-controller
+timeout: 5m

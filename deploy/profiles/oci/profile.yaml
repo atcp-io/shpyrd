@@ -38,6 +38,17 @@ vars:
   SHPYRD_INTERNAL_LB_SUBNET: ""
   SHPYRD_INGRESS_CLASS_EXTERNAL: nginx
   SHPYRD_INGRESS_CLASS_INTERNAL: nginx-internal
+  # Volumes (RFC-0060): OCI Block Volume (balanced performance, expansion
+  # allowed), which starts at 50 GB; snapshots are block volume backups.
+  # Shared volumes are File Storage file systems behind the mount target
+  # contrib/oci/terraform creates (shared_storage = true; its outputs give
+  # both values): --set SHPYRD_FSS_MOUNT_TARGET=<ocid> --set SHPYRD_FSS_AD=<ad>
+  SHPYRD_STORAGE_CLASS: oci-bv
+  SHPYRD_STORAGE_CLASS_SHARED: shpyrd-fss
+  SHPYRD_VOLUME_MIN_SIZE: 50Gi
+  SHPYRD_SNAPSHOT_CLASS: oci-bv-backup
+  SHPYRD_FSS_MOUNT_TARGET: ""
+  SHPYRD_FSS_AD: ""
   SHPYRD_DNS_PROVIDER: none
   SHPYRD_DNS_AUTH: key
   SHPYRD_DNS_COMPARTMENT: ""
@@ -59,7 +70,7 @@ runlevels:
   - name: rc0
     components: [monitoring-crds]
   - name: rc1
-    components: [network-policy, cert-manager, registry-credentials]
+    components: [network-policy, cert-manager, registry-credentials, snapshot-controller, storage-fss]
   - name: rc2
     components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, ingress-nginx-internal, registry, registry-nodes, external-dns, dns01-oci]
   - name: rc3

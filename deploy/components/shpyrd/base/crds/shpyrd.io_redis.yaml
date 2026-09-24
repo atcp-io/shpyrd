@@ -157,6 +157,11 @@ spec:
               phase:
                 description: Phase is Pending, Provisioning, Ready or Failed.
                 type: string
+              storage:
+                description: |-
+                  Storage is the effective data volume size when it differs from the
+                  request: the provider's minimum applied (RFC-0060).
+                type: string
             type: object
         required:
         - spec

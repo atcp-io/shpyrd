@@ -138,8 +138,13 @@ a `Volume` resource backed by a PersistentVolumeClaim it owns). A volume is
 single-instance by default: the process mounting it runs one instance with
 Recreate rollouts, and scaling it up is refused with an explanation. `--shared`
 volumes (ReadWriteMany) can be mounted by many instances but need a provisioner
-that offers it. Data survives deploys, scaling and crashes; only `volumes
-delete` and `projects destroy` remove it (on kind, `cluster destroy` too).
+that offers it (on Oracle Cloud, File Storage; see `contrib/oci`). Data survives
+deploys, scaling and crashes; only `volumes delete` and `projects destroy`
+remove it (on kind, `cluster destroy` too). Cloud profiles round a request up
+to the provider's minimum and say so (Oracle Cloud block volumes start at
+50Gi), and offer snapshots: `shpyrd volumes snapshot data`, then `shpyrd volumes
+restore data --from <snapshot> [--to <new-volume>]` restores into a new volume
+or in place (the mounting process stops while the disk is swapped).
 
 ## Dashboard
 

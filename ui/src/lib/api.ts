@@ -18,6 +18,8 @@ export type PublicConfig = {
     password?: { id: string; label: string };
   };
   extensions: string[];
+  /** Storage rules of this cluster's profile (RFC-0060). */
+  volumes?: { minSize?: string; snapshots: boolean };
 };
 
 export type Identity = {
@@ -88,10 +90,29 @@ export type VolumeInfo = {
   capacity?: string;
   shared: boolean;
   storageClass?: string;
-  phase: "Pending" | "Bound" | "Failed" | string;
+  phase: "Pending" | "Bound" | "Failed" | "Restoring" | string;
   message?: string;
   mountedBy: string[];
   createdAt: string;
+  /** Snapshot the current disk was restored from, if any. */
+  restoredFrom?: string;
+  /** Provider rule applied at creation (a size rounded up, for example). */
+  note?: string;
+};
+
+export type SnapshotInfo = {
+  name: string;
+  volume: string;
+  size?: string;
+  ready: boolean;
+  message?: string;
+  createdAt: string;
+};
+
+export type RestoreVolumeResult = {
+  volume: VolumeInfo;
+  inPlace: boolean;
+  message: string;
 };
 
 export type InstanceSize = {
@@ -662,6 +683,29 @@ export const api = {
     request<void>(
       `${project(slug)}/volumes/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
+    ),
+  snapshots: (slug: string, volume: string) =>
+    request<SnapshotInfo[]>(
+      `${project(slug)}/volumes/${encodeURIComponent(volume)}/snapshots`,
+    ),
+  createSnapshot: (slug: string, volume: string, name?: string) =>
+    request<SnapshotInfo>(
+      `${project(slug)}/volumes/${encodeURIComponent(volume)}/snapshots`,
+      json("POST", name ? { name } : {}),
+    ),
+  deleteSnapshot: (slug: string, volume: string, snapshot: string) =>
+    request<void>(
+      `${project(slug)}/volumes/${encodeURIComponent(volume)}/snapshots/${encodeURIComponent(snapshot)}`,
+      { method: "DELETE" },
+    ),
+  restoreVolume: (
+    slug: string,
+    volume: string,
+    body: { snapshot: string; to?: string },
+  ) =>
+    request<RestoreVolumeResult>(
+      `${project(slug)}/volumes/${encodeURIComponent(volume)}/restore`,
+      json("POST", body),
     ),
   cluster: () => request<ClusterSummary>("/api/cluster"),
   clusterMetrics: (range: string) =>

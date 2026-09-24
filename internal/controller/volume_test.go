@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"strings"
 	"testing"
 
@@ -230,5 +231,141 @@ func TestAppMountsSingleInstanceVolume(t *testing.T) {
 	}
 	if reqs := r.volumeToApps(context.Background(), vol); len(reqs) != 0 {
 		t.Errorf("volumeToApps should only list mounting apps, got %+v", reqs)
+	}
+}
+
+// RFC-0060: claims use the profile's class when the Volume names none (the
+// shared class for ReadWriteMany), and a volume can start from a snapshot.
+func TestVolumeProfileClassesAndSnapshotSource(t *testing.T) {
+	vol := &shpyrdv1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: "app-x"}, Spec: shpyrdv1.VolumeSpec{Size: resource.MustParse("5Gi")}}
+	shared := &shpyrdv1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "media", Namespace: "app-x"}, Spec: shpyrdv1.VolumeSpec{Size: resource.MustParse("5Gi"), AccessMode: corev1.ReadWriteMany}}
+	copyVol := &shpyrdv1.Volume{ObjectMeta: metav1.ObjectMeta{Name: "data-copy", Namespace: "app-x"}, Spec: shpyrdv1.VolumeSpec{Size: resource.MustParse("5Gi"), FromSnapshot: "data-before"}}
+	bv := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "oci-bv"}, Provisioner: "blockvolume.csi.oraclecloud.com"}
+	r, c := newVolumeReconciler(t, vol, shared, copyVol, bv)
+	r.DefaultClass, r.SharedClass = "oci-bv", "shpyrd-fss"
+
+	// The shared class is not installed yet: a clear refusal, no claim.
+	got := reconcileVolume(t, r, shared)
+	if got.Status.Phase != shpyrdv1.VolumeFailed || !strings.Contains(got.Status.Message, "shared volumes are not set up on this cluster") {
+		t.Errorf("missing shared class: %s / %s", got.Status.Phase, got.Status.Message)
+	}
+	if err := c.Create(context.Background(), &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "shpyrd-fss"}, Provisioner: "fss.csi.oraclecloud.com"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got = reconcileVolume(t, r, vol)
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-x", Name: "vol-data"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "oci-bv" || got.Status.StorageClass != "oci-bv" {
+		t.Errorf("single-instance class = %v / status %q", pvc.Spec.StorageClassName, got.Status.StorageClass)
+	}
+	reconcileVolume(t, r, shared)
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-x", Name: "vol-media"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "shpyrd-fss" {
+		t.Errorf("shared class = %v", pvc.Spec.StorageClassName)
+	}
+	got = reconcileVolume(t, r, copyVol)
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-x", Name: "vol-data-copy"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	if pvc.Spec.DataSource == nil || pvc.Spec.DataSource.Kind != "VolumeSnapshot" || pvc.Spec.DataSource.Name != "data-before" || got.Status.RestoredFrom != "data-before" {
+		t.Errorf("snapshot source = %+v, restoredFrom=%q", pvc.Spec.DataSource, got.Status.RestoredFrom)
+	}
+}
+
+// RFC-0060: restoring in place waits for the instances to stop, replaces the
+// claim with one from the snapshot and clears the request when it is bound.
+func TestVolumeRestoreInPlace(t *testing.T) {
+	vol := &shpyrdv1.Volume{
+		ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: "app-x", Annotations: map[string]string{shpyrdv1.AnnotationRestoreFrom: "data-before"}},
+		Spec:       shpyrdv1.VolumeSpec{Size: resource.MustParse("5Gi")},
+	}
+	oldPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "vol-data", Namespace: "app-x", Labels: map[string]string{LabelVolume: "data"}},
+		Spec:       corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("5Gi")}}},
+		Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+	}
+	snap := &unstructured.Unstructured{}
+	snap.SetGroupVersionKind(VolumeSnapshotGVK)
+	snap.SetName("data-before")
+	snap.SetNamespace("app-x")
+	_ = unstructured.SetNestedField(snap.Object, true, "status", "readyToUse")
+	user := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-1", Namespace: "app-x"},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "x"}}, Volumes: []corev1.Volume{{Name: "v", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "vol-data"}}}}},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	r, c := newVolumeReconciler(t, vol, oldPVC, snap, user)
+	ctx := context.Background()
+
+	// An instance still mounts the claim: stop first, keep the claim.
+	got := reconcileVolume(t, r, vol)
+	if got.Status.Phase != shpyrdv1.VolumeRestoring || !strings.Contains(got.Status.Message, "stopping 1 instance") {
+		t.Fatalf("with a user: %s %q", got.Status.Phase, got.Status.Message)
+	}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-x", Name: "vol-data"}, &corev1.PersistentVolumeClaim{}); err != nil {
+		t.Fatal("claim must survive while used")
+	}
+	// The instance is gone: the old claim goes.
+	if err := c.Delete(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	got = reconcileVolume(t, r, vol)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-x", Name: "vol-data"}, &corev1.PersistentVolumeClaim{}); err == nil {
+		t.Fatal("old claim must be deleted once unused")
+	}
+	// Next pass creates the new claim from the snapshot.
+	got = reconcileVolume(t, r, vol)
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-x", Name: "vol-data"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	if pvc.Spec.DataSource == nil || pvc.Spec.DataSource.Name != "data-before" || got.Status.Phase != shpyrdv1.VolumeRestoring {
+		t.Errorf("new claim = %+v phase=%s", pvc.Spec.DataSource, got.Status.Phase)
+	}
+	// The new claim exists: the request is cleared so the processes come
+	// back (a class binding on first consumer needs them to bind at all).
+	got = reconcileVolume(t, r, vol)
+	if _, still := got.Annotations[shpyrdv1.AnnotationRestoreFrom]; still || got.Status.RestoredFrom != "data-before" || got.Status.Phase != shpyrdv1.VolumePending {
+		t.Errorf("after claim: annotations=%v restoredFrom=%q phase=%s", got.Annotations, got.Status.RestoredFrom, got.Status.Phase)
+	}
+	if !strings.Contains(got.Status.Message, "provisioned when a process mounts it") {
+		t.Errorf("message = %q", got.Status.Message)
+	}
+	// Bound once mounted: the volume is back.
+	pvc.Status.Phase = corev1.ClaimBound
+	if err := c.Status().Update(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+	got = reconcileVolume(t, r, got)
+	if got.Status.Phase != shpyrdv1.VolumeBound || got.Status.RestoredFrom != "data-before" {
+		t.Errorf("final phase = %s (%s) restoredFrom=%q", got.Status.Phase, got.Status.Message, got.Status.RestoredFrom)
+	}
+
+	// Restoring again from the same snapshot replaces the disk again: the
+	// current claim came from that snapshot but under another request.
+	got.Annotations = map[string]string{shpyrdv1.AnnotationRestoreFrom: "data-before", shpyrdv1.AnnotationRestoreID: "second"}
+	if err := c.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	got = reconcileVolume(t, r, got)
+	if got.Status.Phase != shpyrdv1.VolumeRestoring {
+		t.Fatalf("second restore: %s %q", got.Status.Phase, got.Status.Message)
+	}
+	got = reconcileVolume(t, r, got) // no users: old claim deleted
+	got = reconcileVolume(t, r, got) // new claim created
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-x", Name: "vol-data"}, pvc); err != nil {
+		t.Fatal(err)
+	}
+	if pvc.Annotations[shpyrdv1.AnnotationRestoreID] != "second" {
+		t.Errorf("new claim request id = %v", pvc.Annotations)
+	}
+	got = reconcileVolume(t, r, got)
+	if _, still := got.Annotations[shpyrdv1.AnnotationRestoreFrom]; still || got.Status.RestoredFrom != "data-before" {
+		t.Errorf("second restore done: annotations=%v restoredFrom=%q", got.Annotations, got.Status.RestoredFrom)
 	}
 }

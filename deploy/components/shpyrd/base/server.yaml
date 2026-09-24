@@ -83,6 +83,19 @@ spec:
             # door's default; project Ingresses then carry no certificate.
             - name: SHPYRD_WILDCARD_TLS
               value: "${SHPYRD_WILDCARD_TLS}"
+            # Volumes (RFC-0060): classes, provider minimum and snapshot class.
+            - name: SHPYRD_STORAGE_CLASS
+              value: "${SHPYRD_STORAGE_CLASS}"
+            - name: SHPYRD_STORAGE_CLASS_SHARED
+              value: "${SHPYRD_STORAGE_CLASS_SHARED}"
+            - name: SHPYRD_VOLUME_MIN_SIZE
+              value: "${SHPYRD_VOLUME_MIN_SIZE}"
+            - name: SHPYRD_SNAPSHOT_CLASS
+              value: "${SHPYRD_SNAPSHOT_CLASS}"
+            - name: SHPYRD_FSS_MOUNT_TARGET
+              value: "${SHPYRD_FSS_MOUNT_TARGET}"
+            - name: SHPYRD_PROFILE
+              value: "${SHPYRD_PROFILE}"
             - name: SHPYRD_INGRESS_CLASS_EXTERNAL
               value: "${SHPYRD_INGRESS_CLASS_EXTERNAL}"
             - name: SHPYRD_INGRESS_CLASS_INTERNAL

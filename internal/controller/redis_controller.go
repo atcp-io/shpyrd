@@ -35,6 +35,8 @@ type RedisReconciler struct {
 	Scheme          *runtime.Scheme
 	Recorder        record.EventRecorder
 	SystemNamespace string
+	// Storage is the profile's disk rules (RFC-0060).
+	Storage StorageProfile
 }
 
 // Engine images, pinned.
@@ -162,18 +164,29 @@ func (r *RedisReconciler) reconcile(ctx context.Context, rd *shpyrdv1.Redis) (ct
 	if rd.Spec.Storage != nil {
 		storage = *rd.Spec.Storage
 	}
+	// The provider minimum (RFC-0060): the disk is that size whatever was
+	// asked; the status says so.
+	rd.Status.Storage = ""
+	if rounded, applied := r.Storage.Size(storage); applied && rd.Spec.Persistent {
+		storage = rounded
+		rd.Status.Storage = rounded.String()
+	}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, sts, func() error {
 		if sts.ResourceVersion == "" { // new object
 			sts.Spec.Selector = &metav1.LabelSelector{MatchLabels: redisLabels(rd)}
 			sts.Spec.ServiceName = rd.Name
 			if rd.Spec.Persistent {
-				sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
+				claim := corev1.PersistentVolumeClaim{
 					ObjectMeta: metav1.ObjectMeta{Name: "data"},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: storage}},
 					},
-				}}
+				}
+				if r.Storage.Class != "" {
+					claim.Spec.StorageClassName = ptr.To(r.Storage.Class)
+				}
+				sts.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{claim}
 			}
 		} else if rd.Spec.Persistent != (len(sts.Spec.VolumeClaimTemplates) > 0) {
 			return fmt.Errorf("persistence cannot change after creation: delete the resource and create it again")

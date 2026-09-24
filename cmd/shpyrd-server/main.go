@@ -29,6 +29,7 @@ import (
 	"shpyrd/pkg/buildtrust"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/ext/all"
+	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
 	"shpyrd/pkg/version"
 	"shpyrd/ui"
@@ -241,7 +242,11 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	if err := drains.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("log drain controller: %w", err)
 	}
-	volumes := &controller.VolumeReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("shpyrd")}
+	volumes := &controller.VolumeReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorderFor("shpyrd"),
+		// Profile storage (RFC-0060).
+		DefaultClass: os.Getenv(install.VarStorageClass), SharedClass: os.Getenv(install.VarStorageClassShared), SnapshotClass: os.Getenv(install.VarSnapshotClass),
+	}
 	if err := volumes.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("volume controller: %w", err)
 	}

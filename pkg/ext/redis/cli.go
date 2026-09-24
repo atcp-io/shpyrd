@@ -173,7 +173,10 @@ func newListCmd(g ext.CLIGlobals) *cobra.Command {
 				mode := "cache"
 				if rd.Spec.Persistent {
 					mode = "persistent"
-					if rd.Spec.Storage != nil {
+					switch {
+					case rd.Status.Storage != "":
+						mode += " " + rd.Status.Storage
+					case rd.Spec.Storage != nil:
 						mode += " " + rd.Spec.Storage.String()
 					}
 				}

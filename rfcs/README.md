@@ -88,7 +88,7 @@ declare what they depend on.
 | [0057](0057-local-names-and-front-door.md) | Local names and front door (dnsmasq wildcard, Caddy on 443) | implemented | 0001 |
 | [0058](0058-external-identity-providers.md) | External identity providers (Okta and OIDC, GitHub, Google) | implemented (GitHub round trip pending an OAuth app) | 0012 |
 | [0059](0059-in-cluster-registry-on-cloud.md) | In-cluster registry as the default on every profile | implemented | 0035, 0060 |
-| [0060](0060-volumes-on-cloud-profiles.md) | Volumes on cloud profiles: storage classes, provider minimums, snapshots | provisional | 0006, 0035, 0041 |
+| [0060](0060-volumes-on-cloud-profiles.md) | Volumes on cloud profiles: storage classes, provider minimums, snapshots | implemented | 0006, 0035, 0041 |
 | [0061](0061-dns-providers.md) | DNS providers: automatic records and wildcard certificates | implemented (OCI DNS) | 0035, 0036 |
 
 ## Phases
@@ -105,7 +105,7 @@ declare what they depend on.
 | G (old) | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | superseded by new G above |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
-| J | 0035, 0059, 0061, 0036, 0034 (done), 0060, 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
+| J | 0035, 0059, 0061, 0036, 0034, 0060 (done), 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
 | K | 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0033 | data stores, security, workspaces |
 | L | 0047, 0048, 0052, 0053, 0054, 0056 | autoscaling, cost, API-first CLI, MFA and passkeys, GitHub App, tracing |
 

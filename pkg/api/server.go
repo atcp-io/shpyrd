@@ -75,6 +75,16 @@ type PublicConfig struct {
 	Auth AuthConfig `json:"auth"`
 	// Extensions enabled on this cluster (RFC-0002).
 	Extensions []string `json:"extensions"`
+	// Volumes describes the profile's storage rules (RFC-0060).
+	Volumes VolumesConfig `json:"volumes"`
+}
+
+// VolumesConfig is what the dashboard needs to know about volumes here.
+type VolumesConfig struct {
+	// MinSize is the provider minimum requests are rounded up to ("" = none).
+	MinSize string `json:"minSize,omitempty"`
+	// Snapshots is true when the cluster can take volume snapshots.
+	Snapshots bool `json:"snapshots"`
 }
 
 // Server is the shpyrd API server.
@@ -298,6 +308,10 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/volumes", s.require(authz.ProjectResource), s.createVolume)
 	api.PUT("/projects/:slug/volumes/:name", s.require(authz.ProjectResource), s.resizeVolume)
 	api.DELETE("/projects/:slug/volumes/:name", s.require(authz.ProjectResource), s.deleteVolume)
+	api.GET("/projects/:slug/volumes/:name/snapshots", s.require(authz.ProjectView), s.listSnapshots)
+	api.POST("/projects/:slug/volumes/:name/snapshots", s.require(authz.ProjectResource), s.createSnapshot)
+	api.DELETE("/projects/:slug/volumes/:name/snapshots/:snap", s.require(authz.ProjectResource), s.deleteSnapshot)
+	api.POST("/projects/:slug/volumes/:name/restore", s.require(authz.ProjectResource), s.restoreVolume)
 	// Project log drains (RFC-0023).
 	api.GET("/projects/:slug/drains", s.require(authz.ProjectView), s.listProjectDrains)
 	api.POST("/projects/:slug/drains", s.require(authz.ProjectResource), s.createProjectDrain)
@@ -381,6 +395,7 @@ func (s *Server) auth() gin.HandlerFunc {
 func (s *Server) config(c *gin.Context) {
 	pub := s.opts.Public
 	pub.Auth = s.authConfig()
+	pub.Volumes = VolumesConfig{MinSize: s.vars(install.VarVolumeMinSize), Snapshots: s.vars(install.VarSnapshotClass) != ""}
 	c.JSON(http.StatusOK, pub)
 }
 

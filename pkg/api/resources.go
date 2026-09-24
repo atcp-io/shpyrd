@@ -160,6 +160,15 @@ func resourceViewOf(t ext.ResourceType, u unstructured.Unstructured) ResourceVie
 			}
 		}
 	}
+	// The disk is the provider's minimum when the request was below it
+	// (RFC-0060): show what exists, not what was asked.
+	if eff, _, _ := unstructured.NestedString(u.Object, "status", "storage"); eff != "" {
+		if req := v.Details["storage"]; req != "" && req != eff {
+			v.Details["storage"] = eff + " (" + req + " requested; provider minimum)"
+		} else {
+			v.Details["storage"] = eff
+		}
+	}
 	return v
 }
 

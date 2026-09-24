@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -560,7 +561,7 @@ func TestVolumesAPIAndScaleRefusal(t *testing.T) {
 			"web": {Volumes: []shpyrdv1.VolumeMount{{Name: "data", Path: "/data"}}},
 		}},
 	}
-	s, cr := newTestServer(t, nil, []client.Object{app})
+	s, cr := newTestServer(t, nil, []client.Object{app}, &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs"}, Provisioner: "x"})
 
 	if rec := do(t, s, "GET", "/api/projects/demo/volumes", "", true); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Fatalf("empty list: %d %s", rec.Code, rec.Body.String())
@@ -584,6 +585,10 @@ func TestVolumesAPIAndScaleRefusal(t *testing.T) {
 	}
 	if rec := do(t, s, "POST", "/api/projects/demo/volumes", `{"name":"assets","size":"1Gi","shared":true,"storageClass":"nfs"}`, true); rec.Code != http.StatusCreated {
 		t.Errorf("shared create: %d %s", rec.Code, rec.Body.String())
+	}
+	// A class that does not exist is refused before anything is created.
+	if rec := do(t, s, "POST", "/api/projects/demo/volumes", `{"name":"fast","size":"1Gi","storageClass":"nope"}`, true); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `nope\" does not exist`) {
+		t.Errorf("unknown class: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Resize: grow ok, shrink refused.

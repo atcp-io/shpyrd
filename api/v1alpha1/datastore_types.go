@@ -30,6 +30,10 @@ type ResourceStatus struct {
 	// CredentialsSecret holds the connection details the binding exposes.
 	// +optional
 	CredentialsSecret string `json:"credentialsSecret,omitempty"`
+	// Storage is the effective data volume size when it differs from the
+	// request: the provider's minimum applied (RFC-0060).
+	// +optional
+	Storage string `json:"storage,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }

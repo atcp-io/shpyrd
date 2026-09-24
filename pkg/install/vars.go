@@ -59,6 +59,13 @@ const (
 	VarInternalLBSubnet     = "SHPYRD_INTERNAL_LB_SUBNET"     // subnet OCID for the private LB (OCI)
 	VarIngressClassInternal = "SHPYRD_INGRESS_CLASS_INTERNAL" // ingress class of the internal controller
 	VarIngressClassExternal = "SHPYRD_INGRESS_CLASS_EXTERNAL" // ingress class of the external controller
+	// Volumes on cloud profiles (RFC-0060).
+	VarStorageClass       = "SHPYRD_STORAGE_CLASS"        // class for single-instance volumes ("" = the cluster default)
+	VarStorageClassShared = "SHPYRD_STORAGE_CLASS_SHARED" // class for shared (ReadWriteMany) volumes
+	VarVolumeMinSize      = "SHPYRD_VOLUME_MIN_SIZE"      // provider minimum a request is rounded up to ("" = none)
+	VarSnapshotClass      = "SHPYRD_SNAPSHOT_CLASS"       // VolumeSnapshotClass for `shpyrd volumes snapshot` ("" = snapshots unavailable)
+	VarFSSMountTarget     = "SHPYRD_FSS_MOUNT_TARGET"     // OCI File Storage mount target OCID behind shared volumes ("" = no shared volumes)
+	VarFSSAD              = "SHPYRD_FSS_AD"               // availability domain of the shared volumes' file systems (OCI)
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine

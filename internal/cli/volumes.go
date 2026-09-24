@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,14 +11,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/api"
 )
 
 var volumeNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$`)
@@ -45,16 +45,18 @@ Mount in shpyrd.yaml:
         - name: data
           path: /data`,
 	}
-	cmd.AddCommand(newVolumesCreateCmd(g), newVolumesListCmd(g), newVolumesResizeCmd(g), newVolumesDeleteCmd(g))
+	cmd.AddCommand(newVolumesCreateCmd(g), newVolumesListCmd(g), newVolumesResizeCmd(g), newVolumesDeleteCmd(g),
+		newVolumesSnapshotCmd(g), newVolumesSnapshotsCmd(g), newVolumesRestoreCmd(g))
 	return cmd
 }
 
 func newVolumesCreateCmd(g *globalFlags) *cobra.Command {
 	var (
-		appName string
-		size    string
-		class   string
-		shared  bool
+		appName      string
+		size         string
+		class        string
+		shared       bool
+		fromSnapshot string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name> --size 5Gi",
@@ -80,25 +82,28 @@ func newVolumesCreateCmd(g *globalFlags) *cobra.Command {
 			if _, err := ac.getApp(ctx, name); err != nil {
 				return err
 			}
-			vol := &shpyrdv1.Volume{
-				ObjectMeta: metav1.ObjectMeta{Name: args[0], Namespace: appNamespace(name), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
-				Spec:       shpyrdv1.VolumeSpec{Size: qty, StorageClass: class, AccessMode: corev1.ReadWriteOnce},
-			}
-			if shared {
-				vol.Spec.AccessMode = corev1.ReadWriteMany
-			}
-			if err := ac.c.Create(ctx, vol); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					return fmt.Errorf("volume %q already exists in project %s", args[0], name)
-				}
+			// Through the server: it knows the profile's storage classes and
+			// minimum size and says when it rounds a request up (RFC-0060).
+			body, _ := json.Marshal(api.CreateVolumeRequest{Name: args[0], Size: qty.String(), StorageClass: class, Shared: shared, FromSnapshot: fromSnapshot})
+			raw, err := serverRequest(ctx, ac.k, "POST", "api/projects/"+name+"/volumes", body, "application/json")
+			if err != nil {
 				return err
+			}
+			var view api.VolumeView
+			if err := json.Unmarshal(raw, &view); err != nil {
+				return fmt.Errorf("unexpected response: %s", truncate(string(raw), 200))
 			}
 			kind := "single-instance"
 			if shared {
 				kind = "shared"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created %s volume %s (%s) in project %s\n", kind, args[0], qty.String(), name)
-			ac.audit(ctx, name, "volume.create", args[0], qty.String()+" "+kind)
+			fmt.Fprintf(cmd.OutOrStdout(), "Created %s volume %s (%s) in project %s\n", kind, args[0], view.Size, name)
+			if view.Note != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Note: %s.\n", view.Note)
+			}
+			if fromSnapshot != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "The data comes from snapshot %s.\n", fromSnapshot)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Mount it in shpyrd.yaml under processes.<type>.volumes: [{name: %s, path: /data}] and deploy.\n", args[0])
 			if shared {
 				fmt.Fprintln(cmd.OutOrStdout(), "Note: shared volumes need a ReadWriteMany provisioner and are unsafe for SQLite.")
@@ -108,8 +113,9 @@ func newVolumesCreateCmd(g *globalFlags) *cobra.Command {
 	}
 	appFlag(cmd, &appName)
 	cmd.Flags().StringVar(&size, "size", "", "size, e.g. 5Gi (required)")
-	cmd.Flags().StringVar(&class, "class", "", "storage class (default: the cluster default)")
+	cmd.Flags().StringVar(&class, "class", "", "storage class (default: the profile's class for this kind of volume)")
 	cmd.Flags().BoolVar(&shared, "shared", false, "ReadWriteMany: mountable by several instances and processes")
+	cmd.Flags().StringVar(&fromSnapshot, "from-snapshot", "", "start from a snapshot of this project instead of empty (see `shpyrd volumes snapshots`)")
 	_ = cmd.MarkFlagRequired("size")
 	return cmd
 }
@@ -146,8 +152,11 @@ func newVolumesListCmd(g *globalFlags) *cobra.Command {
 					mode = "shared"
 				}
 				status := firstNonEmpty(v.Status.Phase, "Pending")
-				if v.Status.Phase == shpyrdv1.VolumeFailed && v.Status.Message != "" {
+				if v.Status.Message != "" {
 					status += ": " + v.Status.Message
+				}
+				if v.Status.RestoredFrom != "" && v.Status.Phase == shpyrdv1.VolumeBound {
+					status += " (restored from " + v.Status.RestoredFrom + ")"
 				}
 				size := v.Spec.Size.String()
 				if v.Status.Capacity != "" && v.Status.Capacity != size {

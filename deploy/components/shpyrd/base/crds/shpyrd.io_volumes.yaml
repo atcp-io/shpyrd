@@ -63,6 +63,11 @@ spec:
                 - ReadWriteOnce
                 - ReadWriteMany
                 type: string
+              fromSnapshot:
+                description: |-
+                  FromSnapshot creates the volume from a snapshot (a VolumeSnapshot in
+                  the project) instead of empty (RFC-0060). Immutable.
+                type: string
               size:
                 anyOf:
                 - type: integer
@@ -153,6 +158,16 @@ spec:
                 type: integer
               phase:
                 description: Phase is Pending, Bound or Failed.
+                type: string
+              restoredFrom:
+                description: |-
+                  RestoredFrom is the snapshot the current claim was restored from, if
+                  any (RFC-0060).
+                type: string
+              storageClass:
+                description: |-
+                  StorageClass the claim was provisioned from (the profile's default
+                  when the spec names none).
                 type: string
             type: object
         required:

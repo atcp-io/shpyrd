@@ -51,6 +51,14 @@ reserved address, so the platform's hostnames resolve as soon as the delegation 
   ingress-nginx as `SHPYRD_LB_IP`.
 - `VM.Standard.E5.Flex` because `A1` (Always Free, arm64) was out of host capacity in the
   region when this was built; set `node_shape = "VM.Standard.A1.Flex"` to try.
+- **Shared volumes on File Storage** (`shared_storage = true`, RFC-0060): one mount target
+  in the workers subnet behind a security group that admits NFS from the workers only, and
+  an IAM policy letting the cluster's CSI plugin create file systems. Pass the two values
+  `next_steps` prints (`--set SHPYRD_FSS_MOUNT_TARGET=… --set SHPYRD_FSS_AD=…`) to
+  `shpyrd cluster init`. Off by default because it needs the File Storage service limits
+  `mount-target-count` and `file-system-count` above zero in the availability domain, which
+  some tenancies must request first (Console: Governance > Limits, Quotas and Usage > File
+  Storage). The mount target is free; file systems bill by the space used.
 
 ## Tear down
 
@@ -61,6 +69,7 @@ PersistentVolumeClaims) or they outlive the cluster, then `terraform destroy`.
 
 - OKE does not enforce Kubernetes `NetworkPolicy` with VCN-native pod networking; the
   `oci` profile installs Calico in policy-only mode (RFC-0035).
-- Block volumes start at 50 GB (RFC-0060).
+- Block volumes start at 50 GB; shpyrd rounds smaller requests up and says so (RFC-0060).
+  Snapshots are block volume backups (`oci-bv-backup`), billed on the backup's size.
 - Costs at the defaults: two E5 workers (2 OCPU / 12 GB) about $0.10 per hour each, a
   flexible load balancer at 10 Mbps; Bastion, VCN, DNS zone and reserved address are free.

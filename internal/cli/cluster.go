@@ -578,6 +578,11 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		if vars[install.VarNetworkPolicy] == "none" && prof.HasComponent("network-policy") {
 			skip = append(append([]string{}, skip...), "network-policy")
 		}
+		// Shared volumes need the File Storage mount target (RFC-0060); the
+		// class makes no sense without it and the Volume controller explains.
+		if effectiveVar(vars, prof, install.VarFSSMountTarget) == "" && prof.HasComponent("storage-fss") {
+			skip = append(append([]string{}, skip...), "storage-fss")
+		}
 		// No DNS provider: no records automation, no wildcard certificate.
 		if dns := effectiveVar(vars, prof, install.VarDNSProvider); dns == "" || dns == "none" {
 			for _, c := range []string{"external-dns", "dns01-oci", "dns"} {

@@ -33,7 +33,7 @@ locals {
   dns_key     = var.dns_zone != "" && var.dns_auth == "key"
   dns_wi      = var.dns_zone != "" && var.dns_auth == "workload"
   # "in tenancy" when the compartment is the root, else "in compartment id ...".
-  dns_location = local.compartment_id == var.tenancy_ocid ? "in tenancy" : "in compartment id ${local.compartment_id}"
+  policy_location = local.compartment_id == var.tenancy_ocid ? "in tenancy" : "in compartment id ${local.compartment_id}"
 }
 
 provider "oci" {
@@ -101,7 +101,7 @@ resource "oci_identity_policy" "dns_key" {
   name           = "${var.name}-dns"
   description    = "Let the ${var.name}-dns group manage the platform's DNS zone"
   statements = [
-    "Allow group ${oci_identity_group.dns[0].name} to manage dns ${local.dns_location}",
+    "Allow group ${oci_identity_group.dns[0].name} to manage dns ${local.policy_location}",
   ]
 }
 
@@ -115,8 +115,8 @@ resource "oci_identity_policy" "dns_workload" {
   name           = "${var.name}-dns-workload"
   description    = "Let the ${var.name} cluster's DNS service accounts manage the platform's DNS zone (workload identity)"
   statements = [
-    "Allow any-user to manage dns ${local.dns_location} where all {request.principal.type = 'workload', request.principal.cluster_id = '${oci_containerengine_cluster.this.id}', request.principal.namespace = 'shpyrd-system', request.principal.service_account = 'external-dns'}",
-    "Allow any-user to manage dns ${local.dns_location} where all {request.principal.type = 'workload', request.principal.cluster_id = '${oci_containerengine_cluster.this.id}', request.principal.namespace = 'cert-manager', request.principal.service_account = 'dns01-oci-cert-manager-webhook-oci'}",
+    "Allow any-user to manage dns ${local.policy_location} where all {request.principal.type = 'workload', request.principal.cluster_id = '${oci_containerengine_cluster.this.id}', request.principal.namespace = 'shpyrd-system', request.principal.service_account = 'external-dns'}",
+    "Allow any-user to manage dns ${local.policy_location} where all {request.principal.type = 'workload', request.principal.cluster_id = '${oci_containerengine_cluster.this.id}', request.principal.namespace = 'cert-manager', request.principal.service_account = 'dns01-oci-cert-manager-webhook-oci'}",
   ]
 
   lifecycle {

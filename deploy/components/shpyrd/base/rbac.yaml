@@ -21,6 +21,11 @@ rules:
   - apiGroups: [storage.k8s.io]
     resources: [storageclasses]
     verbs: [get, list, watch]
+  # Volume snapshots and restores (RFC-0060); the API group exists only
+  # where the snapshot-controller component is installed.
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots, volumesnapshotclasses]
+    verbs: [get, list, watch, create, delete]
   # App namespaces are created by `apps create` and removed by destroy.
   - apiGroups: [""]
     resources: [namespaces]
@@ -112,6 +117,9 @@ rules:
     verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [pods, pods/log, pods/status, services, events, configmaps, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots]
     verbs: [get, list, watch]
   - apiGroups: [apps]
     resources: [deployments, replicasets]

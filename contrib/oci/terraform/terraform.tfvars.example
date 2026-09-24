@@ -19,3 +19,8 @@ ssh_public_key_path = "~/.ssh/id_ed25519.pub"
 
 # Public zone in OCI DNS for the platform (delegate from the parent zone); empty for none.
 dns_zone = "oci.example.com"
+
+# Shared (ReadWriteMany) volumes on File Storage: a mount target the platform's
+# shared volumes hang off (RFC-0060). Needs the mount-target-count limit above
+# zero in the availability domain.
+# shared_storage = true

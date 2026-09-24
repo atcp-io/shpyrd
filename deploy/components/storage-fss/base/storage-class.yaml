@@ -1,0 +1,24 @@
+# Shared volumes on Oracle Cloud: one File Storage file system per volume,
+# exported through the platform's mount target. Sizes are not enforced by
+# File Storage (billing follows use) and the disk grows as needed.
+#
+# All NFS clients are squashed to root: the OKE CSI driver does not apply
+# fsGroup to NFS volumes, and app processes never run as root, so without
+# the squash nothing could write. Only kubelets reach the mount target (its
+# security group admits the workers subnet alone), and a kubelet mounts an
+# export only for a pod whose namespace holds the claim, so the squash
+# grants no more than a block volume does to the pod that owns it.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ${SHPYRD_STORAGE_CLASS_SHARED}
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+provisioner: fss.csi.oraclecloud.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  availabilityDomain: ${SHPYRD_FSS_AD}
+  mountTargetOcid: ${SHPYRD_FSS_MOUNT_TARGET}
+  encryptInTransit: "false"
+  exportOptions: '[{"source":"0.0.0.0/0","requirePrivilegedSourcePort":false,"access":"READ_WRITE","identitySquash":"ALL","anonymousUid":0,"anonymousGid":0}]'

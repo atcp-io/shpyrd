@@ -24,6 +24,9 @@ type resolvedMount struct {
 	Path   string
 	Claim  string
 	Shared bool
+	// Restoring says the volume is being restored from a snapshot
+	// (RFC-0060): the process stops until the new claim is bound.
+	Restoring bool
 }
 
 // resolveMounts validates the volumes of every process against the
@@ -63,7 +66,7 @@ func (r *AppReconciler) resolveMounts(ctx context.Context, app *shpyrdv1.App) (m
 					return nil, fmt.Errorf("process %q mounts single-instance volume %q and can run 1 instance, not %d (a shared volume allows more)", p.Name, m.Name, p.replicas())
 				}
 			}
-			out[p.Name] = append(out[p.Name], resolvedMount{Name: m.Name, Path: clean, Claim: vol.PVCName(), Shared: vol.Shared()})
+			out[p.Name] = append(out[p.Name], resolvedMount{Name: m.Name, Path: clean, Claim: vol.PVCName(), Shared: vol.Shared(), Restoring: vol.Status.Phase == shpyrdv1.VolumeRestoring || vol.Annotations[shpyrdv1.AnnotationRestoreFrom] != ""})
 		}
 	}
 	return out, nil
@@ -73,11 +76,15 @@ func (r *AppReconciler) resolveMounts(ctx context.Context, app *shpyrdv1.App) (m
 // single-instance volume forces one replica and a Recreate rollout: block
 // storage attaches to one node, a rolling update would wait forever for
 // the old instance to release it.
+// VolumeGroup is the group volumes are handed to (the buildpack images'
+// cnb group; any other image user is added to it as a supplementary group).
+const VolumeGroup int64 = 1000
+
 func applyMounts(d *appsv1.Deployment, mounts []resolvedMount) {
 	sort.Slice(mounts, func(i, j int) bool { return mounts[i].Name < mounts[j].Name })
 	var vols []corev1.Volume
 	var vms []corev1.VolumeMount
-	single := false
+	single, restoring := false, false
 	for _, m := range mounts {
 		vols = append(vols, corev1.Volume{Name: "vol-" + m.Name, VolumeSource: corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: m.Claim},
@@ -86,15 +93,35 @@ func applyMounts(d *appsv1.Deployment, mounts []resolvedMount) {
 		if !m.Shared {
 			single = true
 		}
+		if m.Restoring {
+			restoring = true
+		}
 	}
 	d.Spec.Template.Spec.Volumes = vols
 	if len(d.Spec.Template.Spec.Containers) > 0 {
 		d.Spec.Template.Spec.Containers[0].VolumeMounts = vms
 	}
+	if len(vols) > 0 {
+		// A freshly formatted disk belongs to root; app processes never
+		// run as root (RFC-0008). fsGroup makes the kubelet hand the volume
+		// to a group every container in the pod is a member of, so any
+		// image user can write (only when the root differs, not a recursive
+		// chown on every start). Shared (NFS) volumes are handled by their
+		// export options instead; the setting is harmless there.
+		if d.Spec.Template.Spec.SecurityContext == nil {
+			d.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{}
+		}
+		d.Spec.Template.Spec.SecurityContext.FSGroup = ptr.To(VolumeGroup)
+		d.Spec.Template.Spec.SecurityContext.FSGroupChangePolicy = ptr.To(corev1.FSGroupChangeOnRootMismatch)
+	}
 	want := appsv1.RollingUpdateDeploymentStrategyType
 	if single {
 		want = appsv1.RecreateDeploymentStrategyType
 		d.Spec.Replicas = ptr.To[int32](1)
+	}
+	if restoring {
+		// The claim is being replaced from a snapshot: release it.
+		d.Spec.Replicas = ptr.To[int32](0)
 	}
 	if d.Spec.Strategy.Type != want {
 		d.Spec.Strategy = appsv1.DeploymentStrategy{Type: want}
@@ -103,11 +130,17 @@ func applyMounts(d *appsv1.Deployment, mounts []resolvedMount) {
 
 // singleInstanceNote explains a pinned instance count in the process status.
 func singleInstanceNote(mounts []resolvedMount) string {
-	var names []string
+	var names, restoring []string
 	for _, m := range mounts {
+		if m.Restoring {
+			restoring = append(restoring, m.Name)
+		}
 		if !m.Shared {
 			names = append(names, m.Name)
 		}
+	}
+	if len(restoring) > 0 {
+		return "stopped while volume " + strings.Join(restoring, ", ") + " is restored from a snapshot"
 	}
 	if len(names) == 0 {
 		return ""

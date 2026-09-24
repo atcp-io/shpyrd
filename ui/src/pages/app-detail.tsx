@@ -40,6 +40,7 @@ import { ProcessChips } from "@/components/process-chips";
 import { MetricChart } from "@/components/metric-chart";
 import { DrainsCard } from "@/components/drains-card";
 import { DomainsCard } from "@/components/domains-card";
+import { SnapshotsDialog } from "@/components/snapshots-dialog";
 import { AppLogView, TextLogView, useLogStream } from "@/components/log-view";
 import { Button } from "@/components/ui/button";
 import {
@@ -1953,6 +1954,12 @@ function ResourcesCard({
   const list = resources.data ?? [];
   const volumeOf = (name: string) => volumes.data?.find((v) => v.name === name);
   const perms = usePerms(app.slug);
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
+  const snapshotsAvailable = config.data?.volumes?.snapshots ?? false;
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
@@ -2001,7 +2008,8 @@ function ResourcesCard({
                           r.phase === "Failed" && "text-destructive",
                           (r.phase === "Pending" ||
                             r.phase === "Building" ||
-                            r.phase === "Deploying") &&
+                            r.phase === "Deploying" ||
+                            r.phase === "Restoring") &&
                             "text-muted-foreground",
                         )}
                         title={r.message}
@@ -2030,6 +2038,8 @@ function ResourcesCard({
                                 ? `${r.details.capacity} → ${r.details.size}`
                                 : r.details?.size,
                               r.details?.mode,
+                              vol?.restoredFrom &&
+                                `restored from ${vol.restoredFrom}`,
                             ]
                               .filter(Boolean)
                               .join(" · ")
@@ -2091,6 +2101,13 @@ function ResourcesCard({
                       )}
                       {vol && perms.resource && (
                         <div className="flex justify-end gap-1">
+                          {snapshotsAvailable && (
+                            <SnapshotsDialog
+                              slug={app.slug}
+                              volume={vol}
+                              onChanged={refresh}
+                            />
+                          )}
                           <VolumeDialog
                             app={app}
                             onDone={refresh}
@@ -2153,8 +2170,14 @@ function VolumeDialog({
     setOpenState(o);
     onOpenChange?.(o);
   };
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
+  const minSize = config.data?.volumes?.minSize;
   const [name, setName] = useState("");
-  const [size, setSize] = useState(resize?.size ?? "5Gi");
+  const [size, setSize] = useState(resize?.size ?? minSize ?? "5Gi");
   const [shared, setShared] = useState(false);
   const save = useMutation({
     mutationFn: () =>
@@ -2165,11 +2188,12 @@ function VolumeDialog({
             size: size.trim(),
             shared,
           }),
-    onSuccess: () => {
+    onSuccess: (v) => {
       toast.success(
         resize
-          ? `Resizing ${resize.name} to ${size}`
-          : `Created volume ${name}; mount it in shpyrd.yaml and deploy`,
+          ? `Resizing ${resize.name} to ${v.size}`
+          : `Created volume ${name} (${v.size}); mount it in shpyrd.yaml and deploy`,
+        v.note ? { description: v.note } : undefined,
       );
       setOpen(false);
       setName("");
@@ -2229,8 +2253,14 @@ function VolumeDialog({
                 id="vol-size"
                 value={size}
                 onChange={(e) => setSize(e.target.value)}
-                placeholder="5Gi"
+                placeholder={minSize ?? "5Gi"}
               />
+              {minSize && (
+                <p className="text-xs text-muted-foreground">
+                  Volumes here start at {minSize}; smaller requests are
+                  rounded up.
+                </p>
+              )}
             </div>
             {!resize && (
               <div className="grid gap-2">

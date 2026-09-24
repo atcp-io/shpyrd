@@ -11,6 +11,19 @@ const (
 	VolumePending = "Pending"
 	VolumeBound   = "Bound"
 	VolumeFailed  = "Failed"
+	// VolumeRestoring: the claim is being replaced by one restored from a
+	// snapshot (RFC-0060); processes mounting the volume are stopped.
+	VolumeRestoring = "Restoring"
+
+	// AnnotationRestoreFrom, on a Volume, names the snapshot to restore in
+	// place (RFC-0060). The controller removes it when done.
+	AnnotationRestoreFrom = "shpyrd.io/restore-from"
+	// AnnotationRestoreID, next to AnnotationRestoreFrom, identifies one
+	// restore request; the controller stamps it on the claim it recreates
+	// so a later restore from the same snapshot is not mistaken for done.
+	AnnotationRestoreID = "shpyrd.io/restore-id"
+	// LabelVolumeOf marks a VolumeSnapshot with the Volume it was taken from.
+	LabelVolumeOf = "shpyrd.io/volume"
 )
 
 // PVCPrefix names the PersistentVolumeClaim of a Volume (vol-<name>).
@@ -30,6 +43,10 @@ type VolumeSpec struct {
 	// +optional
 	// +kubebuilder:validation:Enum=ReadWriteOnce;ReadWriteMany
 	AccessMode corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	// FromSnapshot creates the volume from a snapshot (a VolumeSnapshot in
+	// the project) instead of empty (RFC-0060). Immutable.
+	// +optional
+	FromSnapshot string `json:"fromSnapshot,omitempty"`
 }
 
 // VolumeStatus reports the state of the claim.
@@ -47,6 +64,14 @@ type VolumeStatus struct {
 	// MountedBy lists "<app>/<process>" pairs using the volume.
 	// +optional
 	MountedBy []string `json:"mountedBy,omitempty"`
+	// StorageClass the claim was provisioned from (the profile's default
+	// when the spec names none).
+	// +optional
+	StorageClass string `json:"storageClass,omitempty"`
+	// RestoredFrom is the snapshot the current claim was restored from, if
+	// any (RFC-0060).
+	// +optional
+	RestoredFrom string `json:"restoredFrom,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }

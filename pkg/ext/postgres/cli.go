@@ -168,6 +168,9 @@ func newListCmd(g ext.CLIGlobals) *cobra.Command {
 				if pg.Spec.Storage != nil {
 					storage = pg.Spec.Storage.String()
 				}
+				if pg.Status.Storage != "" && pg.Status.Storage != storage {
+					storage = pg.Status.Storage + " (" + storage + " requested)"
+				}
 				inst := int32(1)
 				if pg.Spec.Instances != nil {
 					inst = *pg.Spec.Instances

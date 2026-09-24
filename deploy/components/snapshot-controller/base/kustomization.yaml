@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # Upstream, vendored verbatim from kubernetes-csi/external-snapshotter v8.6.0:
+  # client/config/crd/*.yaml and deploy/kubernetes/snapshot-controller/*.yaml
+  - crds/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+  - crds/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+  - crds/snapshot.storage.k8s.io_volumesnapshots.yaml
+  - rbac.yaml
+  - controller.yaml
+patches:
+  # One replica is plenty for a platform of this size.
+  - target:
+      kind: Deployment
+      name: snapshot-controller
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1

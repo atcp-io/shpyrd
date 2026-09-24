@@ -221,3 +221,64 @@ func TestRedisReconcile(t *testing.T) {
 	}
 	var _ client.Object = got
 }
+
+// RFC-0060: datastores claim on the profile's class and are rounded up to
+// the provider minimum, which the status reports.
+func TestDatastoresFollowStorageProfile(t *testing.T) {
+	pgStorage := resource.MustParse("5Gi")
+	pg := &shpyrdv1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "app-shop", Generation: 1},
+		Spec:       shpyrdv1.PostgresSpec{Storage: &pgStorage},
+	}
+	rdStorage := resource.MustParse("1Gi")
+	rd := &shpyrdv1.Redis{
+		ObjectMeta: metav1.ObjectMeta{Name: "queue", Namespace: "app-shop", Generation: 1},
+		Spec:       shpyrdv1.RedisSpec{Persistent: true, Storage: &rdStorage},
+	}
+	base, c := newTestReconciler(t, pg, rd)
+	profile := StorageProfile{Class: "oci-bv", MinSize: "50Gi"}
+	pgr := &PostgresReconciler{Client: c, Scheme: base.Scheme, Recorder: record.NewFakeRecorder(20), SystemNamespace: "shpyrd-system", Storage: profile}
+	rdr := &RedisReconciler{Client: c, Scheme: base.Scheme, Recorder: record.NewFakeRecorder(20), SystemNamespace: "shpyrd-system", Storage: profile}
+
+	key := types.NamespacedName{Namespace: "app-shop", Name: "db"}
+	if _, err := pgr.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	cluster := &unstructured.Unstructured{}
+	cluster.SetGroupVersionKind(CNPGClusterGVK)
+	if err := c.Get(context.Background(), key, cluster); err != nil {
+		t.Fatal(err)
+	}
+	size, _, _ := unstructured.NestedString(cluster.Object, "spec", "storage", "size")
+	class, _, _ := unstructured.NestedString(cluster.Object, "spec", "storage", "storageClass")
+	if size != "50Gi" || class != "oci-bv" {
+		t.Errorf("cnpg storage = %v", cluster.Object["spec"].(map[string]interface{})["storage"])
+	}
+	_ = c.Get(context.Background(), key, pg)
+	if pg.Status.Storage != "50Gi" || pg.Spec.Storage.String() != "5Gi" {
+		t.Errorf("postgres status.storage = %q spec = %s", pg.Status.Storage, pg.Spec.Storage.String())
+	}
+
+	key = types.NamespacedName{Namespace: "app-shop", Name: "queue"}
+	if _, err := rdr.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	sts := &appsv1.StatefulSet{}
+	if err := c.Get(context.Background(), key, sts); err != nil {
+		t.Fatal(err)
+	}
+	claim := sts.Spec.VolumeClaimTemplates[0].Spec
+	if claim.Resources.Requests.Storage().String() != "50Gi" || claim.StorageClassName == nil || *claim.StorageClassName != "oci-bv" {
+		t.Errorf("redis claim = %+v", claim)
+	}
+	_ = c.Get(context.Background(), key, rd)
+	if rd.Status.Storage != "50Gi" {
+		t.Errorf("redis status.storage = %q", rd.Status.Storage)
+	}
+
+	// Without a profile nothing changes.
+	plain := &PostgresReconciler{Client: c, Scheme: base.Scheme, Recorder: record.NewFakeRecorder(20), SystemNamespace: "shpyrd-system"}
+	if got, applied := plain.Storage.Size(pgStorage); applied || got.String() != "5Gi" {
+		t.Errorf("no profile: %s %v", got.String(), applied)
+	}
+}

@@ -33,6 +33,18 @@ type PostgresReconciler struct {
 	Scheme          *runtime.Scheme
 	Recorder        record.EventRecorder
 	SystemNamespace string
+	// Storage is the profile's disk rules (RFC-0060).
+	Storage StorageProfile
+}
+
+// cnpgStorage is the CNPG storage section: the size and, when the profile
+// names one, the class (RFC-0060).
+func cnpgStorage(size resource.Quantity, class string) map[string]interface{} {
+	out := map[string]interface{}{"size": size.String()}
+	if class != "" {
+		out["storageClass"] = class
+	}
+	return out
 }
 
 // CNPGClusterGVK is CloudNativePG's Cluster (handled as unstructured).
@@ -105,8 +117,15 @@ func (r *PostgresReconciler) reconcile(ctx context.Context, pg *shpyrdv1.Postgre
 	if storage.Sign() <= 0 {
 		return ctrl.Result{}, fmt.Errorf("storage must be positive")
 	}
+	// The provider minimum (RFC-0060): the disk is that size whatever was
+	// asked; the status says so.
+	pg.Status.Storage = ""
+	if rounded, applied := r.Storage.Size(storage); applied {
+		storage = rounded
+		pg.Status.Storage = rounded.String()
+	}
 
-	desired := desiredCNPGCluster(pg, storage, resources)
+	desired := desiredCNPGCluster(pg, storage, resources, r.Storage.Class)
 	if err := controllerutil.SetControllerReference(pg, desired, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -228,7 +247,7 @@ func instances(pg *shpyrdv1.Postgres) int32 {
 }
 
 // desiredCNPGCluster renders the CloudNativePG Cluster for a Postgres.
-func desiredCNPGCluster(pg *shpyrdv1.Postgres, storage resource.Quantity, res corev1.ResourceRequirements) *unstructured.Unstructured {
+func desiredCNPGCluster(pg *shpyrdv1.Postgres, storage resource.Quantity, res corev1.ResourceRequirements, storageClass string) *unstructured.Unstructured {
 	toMap := func(l corev1.ResourceList) map[string]interface{} {
 		out := map[string]interface{}{}
 		for k, v := range l {
@@ -247,7 +266,7 @@ func desiredCNPGCluster(pg *shpyrdv1.Postgres, storage resource.Quantity, res co
 	u.Object["spec"] = map[string]interface{}{
 		"instances":             int64(instances(pg)),
 		"imageName":             "ghcr.io/cloudnative-pg/postgresql:" + version(pg),
-		"storage":               map[string]interface{}{"size": storage.String()},
+		"storage":               cnpgStorage(storage, storageClass),
 		"resources":             map[string]interface{}{"requests": toMap(res.Requests), "limits": toMap(res.Limits)},
 		"bootstrap":             map[string]interface{}{"initdb": map[string]interface{}{"database": PostgresDatabase, "owner": PostgresUser}},
 		"enableSuperuserAccess": false,

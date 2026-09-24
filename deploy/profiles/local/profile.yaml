@@ -23,6 +23,14 @@ vars:
   SHPYRD_INTERNAL_LB_SUBNET: ""
   SHPYRD_INGRESS_CLASS_EXTERNAL: nginx
   SHPYRD_INGRESS_CLASS_INTERNAL: nginx
+  # Volumes (RFC-0060): the cluster default class, no provider minimum, no
+  # snapshots (kind's local-path provisioner has none).
+  SHPYRD_STORAGE_CLASS: ""
+  SHPYRD_STORAGE_CLASS_SHARED: ""
+  SHPYRD_VOLUME_MIN_SIZE: ""
+  SHPYRD_SNAPSHOT_CLASS: ""
+  SHPYRD_FSS_MOUNT_TARGET: ""
+  SHPYRD_FSS_AD: ""
   SHPYRD_DNS_PROVIDER: none
   SHPYRD_DNS_AUTH: key
   SHPYRD_DNS_COMPARTMENT: ""

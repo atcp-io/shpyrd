@@ -1,0 +1,6 @@
+name: storage-fss
+description: Storage class for shared (ReadWriteMany) volumes on OCI File Storage, behind the mount target contrib/oci/terraform creates (RFC-0060)
+namespace: kube-system
+kustomize:
+  path: base
+timeout: 2m
