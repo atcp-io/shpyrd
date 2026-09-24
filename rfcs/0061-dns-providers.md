@@ -68,6 +68,23 @@ own the DNS console. The platform knows every hostname it serves; it should publ
 - Cluster page: a DNS card (provider, zone, records managed, certificate expiry); a
   project's Domains card shows record state per host.
 
+### What the operator does
+
+Once, in either case: create the public zone in OCI DNS (`hack/oci/create-dns.sh` does it)
+and delegate it at the registrar — for a domain at DNSimple, NS records for the platform
+subdomain pointing at the zone's name servers. Then, by cluster type:
+
+| | Enhanced cluster (workload identity) | Basic cluster (API key) |
+| --- | --- | --- |
+| Credential | none: no key, no Secret | a dedicated IAM user in a `shpyrd-dns` group with an API signing key (`create-dns.sh` creates them; never the operator's own key) |
+| IAM policy | `Allow any-user to manage dns in compartment <c> where all {request.principal.type = 'workload', request.principal.cluster_id = '<cluster>', request.principal.service_account = 'external-dns'}` and the same for `dns01-oci` | `Allow group shpyrd-dns to manage dns in compartment <c>` |
+| `cluster init` | `--dns oci --dns-compartment <ocid>` | `--dns oci --dns-compartment <ocid> --dns-user <ocid> --dns-key-file <pem>` (fingerprint derived, tenancy and region from the cluster) |
+| Rotation | nothing; tokens are short-lived | a new key and `cluster init` again |
+
+`cluster init` prints the policy statement with the cluster OCID filled in, and the cluster
+page's DNS card explains a 403 (missing policy, or workload identity on a Basic cluster)
+instead of leaving the zone silently empty.
+
 ### Alternatives
 
 - **Keep HTTP-01 per host and manual records.** Works for public hosts only and leaves
