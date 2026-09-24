@@ -62,7 +62,7 @@ declare what they depend on.
 | [0031](0031-api-tokens.md) | Per-user API tokens | implementable | 0008 |
 | [0032](0032-mcp-connector.md) | MCP connector | provisional | 0031 (remote) |
 | [0033](0033-workspaces.md) | Workspaces | provisional (blocked on definition) | 0008, 0016 |
-| [0034](0034-domains-and-certificates.md) | Custom domains | in progress | 0036, 0061 |
+| [0034](0034-domains-and-certificates.md) | Custom domains | implemented | 0036, 0061 |
 | [0035](0035-cloud-profiles.md) | Cloud profiles: Oracle Cloud (OKE) and AWS (EKS) | implemented (`oci`, network policy); AWS provisional | 0045 |
 | [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | implemented | 0035, 0061 |
 | [0037](0037-platform-backup-and-restore.md) | Platform backup and restore | provisional | 0046 |
@@ -105,7 +105,7 @@ declare what they depend on.
 | G (old) | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | superseded by new G above |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
-| J | 0035 (done), 0059 (done), 0061 (done), 0036, 0060, 0034, 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
+| J | 0035, 0059, 0061, 0036, 0034 (done), 0060, 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
 | K | 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0033 | data stores, security, workspaces |
 | L | 0047, 0048, 0052, 0053, 0054, 0056 | autoscaling, cost, API-first CLI, MFA and passkeys, GitHub App, tracing |
 

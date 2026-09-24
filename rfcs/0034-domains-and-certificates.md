@@ -1,6 +1,6 @@
 # RFC-0034 Custom domains
 
-**Status:** in progress
+**Status:** implemented
 
 **Owner:** Patrick Negri
 
@@ -102,5 +102,8 @@ and nothing told the owner what record to create or whether it had propagated.
 - 2026-09-22: RFC written (several base domains, TXT verification).
 - 2026-09-24: Rewritten after reading how Heroku, Fly.io, Render and Railway do it:
   additive custom domains on top of the platform hostname, CNAME/A to it as the proof of
-  control, per-host certificates, no TXT record. Implemented in the same pass; verified on
-  the OKE proof of concept with `myprod.shpyrd.io`.
+  control, per-host certificates, no TXT record. Implemented in the same pass (v0.1.10);
+  verified on the OKE proof of concept with `myprod.shpyrd.io`: the record was created at
+  the registrar, the card went from "DNS missing" to "serving" on its own in about four
+  minutes (DNS propagation; issuance itself took twenty seconds), and both hostnames serve
+  the project with their own certificates.
