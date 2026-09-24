@@ -54,7 +54,7 @@ func validateAppName(slug string) error {
 //	build:
 //	  env:
 //	    BP_GO_TARGETS: ./cmd/web:./cmd/worker
-//	domains: [my-service.example.com]
+//	domains: [www.my-service.com]        # custom domains, served in addition to <slug>.<cluster domain>
 //	globals: false            # or: globals: { exclude: [OPENAI_API_KEY] }
 type projectConfig struct {
 	Project   string                    `json:"project"`

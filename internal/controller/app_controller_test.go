@@ -126,17 +126,27 @@ func TestReconcilePinnedImage(t *testing.T) {
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-web1", Name: "web1"}, ing); err != nil {
 		t.Fatal(err)
 	}
-	if ing.Spec.Rules[0].Host != "web1.example.test" || ing.Annotations["cert-manager.io/cluster-issuer"] != "shpyrd-ca" || ing.Spec.TLS[0].SecretName != "web1-tls" {
-		t.Errorf("ingress host/issuer wrong: %+v", ing.Spec.Rules[0].Host)
+	// Certificates are explicit objects (RFC-0034): the Ingress names the
+	// host's TLS Secret and carries no cert-manager annotation.
+	if ing.Spec.Rules[0].Host != "web1.example.test" || ing.Annotations["cert-manager.io/cluster-issuer"] != "" || ing.Spec.TLS[0].SecretName != certificateSecretName(app, "web1.example.test") {
+		t.Errorf("ingress host/tls wrong: %+v %+v", ing.Spec.Rules[0].Host, ing.Spec.TLS)
+	}
+	cert := &unstructured.Unstructured{}
+	cert.SetGroupVersionKind(CertificateGVK)
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-web1", Name: certificateSecretName(app, "web1.example.test")}, cert); err != nil {
+		t.Fatalf("certificate for the default host: %v", err)
+	}
+	if names, _, _ := unstructured.NestedStringSlice(cert.Object, "spec", "dnsNames"); len(names) != 1 || names[0] != "web1.example.test" {
+		t.Errorf("certificate dnsNames = %v", names)
 	}
 	// With the platform wildcard as the default certificate (RFC-0061) the
-	// Ingress keeps its TLS hosts but carries no certificate of its own.
+	// Ingress keeps its TLS host but carries no certificate of its own.
 	wc := r.Config
 	wc.WildcardTLS = true
 	wcIng := ing.DeepCopy()
 	wc.mutateIngress(app, wcIng)
-	if _, has := wcIng.Annotations["cert-manager.io/cluster-issuer"]; has || wcIng.Spec.TLS[0].SecretName != "" || len(wcIng.Spec.TLS[0].Hosts) != 1 {
-		t.Errorf("wildcard ingress = %+v %+v", wcIng.Annotations, wcIng.Spec.TLS)
+	if wcIng.Spec.TLS[0].SecretName != "" || len(wcIng.Spec.TLS[0].Hosts) != 1 {
+		t.Errorf("wildcard ingress = %+v", wcIng.Spec.TLS)
 	}
 
 	// Rollout completes -> Running.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +49,14 @@ type AppReconciler struct {
 	Config    Config
 	// Now returns the current time; nil means time.Now (tests override it).
 	Now func() time.Time
+	// Resolver checks custom domains' DNS (RFC-0034); nil uses the system's.
+	Resolver interface {
+		LookupCNAME(ctx context.Context, host string) (string, error)
+		LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+	}
+	// LookupLB returns the external front door's address when the Config
+	// does not carry one (it may not exist at start); nil disables.
+	LookupLB func(ctx context.Context) string
 }
 
 // SetupWithManager registers the controller and its watches.
@@ -199,14 +208,20 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	} else if next > 0 && (out.result.RequeueAfter == 0 || next < out.result.RequeueAfter) {
 		out.result.RequeueAfter = next
 	}
+	if out.domainsPending && (out.result.RequeueAfter == 0 || out.result.RequeueAfter > 30*time.Second) {
+		out.result.RequeueAfter = 30 * time.Second
+	}
 	return out.result, nil
 }
 
 // outcome carries what Reconcile must do after the status has been written.
 type outcome struct {
-	result     ctrl.Result
-	newRelease *shpyrdv1.Release
-	clearNote  bool
+	// domainsPending asks for a 30 s poll while a custom domain's DNS or
+	// certificate is not settled (RFC-0034).
+	domainsPending bool
+	result         ctrl.Result
+	newRelease     *shpyrdv1.Release
+	clearNote      bool
 }
 
 func requeue(d time.Duration) outcome { return outcome{result: ctrl.Result{RequeueAfter: d}} }
@@ -347,9 +362,14 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	} else {
 		app.Status.URL = ""
 	}
+	// Custom domains (RFC-0034): DNS and certificate state per host; poll
+	// while any is pending so the owner sees it flip without a redeploy.
+	var domainsPending bool
+	app.Status.Domains, domainsPending = r.domainStatuses(ctx, app)
 
 	// 5. Release history and phase.
 	var out outcome
+	out.domainsPending = domainsPending
 	configDesc := ""
 	if cur := app.CurrentRelease(); cur != nil && cur.Image == image && cur.ConfigHash != hash {
 		configDesc = r.describeConfigChangeSince(ctx, app, cur.Number, secret)
@@ -608,7 +628,7 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 		}
 	}
 
-	// Ingress for web.
+	// Ingress for web, and the certificates its hosts need (RFC-0034).
 	ing := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: app.Name, Namespace: app.Namespace}}
 	if hasWeb(app) {
 		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, ing, func() error {
@@ -618,6 +638,9 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 			return nil, fmt.Errorf("ingress: %w", err)
 		}
 	} else if err := r.deleteIfExists(ctx, ing); err != nil {
+		return nil, err
+	}
+	if err := r.reconcileCertificates(ctx, app); err != nil {
 		return nil, err
 	}
 

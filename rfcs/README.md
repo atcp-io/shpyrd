@@ -62,7 +62,7 @@ declare what they depend on.
 | [0031](0031-api-tokens.md) | Per-user API tokens | implementable | 0008 |
 | [0032](0032-mcp-connector.md) | MCP connector | provisional | 0031 (remote) |
 | [0033](0033-workspaces.md) | Workspaces | provisional (blocked on definition) | 0008, 0016 |
-| [0034](0034-domains-and-certificates.md) | Domains and certificates | provisional | 0011 |
+| [0034](0034-domains-and-certificates.md) | Custom domains | in progress | 0036, 0061 |
 | [0035](0035-cloud-profiles.md) | Cloud profiles: Oracle Cloud (OKE) and AWS (EKS) | implemented (`oci`, network policy); AWS provisional | 0045 |
 | [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | implemented | 0035, 0061 |
 | [0037](0037-platform-backup-and-restore.md) | Platform backup and restore | provisional | 0046 |

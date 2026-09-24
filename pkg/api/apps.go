@@ -103,6 +103,7 @@ type AppDetailSpec struct {
 	Domains     []string                    `json:"domains,omitempty"`
 	Build       *shpyrdv1.Build             `json:"build,omitempty"`
 	Bindings    []shpyrdv1.Binding          `json:"bindings,omitempty"`
+	Exposure    string                      `json:"exposure,omitempty"`
 }
 
 type AppDetailStatus struct {
@@ -113,6 +114,8 @@ type AppDetailStatus struct {
 	LatestBuild string             `json:"latestBuild,omitempty"`
 	Releases    []ReleaseView      `json:"releases"`
 	Conditions  []metav1.Condition `json:"conditions,omitempty"`
+	// Domains is the state of each custom domain (RFC-0034).
+	Domains []shpyrdv1.DomainStatus `json:"domains,omitempty"`
 }
 
 // ReleaseView is a release with the image reduced to its digest and linked
@@ -157,6 +160,7 @@ func detail(a *shpyrdv1.App, buildByDigest map[string]int) AppDetail {
 			Domains:     a.Spec.Domains,
 			Build:       a.Spec.Build,
 			Bindings:    a.Spec.Bindings,
+			Exposure:    a.Spec.Exposure,
 		},
 		Status: AppDetailStatus{
 			Phase:       firstNonEmpty(a.Status.Phase, shpyrdv1.PhasePending),
@@ -166,6 +170,7 @@ func detail(a *shpyrdv1.App, buildByDigest map[string]int) AppDetail {
 			LatestBuild: a.Status.LatestBuild,
 			Releases:    []ReleaseView{},
 			Conditions:  a.Status.Conditions,
+			Domains:     a.Status.Domains,
 		},
 		Processes: a.Status.Processes,
 	}

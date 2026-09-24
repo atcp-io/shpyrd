@@ -107,7 +107,10 @@ type AppSpec struct {
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
-	// Domains served by the web process. Defaults to <name>.<cluster domain>.
+	// Domains are custom hostnames served by the web process in addition to
+	// <name>.<cluster domain>, which is always served and is what their DNS
+	// records point at (RFC-0034). Each gets its own certificate; status.domains
+	// reports DNS and certificate state per host.
 	// +optional
 	Domains []string `json:"domains,omitempty"`
 
@@ -324,8 +327,30 @@ type AppStatus struct {
 	// Processes reports rollout state per process type.
 	// +optional
 	Processes map[string]ProcessStatus `json:"processes,omitempty"`
+	// Domains reports each custom domain's DNS and certificate state
+	// (RFC-0034).
+	// +optional
+	Domains []DomainStatus `json:"domains,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// DomainStatus is the state of one custom domain.
+type DomainStatus struct {
+	Host string `json:"host"`
+	// DNS is "ok" (resolves to this cluster's front door), "missing" (no
+	// record), "wrong" (points elsewhere) or "unknown" (lookup failed).
+	DNS string `json:"dns"`
+	// Target is what the host should point at: the project's hostname for a
+	// CNAME, or the front door's address for an A record at a zone apex.
+	Target string `json:"target,omitempty"`
+	// Address is the front door's IP for an A record.
+	Address string `json:"address,omitempty"`
+	// Certificate is "ready", "issuing", "failed" or "wildcard" (covered by
+	// the platform's wildcard certificate: a host under the cluster domain).
+	Certificate string `json:"certificate"`
+	// Message explains a pending or failed state.
+	Message string `json:"message,omitempty"`
 }
 
 // Release is one entry of the deployment history.

@@ -72,6 +72,9 @@ type Config struct {
 	// InternalLBAddress is the address of the internal load balancer;
 	// used as the ExternalDNS target for internal Ingresses.
 	InternalLBAddress string
+	// ExternalLBAddress is the public front door's address, what a custom
+	// domain's A record points at (RFC-0034); "" when unknown at start.
+	ExternalLBAddress string
 }
 
 // BuildServiceAccount is the ServiceAccount builds run as in a project
@@ -209,13 +212,6 @@ func selectorLabels(app *shpyrdv1.App, process string) map[string]string {
 }
 
 // domains returns the hosts served by the web process.
-func (c Config) domains(app *shpyrdv1.App) []string {
-	if len(app.Spec.Domains) > 0 {
-		return app.Spec.Domains
-	}
-	return []string{app.Name + "." + c.Domain}
-}
-
 // url is the public URL of the web process.
 func (c Config) url(app *shpyrdv1.App) string {
 	u := "https://" + c.domains(app)[0]
@@ -481,13 +477,10 @@ func (c Config) mutateIngress(app *shpyrdv1.App, ing *networkingv1.Ingress) {
 		delete(ing.Annotations, "external-dns.kubernetes.io/target")
 	}
 	ing.Spec.IngressClassName = ptr.To(class)
-	if c.WildcardTLS {
-		delete(ing.Annotations, "cert-manager.io/cluster-issuer")
-		ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: hosts}}
-	} else {
-		ing.Annotations["cert-manager.io/cluster-issuer"] = c.ClusterIssuer
-		ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: hosts, SecretName: app.Name + "-tls"}}
-	}
+	// Certificates are explicit objects (reconcileCertificates), one per host
+	// that needs one, so the Ingress carries no cert-manager annotation.
+	delete(ing.Annotations, "cert-manager.io/cluster-issuer")
+	ing.Spec.TLS = c.ingressTLS(app)
 	pathType := networkingv1.PathTypePrefix
 	rules := make([]networkingv1.IngressRule, 0, len(hosts))
 	for _, h := range hosts {

@@ -95,7 +95,7 @@ hostname <slug>.<cluster domain>. Pass --slug to choose it.`,
 		},
 	}
 	cmd.Flags().StringVar(&slug, "slug", "", "identifier to use instead of the one derived from the name")
-	cmd.Flags().StringSliceVar(&domains, "domain", nil, "extra hostnames for the web process (default <slug>.<cluster domain>)")
+	cmd.Flags().StringSliceVar(&domains, "domain", nil, "custom domains served in addition to <slug>.<cluster domain> (see `shpyrd domains`)")
 	cmd.Flags().BoolVar(&save, "save", false, "write shpyrd.yaml in the current directory")
 	return cmd
 }

@@ -268,8 +268,11 @@ spec:
                     type: string
                 type: object
               domains:
-                description: Domains served by the web process. Defaults to <name>.<cluster
-                  domain>.
+                description: |-
+                  Domains are custom hostnames served by the web process in addition to
+                  <name>.<cluster domain>, which is always served and is what their DNS
+                  records point at (RFC-0034). Each gets its own certificate; status.domains
+                  reports DNS and certificate state per host.
                 items:
                   type: string
                 type: array
@@ -725,6 +728,42 @@ spec:
                   - reason
                   - status
                   - type
+                  type: object
+                type: array
+              domains:
+                description: |-
+                  Domains reports each custom domain's DNS and certificate state
+                  (RFC-0034).
+                items:
+                  description: DomainStatus is the state of one custom domain.
+                  properties:
+                    address:
+                      description: Address is the front door's IP for an A record.
+                      type: string
+                    certificate:
+                      description: |-
+                        Certificate is "ready", "issuing", "failed" or "wildcard" (covered by
+                        the platform's wildcard certificate: a host under the cluster domain).
+                      type: string
+                    dns:
+                      description: |-
+                        DNS is "ok" (resolves to this cluster's front door), "missing" (no
+                        record), "wrong" (points elsewhere) or "unknown" (lookup failed).
+                      type: string
+                    host:
+                      type: string
+                    message:
+                      description: Message explains a pending or failed state.
+                      type: string
+                    target:
+                      description: |-
+                        Target is what the host should point at: the project's hostname for a
+                        CNAME, or the front door's address for an A record at a zone apex.
+                      type: string
+                  required:
+                  - certificate
+                  - dns
+                  - host
                   type: object
                 type: array
               image:

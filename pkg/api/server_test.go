@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -972,5 +973,54 @@ func TestDrains(t *testing.T) {
 	}
 	if !found {
 		t.Error("cluster drain.add not audited")
+	}
+}
+
+// Custom domains (RFC-0034): validation, the conflict check across projects,
+// add and remove.
+func TestDomains(t *testing.T) {
+	shop := sampleApp("shop", shpyrdv1.PhaseRunning, shpyrdv1.Release{Number: 1, Image: "img"})
+	other := sampleApp("blog", shpyrdv1.PhaseRunning)
+	taken := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog", Labels: map[string]string{shpyrdv1.LabelApp: "blog"}},
+		Spec:       networkingv1.IngressSpec{Rules: []networkingv1.IngressRule{{Host: "www.taken.com"}}},
+	}
+	s, cr := newTestServer(t, nil, []client.Object{shop, other, taken})
+
+	for _, bad := range []string{`{"host":"*.myprod.com"}`, `{"host":"not a host"}`, `{"host":"shop.example.test"}`, `{"host":"www.taken.com"}`, `{"host":""}`} {
+		rec := do(t, s, "POST", "/api/projects/shop/domains", bad, true)
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusConflict {
+			t.Errorf("%s: %d %s", bad, rec.Code, rec.Body.String())
+		}
+	}
+	rec := do(t, s, "POST", "/api/projects/shop/domains", `{"host":"WWW.MyProd.com."}`, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add: %d %s", rec.Code, rec.Body.String())
+	}
+	var res DomainsResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Host != "www.myprod.com" || res.Target != "shop.example.test" || len(res.Domains) != 1 || !strings.Contains(res.Domains[0].Message, "CNAME www.myprod.com -> shop.example.test") {
+		t.Errorf("result = %+v", res)
+	}
+	got := &shpyrdv1.App{}
+	if err := cr.Get(context.Background(), types.NamespacedName{Namespace: "app-shop", Name: "shop"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Spec.Domains) != 1 || got.Spec.Domains[0] != "www.myprod.com" {
+		t.Errorf("spec.domains = %v", got.Spec.Domains)
+	}
+	if rec := do(t, s, "POST", "/api/projects/shop/domains", `{"host":"www.myprod.com"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("duplicate: %d", rec.Code)
+	}
+	if rec := do(t, s, "GET", "/api/projects/shop/domains", "", true); rec.Code != http.StatusOK {
+		t.Errorf("list: %d", rec.Code)
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/shop/domains/www.myprod.com", "", true); rec.Code != http.StatusOK {
+		t.Errorf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "DELETE", "/api/projects/shop/domains/www.myprod.com", "", true); rec.Code != http.StatusBadRequest {
+		t.Errorf("remove twice: %d", rec.Code)
 	}
 }

@@ -182,8 +182,27 @@ export type AppDetail = {
     latestBuild?: string;
     releases: Release[];
     conditions?: Condition[];
+    /** Custom domains' DNS and certificate state (RFC-0034). */
+    domains?: DomainStatus[];
   };
   processes?: Record<string, ProcessStatus>;
+};
+
+export type DomainStatus = {
+  host: string;
+  dns: "ok" | "missing" | "wrong" | "unknown";
+  target?: string;
+  address?: string;
+  certificate: "ready" | "issuing" | "failed" | "wildcard";
+  message?: string;
+};
+
+export type DomainsResult = {
+  host?: string;
+  target: string;
+  address?: string;
+  domains: DomainStatus[];
+  app: AppSummary;
 };
 
 export type Point = [number, number];
@@ -613,6 +632,16 @@ export const api = {
     request<AppSummary>(
       `${project(slug)}/bindings/${kind}/${encodeURIComponent(rname)}`,
       { method: "DELETE" },
+    ),
+  domains: (slug: string) => request<DomainsResult>(`${project(slug)}/domains`),
+  addDomain: (slug: string, host: string) =>
+    request<DomainsResult>(`${project(slug)}/domains`, json("POST", { host })),
+  removeDomain: (slug: string, host: string) =>
+    request<DomainsResult>(
+      `${project(slug)}/domains/${encodeURIComponent(host)}`,
+      {
+        method: "DELETE",
+      },
     ),
   volumes: (slug: string) => request<VolumeInfo[]>(`${project(slug)}/volumes`),
   createVolume: (

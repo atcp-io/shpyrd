@@ -228,7 +228,11 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 			IngressClassExternal: envOr("SHPYRD_INGRESS_CLASS_EXTERNAL", "nginx"),
 			IngressClassInternal: envOr("SHPYRD_INGRESS_CLASS_INTERNAL", "nginx-internal"),
 			InternalLBAddress:    internalLBAddress(k),
+			ExternalLBAddress:    externalLBAddress(k),
 		},
+		// The external address may not exist yet at start (first install):
+		// look it up when a custom domain needs it.
+		LookupLB: func(context.Context) string { return externalLBAddress(k) },
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("app controller: %w", err)
@@ -252,6 +256,25 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 		}
 	}
 	return mgr, nil
+}
+
+// externalLBAddress reads the public front door's address (the ingress-nginx
+// Service), what a custom domain's A record points at (RFC-0034).
+func externalLBAddress(k *kube.Client) string {
+	svc, err := k.Kube.CoreV1().Services("ingress-nginx").Get(
+		context.Background(), "ingress-nginx-controller", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, in := range svc.Status.LoadBalancer.Ingress {
+		if in.IP != "" {
+			return in.IP
+		}
+		if in.Hostname != "" {
+			return in.Hostname
+		}
+	}
+	return ""
 }
 
 // internalLBAddress reads the IP of the internal ingress-nginx Service at

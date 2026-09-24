@@ -39,6 +39,7 @@ import { PhaseBadge } from "@/components/phase-badge";
 import { ProcessChips } from "@/components/process-chips";
 import { MetricChart } from "@/components/metric-chart";
 import { DrainsCard } from "@/components/drains-card";
+import { DomainsCard } from "@/components/domains-card";
 import { AppLogView, TextLogView, useLogStream } from "@/components/log-view";
 import { Button } from "@/components/ui/button";
 import {
@@ -649,11 +650,8 @@ function Overview({
               mono
             />
             <Row
-              k="Domains"
-              v={(app.spec.domains?.length
-                ? app.spec.domains
-                : [app.status.url?.replace(/^https:\/\//, "") ?? "-"]
-              ).join(", ")}
+              k="Hostname"
+              v={app.status.url?.replace(/^https:\/\//, "") ?? "-"}
               mono
             />
           </CardContent>
@@ -662,6 +660,8 @@ function Overview({
       </div>
 
       <ResourcesCard app={app} onChanged={onChanged} />
+
+      <DomainsCard slug={app.slug} readOnly={!perms.config} />
 
       <DrainsCard
         scope={{ kind: "project", slug: app.slug, processes }}

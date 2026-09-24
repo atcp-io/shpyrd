@@ -284,6 +284,9 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/rollback", s.require(authz.ProjectDeploy), s.rollbackApp)
 	api.POST("/projects/:slug/redeploy", s.require(authz.ProjectDeploy), s.redeployApp)
 	api.PUT("/projects/:slug/exposure", s.require(authz.ProjectDeploy), s.setExposure)
+	api.GET("/projects/:slug/domains", s.require(authz.ProjectView), s.listDomains) // RFC-0034
+	api.POST("/projects/:slug/domains", s.require(authz.ProjectConfig), s.addDomain)
+	api.DELETE("/projects/:slug/domains/:host", s.require(authz.ProjectConfig), s.removeDomain)
 	api.GET("/projects/:slug/audit", s.require(authz.ProjectView), s.appAudit)
 	// Project resources (RFC-0003/0006) live in the project namespace.
 	api.GET("/projects/:slug/resources", s.require(authz.ProjectView), s.listProjectResources)
