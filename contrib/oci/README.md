@@ -28,7 +28,7 @@ terraform apply                                # about 15 minutes
 cd ..
 ./kubeconfig.sh
 ./tunnel.sh &                                  # sessions live 3 hours; run again
-kubectl --context oke-shpyrd-dev get nodes
+kubectl --context oke-<name> get nodes         # the name variable, default in variables.tf
 ```
 
 `terraform output next_steps` prints the `shpyrd cluster init` command with the reserved

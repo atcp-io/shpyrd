@@ -4,7 +4,7 @@ tenancy_ocid = "ocid1.tenancy.oc1..aaaa"
 region       = "sa-saopaulo-1"
 # compartment_ocid = "ocid1.compartment.oc1..aaaa"   # default: the tenancy root
 
-name               = "shpyrd-dev"
+# name = "shpyrd-prod"   # prefixes every resource and names the cluster; default in variables.tf
 kubernetes_version = "v1.36.1"
 cluster_type       = "BASIC_CLUSTER" # ENHANCED_CLUSTER for workload identity (per-cluster fee)
 
