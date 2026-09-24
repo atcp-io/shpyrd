@@ -1,8 +1,8 @@
 # RFC-0059 In-cluster registry as the default on every profile
 
-**Status:** in progress
+**Status:** implemented
 
-**Owner:** Patrick Negri (main)
+**Owner:** Patrick Negri
 
 **Depends on:** RFC-0035 (cloud profiles), RFC-0060 (storage classes per profile)
 
@@ -155,19 +155,31 @@ laptop and not on a shared cloud network.
   on a node without the image cached (running instances are unaffected); RFC-0046 adds the
   object-storage backend that makes the registry stateless and multi-replica.
 
-## Open questions
+## Decisions
 
-1. In-cluster by default on cloud, provider registry opt-in? Default: yes.
-2. Switch the local profile to TLS in the same release (one code path) rather than keeping
-   HTTP there? Default: yes; `SHPYRD_REGISTRY_INSECURE` stays one release as an escape hatch
-   and is then removed.
-3. Weekly automatic garbage collection with a read-only window? Default: yes, Sunday
-   04:00 UTC, `SHPYRD_REGISTRY_GC` to change or disable.
-4. Object-storage backend (`s3` driver, OCI's S3-compatible API) with RFC-0046? Default:
-   RFC-0046 adds `SHPYRD_REGISTRY_STORAGE=bucket`; the claim stays the default.
+1. In-cluster by default on every profile; a provider registry is `--registry-host` with
+   credentials.
+2. The local profile switched to TLS in the same release; there is no plain-HTTP escape
+   hatch for the in-cluster registry (one code path; `SHPYRD_REGISTRY_INSECURE` only
+   describes an external registry without TLS).
+3. Weekly garbage collection, Sunday 04:00 UTC (`SHPYRD_REGISTRY_GC`, cron in UTC, `off`
+   disables), plus `shpyrd cluster registry gc` and the card's button.
+4. The object-storage backend comes with RFC-0046 (`SHPYRD_REGISTRY_STORAGE=bucket`).
 
 ## Implementation History
 
 - 2026-09-24: RFC written after the OKE proof of concept ran on OCIR (RFC-0035); first
   draft kept plain HTTP, replaced the same day by TLS from the platform CA once the kpack
   trust path (webhook plus `SSL_CERT_FILE`) and the TLS-only requirement were established.
+- 2026-09-24: Implemented (v0.1.6): TLS-only registry with the ClusterIP as SAN and one
+  generated credential; trust through the shpyrd-server admission webhook for kpack build
+  pods, the kpack controller patch, BuildKit's `SSL_CERT_FILE` and the `registry-nodes`
+  DaemonSet (containerd and CRI-O); the platform CA generated in the cluster on cloud
+  profiles and fetched by `shpyrd cluster trust`; migration from an external registry in
+  place (kpack Images recreated for the new tag, old credentials kept); stale images of
+  pruned releases deleted and blobs reclaimed by the collector (a read-only copy of the
+  configuration swapped in for the run, since Distribution ignores env overrides for that
+  section); `shpyrd cluster registry [gc]` and the Registry card. Verified on kind (upgrade
+  from HTTP) and on OKE (moved off OCIR). Two findings on the way: kind ships
+  `/etc/containerd` as 0644, so the node agent keeps `DAC_OVERRIDE`; the ClusterBuilder's
+  `UpToDate` condition must be waited for as well as `Ready`.
