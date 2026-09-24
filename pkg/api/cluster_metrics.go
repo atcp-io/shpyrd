@@ -35,10 +35,14 @@ type ClusterMetrics struct {
 	Charts []Chart     `json:"charts"`
 }
 
-// Instant queries per node, keyed by the label carrying the node name.
+// Instant queries per node, all keyed by the Kubernetes node name. The
+// kube-state-metrics series carry it natively; node-exporter series get it
+// from the ServiceMonitor relabeling in the monitoring component (the kernel
+// hostname is not the node name on cloud providers). Samples scraped before
+// that relabeling existed have no node label and are left out.
 var nodeQueries = map[string]struct{ query, label string }{
-	"cpuUsed":  {`100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m]))) * on (instance) group_left (nodename) node_uname_info`, "nodename"},
-	"memUsed":  {`100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on (instance) group_left (nodename) node_uname_info`, "nodename"},
+	"cpuUsed":  {`100 * (1 - avg by (node) (rate(node_cpu_seconds_total{mode="idle",node!=""}[2m])))`, "node"},
+	"memUsed":  {`100 * (1 - sum by (node) (node_memory_MemAvailable_bytes{node!=""}) / sum by (node) (node_memory_MemTotal_bytes{node!=""}))`, "node"},
 	"cpuReq":   {`100 * sum by (node) (kube_pod_container_resource_requests{resource="cpu"}) / on (node) kube_node_status_allocatable{resource="cpu"}`, "node"},
 	"memReq":   {`100 * sum by (node) (kube_pod_container_resource_requests{resource="memory"}) / on (node) kube_node_status_allocatable{resource="memory"}`, "node"},
 	"cpuCores": {`kube_node_status_allocatable{resource="cpu"}`, "node"},
@@ -151,8 +155,8 @@ func (s *Server) clusterMetrics(c *gin.Context) {
 		step = time.Minute
 	}
 	charts := []chartQuery{
-		{Chart: Chart{ID: "cpu", Title: "CPU used", Unit: "%", Kind: "line"}, Query: nodeQueries["cpuUsed"].query, LabelKey: "nodename"},
-		{Chart: Chart{ID: "memory", Title: "Memory used", Unit: "%", Kind: "line"}, Query: nodeQueries["memUsed"].query, LabelKey: "nodename"},
+		{Chart: Chart{ID: "cpu", Title: "CPU used", Unit: "%", Kind: "line"}, Query: nodeQueries["cpuUsed"].query, LabelKey: "node"},
+		{Chart: Chart{ID: "memory", Title: "Memory used", Unit: "%", Kind: "line"}, Query: nodeQueries["memUsed"].query, LabelKey: "node"},
 	}
 	out.Charts = make([]Chart, len(charts))
 	var cwg sync.WaitGroup

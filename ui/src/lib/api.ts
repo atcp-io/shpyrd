@@ -275,6 +275,8 @@ export type ClusterSummary = {
     cpu: string;
     memory: string;
     pods: string;
+    instanceType?: string;
+    zone?: string;
   }[];
   apps: number;
   phases: Record<string, number>;

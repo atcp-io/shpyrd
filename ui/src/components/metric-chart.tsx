@@ -44,9 +44,18 @@ type Props = {
   range: string;
   releases?: { number: number; time: number; label: string }[];
   className?: string;
+  // Overrides the per-project copy keyed by chart id (the cluster page reuses
+  // the cpu/memory ids for node utilisation).
+  subtitle?: string;
 };
 
-export function MetricChart({ chart, range, releases = [], className }: Props) {
+export function MetricChart({
+  chart,
+  range,
+  releases = [],
+  className,
+  subtitle: subtitleOverride,
+}: Props) {
   // Merge series into one row per timestamp: { t, [name]: value }.
   const rows = new Map<number, Record<string, number>>();
   for (const s of chart.series) {
@@ -64,7 +73,7 @@ export function MetricChart({ chart, range, releases = [], className }: Props) {
   const stacked = chart.kind === "stacked" || chart.kind === "step";
   const step = chart.kind === "step";
   const percent = chart.unit === "%";
-  const subtitle = subtitles[chart.id];
+  const subtitle = subtitleOverride ?? subtitles[chart.id];
   const hot = percent && last.some((l) => (l.v ?? 0) >= 85);
 
   return (

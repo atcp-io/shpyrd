@@ -70,6 +70,10 @@ export function ClusterPage() {
   }
   const c = cluster.data;
   const m = metrics.data;
+  // The server reports its own build; the install record only knows which
+  // CLI ran cluster init, which is worth a note when the two drift apart.
+  const serverVersion = config.data?.version;
+  const installerVersion = c.install?.version;
 
   return (
     <div className="grid gap-6">
@@ -79,7 +83,18 @@ export function ClusterPage() {
           value={c.install?.profile ?? "-"}
           hint={profileHint(c.install?.profile)}
         />
-        <Info label="shpyrd version" value={c.install?.version ?? "-"} mono />
+        <Info
+          label="shpyrd version"
+          value={serverVersion ?? installerVersion ?? "-"}
+          mono
+          hint={
+            serverVersion &&
+            installerVersion &&
+            installerVersion !== serverVersion
+              ? `base stack installed with the ${installerVersion} CLI`
+              : undefined
+          }
+        />
         <Info
           label="Domain"
           value={c.install?.domain ?? "-"}
@@ -151,7 +166,16 @@ export function ClusterPage() {
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {m.charts.map((ch) => (
-                  <MetricChart key={ch.id} chart={ch} range={range} />
+                  <MetricChart
+                    key={ch.id}
+                    chart={ch}
+                    range={range}
+                    subtitle={
+                      ch.id === "cpu"
+                        ? "of each node's cores, whatever is running on it"
+                        : "of each node's memory, whatever is running on it"
+                    }
+                  />
                 ))}
               </div>
             </>
@@ -301,14 +325,14 @@ export function ClusterPage() {
 
 // The installer profile says which environment the base stack was built for
 // and therefore how load balancing, DNS, TLS and the registry are provided.
-function profileHint(profile?: string): string {
+function profileHint(profile?: string): string | undefined {
   switch (profile) {
     case "local":
-      return "Local kind cluster: host ports, nip.io domain, development CA, in-cluster registry";
-    case "aws":
-      return "AWS: load balancer controller, Route53, ACM, ECR";
+      return "Local kind cluster: host front door, local names, development CA, in-cluster registry";
+    case "oci":
+      return "Oracle Cloud (OKE): OCI load balancer, wildcard DNS record, Let's Encrypt certificates, OCIR";
     default:
-      return "How the base stack was installed";
+      return undefined;
   }
 }
 
@@ -408,10 +432,16 @@ function NodesTable({
     roles: string;
     arch: string;
     kubeletVersion: string;
+    instanceType?: string;
+    zone?: string;
   }[];
   usage?: ClusterMetrics;
 }) {
   const byName = new Map(usage?.nodes.map((n) => [n.name, n]));
+  // Nodes keep their Kubernetes names (kubectl's view; an IP on OKE); the
+  // machine shape and zone underneath say what the name does not.
+  const detail = (n: { instanceType?: string; zone?: string }) =>
+    [n.instanceType, n.zone].filter(Boolean).join(" · ");
   return (
     <Table>
       <TableHeader>
@@ -430,16 +460,23 @@ function NodesTable({
           return (
             <TableRow key={n.name}>
               <TableCell className="font-medium">
-                <span
-                  className={cn(
-                    "mr-2 inline-block size-2 rounded-full",
-                    n.ready ? "bg-emerald-500" : "bg-red-500",
-                  )}
-                />
-                {n.name}
-                <span className="ml-2 font-mono text-[10px] text-muted-foreground">
-                  {n.arch}
-                </span>
+                <div className="flex items-center">
+                  <span
+                    className={cn(
+                      "mr-2 inline-block size-2 shrink-0 rounded-full",
+                      n.ready ? "bg-emerald-500" : "bg-red-500",
+                    )}
+                  />
+                  {n.name}
+                  <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                    {n.arch}
+                  </span>
+                </div>
+                {detail(n) && (
+                  <div className="ml-4 text-[11px] font-normal text-muted-foreground">
+                    {detail(n)}
+                  </div>
+                )}
               </TableCell>
               <TableCell className="text-xs">{n.roles}</TableCell>
               <TableCell>

@@ -80,6 +80,16 @@ kube-state-metrics:
       memory: 32Mi
 
 prometheus-node-exporter:
+  prometheus:
+    monitor:
+      # Stamp every node-exporter series with the Kubernetes node name. The
+      # kernel hostname (nodename) is not the node name on cloud providers
+      # (OKE nodes are named by IP, the machine by its instance name), and the
+      # dashboard joins machine utilisation with kube-state-metrics by node.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+          action: replace
   resources:
     requests:
       cpu: 10m

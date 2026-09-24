@@ -61,6 +61,10 @@ type NodeInfo struct {
 	CPU            string `json:"cpu"`
 	Memory         string `json:"memory"`
 	Pods           string `json:"pods"`
+	// Machine shape and zone from the well-known topology labels; empty on
+	// clusters without a cloud provider (kind).
+	InstanceType string `json:"instanceType,omitempty"`
+	Zone         string `json:"zone,omitempty"`
 }
 
 func (s *Server) clusterSummary(c *gin.Context) {
@@ -118,11 +122,20 @@ func nodeInfo(n corev1.Node) NodeInfo {
 		CPU:            n.Status.Capacity.Cpu().String(),
 		Memory:         n.Status.Capacity.Memory().String(),
 		Pods:           n.Status.Capacity.Pods().String(),
+		InstanceType:   firstLabel(n.Labels, "node.kubernetes.io/instance-type", "beta.kubernetes.io/instance-type"),
+		Zone:           firstLabel(n.Labels, "topology.kubernetes.io/zone", "failure-domain.beta.kubernetes.io/zone"),
 	}
 	var roles []string
 	for k := range n.Labels {
 		if strings.HasPrefix(k, "node-role.kubernetes.io/") {
-			roles = append(roles, strings.TrimPrefix(k, "node-role.kubernetes.io/"))
+			role := strings.TrimPrefix(k, "node-role.kubernetes.io/")
+			// Some providers (OKE) label plain workers "node"; keep the
+			// dashboard vocabulary consistent with clusters that leave
+			// workers unlabelled.
+			if role == "node" {
+				role = "worker"
+			}
+			roles = append(roles, role)
 		}
 	}
 	sort.Strings(roles)
@@ -136,4 +149,14 @@ func nodeInfo(n corev1.Node) NodeInfo {
 		}
 	}
 	return info
+}
+
+// firstLabel returns the value of the first key present in labels.
+func firstLabel(labels map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := labels[k]; v != "" {
+			return v
+		}
+	}
+	return ""
 }

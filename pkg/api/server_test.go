@@ -328,7 +328,11 @@ func TestHostRegex(t *testing.T) {
 
 func TestClusterSummaryAndLogs(t *testing.T) {
 	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"node-role.kubernetes.io/control-plane": ""}},
+		ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{
+			"node-role.kubernetes.io/control-plane": "",
+			"node.kubernetes.io/instance-type":      "VM.Standard.E5.Flex",
+			"topology.kubernetes.io/zone":           "SA-SAOPAULO-1-AD-1",
+		}},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
 			NodeInfo:   corev1.NodeSystemInfo{Architecture: "arm64", KubeletVersion: "v1.37.0"},
@@ -361,6 +365,9 @@ func TestClusterSummaryAndLogs(t *testing.T) {
 	if len(sum.Nodes) != 1 || !sum.Nodes[0].Ready || sum.Nodes[0].Roles != "control-plane" || sum.Apps != 1 || sum.Phases["Running"] != 1 {
 		t.Errorf("nodes/apps: %+v", sum)
 	}
+	if n := sum.Nodes[0]; n.InstanceType != "VM.Standard.E5.Flex" || n.Zone != "SA-SAOPAULO-1-AD-1" {
+		t.Errorf("node topology: %+v", n)
+	}
 
 	rec = do(t, s, "GET", "/api/projects/web1/logs?tail=10", "", true)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), " web.1 | ") {
@@ -373,19 +380,42 @@ func TestClusterSummaryAndLogs(t *testing.T) {
 	}
 }
 
+func TestNodeInfoRoles(t *testing.T) {
+	mk := func(labels map[string]string) corev1.Node {
+		return corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n", Labels: labels}}
+	}
+	cases := []struct {
+		labels map[string]string
+		roles  string
+	}{
+		{nil, "worker"},
+		{map[string]string{"node-role.kubernetes.io/node": ""}, "worker"},
+		{map[string]string{"node-role.kubernetes.io/control-plane": "", "node-role.kubernetes.io/master": ""}, "control-plane,master"},
+		{map[string]string{"beta.kubernetes.io/instance-type": "t3.large"}, "worker"},
+	}
+	for _, tc := range cases {
+		if got := nodeInfo(mk(tc.labels)).Roles; got != tc.roles {
+			t.Errorf("roles(%v) = %q, want %q", tc.labels, got, tc.roles)
+		}
+	}
+	if got := nodeInfo(mk(map[string]string{"beta.kubernetes.io/instance-type": "t3.large"})).InstanceType; got != "t3.large" {
+		t.Errorf("beta instance-type label = %q", got)
+	}
+}
+
 func TestClusterMetrics(t *testing.T) {
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("query")
 		if strings.HasSuffix(r.URL.Path, "/query_range") {
-			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"nodename":"n1"},"values":[[1700000000,"12.5"]]}]}}`))
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"node":"n1"},"values":[[1700000000,"12.5"]]}]}}`))
 			return
 		}
 		label, val := "node", "1"
 		switch {
 		case strings.Contains(q, "node_cpu_seconds_total"):
-			label, val = "nodename", "25"
+			val = "25"
 		case strings.Contains(q, "MemAvailable"):
-			label, val = "nodename", "50"
+			val = "50"
 		case strings.Contains(q, `resource="cpu"`) && strings.Contains(q, "allocatable") && !strings.Contains(q, "requests"):
 			val = "8"
 		case strings.Contains(q, `resource="memory"`) && strings.Contains(q, "allocatable") && !strings.Contains(q, "requests"):
