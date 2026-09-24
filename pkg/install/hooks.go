@@ -2,10 +2,15 @@ package install
 
 import (
 	"context"
+	"crypto"
+	"crypto/md5"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -43,6 +48,7 @@ var hooks = map[string]Hook{
 	"default-sizes":        defaultSizesHook,
 	"oidc-client":          oidcClientHook,
 	"registry-credentials": registryCredentialsHook,
+	"dns-credentials":      dnsCredentialsHook,
 }
 
 // RegisterHook lets extensions add hooks their components reference.
@@ -357,4 +363,130 @@ func registryHostOf(registry string) string {
 		return registry[:i]
 	}
 	return registry
+}
+
+// dnsCredentialsHook writes what the DNS automation authenticates with
+// (RFC-0061): ExternalDNS's oci.yaml as Secret external-dns-config in the
+// system namespace and, with an API key, the DNS-01 webhook's profile Secret
+// in the cert-manager namespace. With workload identity there is no key:
+// the oci.yaml only says so. Existing Secrets are kept when no key is given.
+func dnsCredentialsHook(ctx context.Context, e *Engine, c *Component) error {
+	provider := e.vars[VarDNSProvider]
+	if provider == "" || provider == "none" {
+		return nil
+	}
+	if provider != "oci" {
+		return fmt.Errorf("DNS provider %q is not supported yet (oci is)", provider)
+	}
+	compartment, tenancy, region := e.vars[VarDNSCompartment], e.vars[VarDNSTenancy], e.vars[VarDNSRegion]
+	if compartment == "" || region == "" {
+		return errors.New("--dns oci needs --dns-compartment and --dns-region (contrib/oci/terraform prints them)")
+	}
+	auth := e.vars[VarDNSAuth]
+	secrets := e.kube.Kube.CoreV1().Secrets(c.Namespace)
+
+	if auth == DNSAuthWorkload {
+		cfg := fmt.Sprintf("auth:\n  region: %s\n  useWorkloadIdentity: true\ncompartment: %s\n", region, compartment)
+		if err := e.applyOpaqueSecret(ctx, c.Namespace, DNSConfigSecretName, map[string]string{"oci.yaml": cfg}); err != nil {
+			return err
+		}
+		e.rep.Step(c.Name, "DNS automation through OKE workload identity (no key)")
+		return nil
+	}
+
+	user := e.vars[VarDNSUser]
+	if e.opts.DNSKeyPEM == "" {
+		if _, err := secrets.Get(ctx, DNSConfigSecretName, metav1.GetOptions{}); err == nil {
+			e.rep.Step(c.Name, "keeping existing DNS credentials")
+			return nil
+		}
+		return errors.New("--dns oci needs the API key of the DNS user: --dns-user and --dns-key-file (contrib/oci/terraform creates them with dns_auth = \"key\")")
+	}
+	if user == "" || tenancy == "" {
+		return errors.New("--dns oci with a key needs --dns-user and --dns-tenancy")
+	}
+	fingerprint := e.opts.DNSKeyFingerprint
+	if fingerprint == "" {
+		var err error
+		fingerprint, err = KeyFingerprint(e.opts.DNSKeyPEM)
+		if err != nil {
+			return fmt.Errorf("DNS key: %w", err)
+		}
+	}
+	cfg := fmt.Sprintf("auth:\n  region: %s\n  tenancy: %s\n  user: %s\n  fingerprint: %s\n  key: |\n%s\ncompartment: %s\n",
+		region, tenancy, user, fingerprint, indent(e.opts.DNSKeyPEM, "    "), compartment)
+	if err := e.applyOpaqueSecret(ctx, c.Namespace, DNSConfigSecretName, map[string]string{"oci.yaml": cfg}); err != nil {
+		return err
+	}
+	if err := e.applyOpaqueSecret(ctx, "cert-manager", DNSProfileSecretName, map[string]string{
+		"tenancy": tenancy, "user": user, "region": region, "fingerprint": fingerprint,
+		"privateKey": e.opts.DNSKeyPEM, "privateKeyPassphrase": "",
+	}); err != nil {
+		return err
+	}
+	e.rep.Step(c.Name, "DNS automation as user "+user+" (key "+fingerprint+")")
+	return nil
+}
+
+// applyOpaqueSecret writes an Opaque Secret with server-side apply.
+func (e *Engine) applyOpaqueSecret(ctx context.Context, namespace, name string, data map[string]string) error {
+	enc := map[string]interface{}{}
+	for k, v := range data {
+		enc[k] = base64.StdEncoding.EncodeToString([]byte(v))
+	}
+	secret := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"type":       "Opaque",
+		"metadata": map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+			"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": fieldManager},
+		},
+		"data": enc,
+	}}
+	if err := e.applier.applyOne(ctx, secret, namespace, false); err != nil {
+		return fmt.Errorf("secret %s/%s: %w", namespace, name, err)
+	}
+	return nil
+}
+
+// KeyFingerprint is OCI's fingerprint of an API signing key: the MD5 of the
+// DER-encoded public key as colon-separated hex.
+func KeyFingerprint(privateKeyPEM string) (string, error) {
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	if block == nil {
+		return "", errors.New("not a PEM private key")
+	}
+	var pub interface{}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		pub = &key.PublicKey
+	} else if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		type publicKeyer interface{ Public() crypto.PublicKey }
+		pk, ok := key.(publicKeyer)
+		if !ok {
+			return "", errors.New("unsupported private key type")
+		}
+		pub = pk.Public()
+	} else {
+		return "", errors.New("unsupported private key format (PKCS#1 or PKCS#8 expected)")
+	}
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", err
+	}
+	sum := md5.Sum(der) //nolint:gosec // OCI defines the fingerprint as MD5
+	parts := make([]string, len(sum))
+	for i, b := range sum {
+		parts[i] = fmt.Sprintf("%02x", b)
+	}
+	return strings.Join(parts, ":"), nil
+}
+
+func indent(s, prefix string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
+	}
+	return strings.Join(lines, "\n")
 }

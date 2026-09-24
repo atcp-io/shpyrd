@@ -1,0 +1,14 @@
+name: dns01-oci
+description: cert-manager DNS-01 solver for OCI DNS, for the platform's wildcard certificate (RFC-0061)
+namespace: cert-manager
+helm:
+  repo: https://the-i-engineers.github.io/cert-manager-webhook-oci
+  chart: cert-manager-webhook-oci
+  # 0.2.1 is the last release with a published image (later tags failed
+  # their release builds); the chart's default image tag lags, set below.
+  version: 0.2.1
+  release: dns01-oci
+  values: [values.yaml]
+wait:
+  - deployment: cert-manager/dns01-oci-cert-manager-webhook-oci
+timeout: 5m

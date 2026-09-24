@@ -25,6 +25,17 @@ vars:
   # project isolation needs Calico in policy-only mode (Oracle's supported
   # path). "none" when the cluster already runs a policy engine.
   SHPYRD_NETWORK_POLICY: calico
+  # DNS automation (RFC-0061): `--dns oci` with the compartment, tenancy,
+  # region and either the DNS user's API key (--dns-user, --dns-key-file) or
+  # --dns-auth workload on an enhanced cluster. Records for the platform's
+  # hostnames are then published by ExternalDNS and one wildcard certificate
+  # (DNS-01) serves every project.
+  SHPYRD_DNS_PROVIDER: none
+  SHPYRD_DNS_AUTH: key
+  SHPYRD_DNS_COMPARTMENT: ""
+  SHPYRD_DNS_TENANCY: ""
+  SHPYRD_DNS_REGION: ""
+  SHPYRD_DNS_USER: ""
   # A cloud load balancer terminates nothing and listens on 80/443: URLs carry no port.
   SHPYRD_FRONT_DOOR: lb
   # Reserved public address for the load balancer (contrib/oci/terraform output
@@ -42,8 +53,8 @@ runlevels:
   - name: rc1
     components: [network-policy, cert-manager, registry-credentials]
   - name: rc2
-    components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, registry, registry-nodes]
+    components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, registry, registry-nodes, external-dns, dns01-oci]
   - name: rc3
-    components: [kpack, monitoring]
+    components: [kpack, monitoring, dns]
   - name: rc4
     components: [shpyrd]

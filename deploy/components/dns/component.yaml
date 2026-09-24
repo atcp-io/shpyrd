@@ -1,0 +1,18 @@
+name: dns
+description: Let's Encrypt DNS-01 issuer and the platform's wildcard certificate, served as the front door's default certificate (RFC-0061)
+namespace: shpyrd-system
+kustomize:
+  path: base
+wait:
+  - condition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      name: letsencrypt-dns01
+      type: Ready
+  - condition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      namespace: shpyrd-system
+      name: platform-wildcard
+      type: Ready
+timeout: 15m

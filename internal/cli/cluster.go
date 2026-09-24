@@ -60,6 +60,16 @@ type initFlags struct {
 	registryHost      string
 	registryUser      string
 	registryTokenFile string
+	// DNS automation (RFC-0061): provider, where the zone lives and how the
+	// cluster authenticates; the key goes to a Secret, never to the record.
+	dns            string
+	dnsAuth        string
+	dnsCompartment string
+	dnsTenancy     string
+	dnsRegion      string
+	dnsUser        string
+	dnsKeyFile     string
+	dnsFingerprint string
 }
 
 func (f *initFlags) bind(cmd *cobra.Command) {
@@ -70,6 +80,14 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.registryHost, "registry-host", "", "use this registry instead of the in-cluster one, e.g. gru.ocir.io/<tenancy-namespace> (with --registry-user and --registry-token-file)")
 	cmd.Flags().StringVar(&f.registryUser, "registry-user", "", "user of the external registry, e.g. <tenancy-namespace>/<user> for OCIR")
 	cmd.Flags().StringVar(&f.registryTokenFile, "registry-token-file", "", "file holding the external registry's password or auth token")
+	cmd.Flags().StringVar(&f.dns, "dns", "", "DNS provider that hosts the platform's zone: oci (records and the wildcard certificate are then automatic) or none")
+	cmd.Flags().StringVar(&f.dnsAuth, "dns-auth", "", "how the cluster authenticates to the DNS provider: key (default with --dns-key-file) or workload (OKE workload identity, enhanced clusters)")
+	cmd.Flags().StringVar(&f.dnsCompartment, "dns-compartment", "", "OCI compartment OCID holding the zone")
+	cmd.Flags().StringVar(&f.dnsTenancy, "dns-tenancy", "", "OCI tenancy OCID (with --dns-key-file)")
+	cmd.Flags().StringVar(&f.dnsRegion, "dns-region", "", "OCI region of the zone, e.g. sa-saopaulo-1")
+	cmd.Flags().StringVar(&f.dnsUser, "dns-user", "", "OCI user OCID owning the API key (with --dns-key-file)")
+	cmd.Flags().StringVar(&f.dnsKeyFile, "dns-key-file", "", "PEM file with the DNS user's API signing key (contrib/oci/terraform writes it)")
+	cmd.Flags().StringVar(&f.dnsFingerprint, "dns-fingerprint", "", "fingerprint of the API key (derived from the key when omitted)")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
@@ -98,6 +116,24 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 		vars[install.VarRegistryHost] = f.registryHost
 		vars[install.VarRegistryIP] = ""
 		vars[install.VarRegistryInsecure] = "false"
+	}
+	if f.dns != "" {
+		vars[install.VarDNSProvider] = f.dns
+	}
+	if f.dnsAuth != "" {
+		vars[install.VarDNSAuth] = f.dnsAuth
+	} else if f.dnsKeyFile != "" {
+		vars[install.VarDNSAuth] = install.DNSAuthKey
+	}
+	for k, v := range map[string]string{
+		install.VarDNSCompartment: f.dnsCompartment,
+		install.VarDNSTenancy:     f.dnsTenancy,
+		install.VarDNSRegion:      f.dnsRegion,
+		install.VarDNSUser:        f.dnsUser,
+	} {
+		if v != "" {
+			vars[k] = v
+		}
 	}
 	for _, kv := range f.set {
 		k, v, ok := strings.Cut(kv, "=")
@@ -501,6 +537,17 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if flags.registryHost != "" && flags.registryUser == "" && len(flags.only) == 0 {
 		return errors.New("--registry-host needs --registry-user and --registry-token-file")
 	}
+	dnsKey := ""
+	if flags.dnsKeyFile != "" {
+		raw, err := os.ReadFile(flags.dnsKeyFile)
+		if err != nil {
+			return fmt.Errorf("DNS key: %w", err)
+		}
+		dnsKey = string(raw)
+	}
+	if flags.dns != "" && flags.dns != "none" && flags.dns != "oci" {
+		return fmt.Errorf("--dns %q: oci or none", flags.dns)
+	}
 
 	k, err := kube.Connect(kopts)
 	if err != nil {
@@ -522,21 +569,31 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		// earlier run) replaces the in-cluster one and its node trust.
 		skip = append(append([]string{}, skip...), "registry", "registry-nodes")
 	}
-	if vars[install.VarNetworkPolicy] == "none" {
-		if prof, err := install.LoadProfile(deploy.FS, flags.profile); err == nil && prof.HasComponent("network-policy") {
+	if prof, err := install.LoadProfile(deploy.FS, flags.profile); err == nil {
+		if vars[install.VarNetworkPolicy] == "none" && prof.HasComponent("network-policy") {
 			skip = append(append([]string{}, skip...), "network-policy")
+		}
+		// No DNS provider: no records automation, no wildcard certificate.
+		if dns := effectiveVar(vars, prof, install.VarDNSProvider); dns == "" || dns == "none" {
+			for _, c := range []string{"external-dns", "dns01-oci", "dns"} {
+				if prof.HasComponent(c) {
+					skip = append(append([]string{}, skip...), c)
+				}
+			}
 		}
 	}
 	opts := install.Options{
-		Profile:          flags.profile,
-		Vars:             vars,
-		Skip:             skip,
-		Only:             flags.only,
-		Version:          Version,
-		Extensions:       extComps,
-		Reporter:         &consoleReporter{out: out},
-		RegistryUser:     flags.registryUser,
-		RegistryPassword: registryPassword,
+		Profile:           flags.profile,
+		Vars:              vars,
+		Skip:              skip,
+		Only:              flags.only,
+		Version:           Version,
+		Extensions:        extComps,
+		Reporter:          &consoleReporter{out: out},
+		RegistryUser:      flags.registryUser,
+		RegistryPassword:  registryPassword,
+		DNSKeyPEM:         dnsKey,
+		DNSKeyFingerprint: flags.dnsFingerprint,
 	}
 	eng, err := install.New(k, opts)
 	if err != nil {
@@ -556,7 +613,12 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		// wait for a certificate first, then let the operator create the
 		// record, then the rest.
 		first := install.Options(opts)
-		first.Skip = append(append([]string{}, opts.Skip...), certificateComponents(extNames)...)
+		first.Skip = append([]string{}, opts.Skip...)
+		for _, c := range certificateComponents(extNames) {
+			if eng.Profile().HasComponent(c) && !contains(first.Skip, c) {
+				first.Skip = append(first.Skip, c)
+			}
+		}
 		phase1, err := install.New(k, first)
 		if err != nil {
 			return err
@@ -567,6 +629,9 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		lbAddress, err = waitForLoadBalancer(ctx, cmd, k)
 		if err != nil {
 			return err
+		}
+		if dns := eng.Vars()[install.VarDNSProvider]; dns != "" && dns != "none" {
+			fmt.Fprintf(out, "DNS: ExternalDNS publishes *.%s -> %s in the %s zone.\n", eng.Vars()[install.VarDomain], lbAddress, dns)
 		}
 		if err := waitForDNS(ctx, cmd, eng.Vars()[install.VarDomain], lbAddress); err != nil {
 			return err
@@ -647,11 +712,20 @@ func networkPolicyEngine(ctx context.Context, k *kube.Client) string {
 // certificate, so they go last on cloud profiles: the server, and Dex when
 // the auth-local extension is on.
 func certificateComponents(extNames []string) []string {
-	out := []string{"shpyrd"}
+	out := []string{"shpyrd", "dns"}
 	if contains(extNames, "auth-local") {
 		out = append(out, "dex")
 	}
 	return out
+}
+
+// effectiveVar is the value a variable will have: the explicit one, else
+// the profile's default.
+func effectiveVar(vars map[string]string, prof *install.Profile, key string) string {
+	if v, ok := vars[key]; ok {
+		return v
+	}
+	return prof.Vars[key]
 }
 
 // loadBalancerAddress is the public address of ingress-nginx's Service.

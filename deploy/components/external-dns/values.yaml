@@ -1,0 +1,31 @@
+# ExternalDNS with the OCI DNS provider (RFC-0061). It owns the records it
+# creates (TXT registry keyed by the cluster name) and never touches others
+# in the zone. The credential (or the workload-identity choice) is the
+# oci.yaml the dns-credentials hook writes as Secret external-dns-config.
+provider:
+  name: ${SHPYRD_DNS_PROVIDER}
+sources: [service, ingress]
+policy: sync
+registry: txt
+txtOwnerId: shpyrd-${SHPYRD_CLUSTER}
+domainFilters: [${SHPYRD_DOMAIN}]
+extraArgs:
+  oci-zone-scope: GLOBAL
+  oci-zones-cache-duration: 5m
+  # The ownership record of a wildcard cannot be named "a-*": use a label.
+  txt-wildcard-replacement: wildcard
+extraVolumes:
+  - name: config
+    secret:
+      secretName: external-dns-config
+extraVolumeMounts:
+  - name: config
+    mountPath: /etc/kubernetes
+    readOnly: true
+serviceAccount:
+  create: true
+  name: external-dns
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi

@@ -15,6 +15,13 @@ vars:
   SHPYRD_CLUSTER_ISSUER: shpyrd-ca
   SHPYRD_CA_SOURCE: local
   SHPYRD_NETWORK_POLICY: none        # kind's kindnet enforces NetworkPolicy (kind 0.24+)
+  # No DNS provider locally (RFC-0061 is for cloud profiles).
+  SHPYRD_DNS_PROVIDER: none
+  SHPYRD_DNS_AUTH: key
+  SHPYRD_DNS_COMPARTMENT: ""
+  SHPYRD_DNS_TENANCY: ""
+  SHPYRD_DNS_REGION: ""
+  SHPYRD_DNS_USER: ""
   SHPYRD_ACME_EMAIL: ""
   # SHPYRD_SERVER_IMAGE follows the CLI version (a release installs its own
   # tag, a development build the latest release); --set overrides it.

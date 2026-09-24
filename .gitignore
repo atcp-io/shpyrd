@@ -34,3 +34,4 @@ hack/oci/.out.env
 # terraform (contrib): the lock file is committed, local variables are not
 terraform.tfvars
 /shpyrd-server
+*-dns.pem

@@ -222,6 +222,7 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 			RegistryInsecure: registryInsecure(os.Getenv("SHPYRD_REGISTRY_INSECURE"), os.Getenv("SHPYRD_REGISTRY_HOST")),
 			CABundle:         envOr("SHPYRD_CA_BUNDLE", "shpyrd-ca-bundle"),
 			RegistryDeletes:  os.Getenv("SHPYRD_REGISTRY_IP") != "",
+			WildcardTLS:      os.Getenv("SHPYRD_WILDCARD_TLS") == "true",
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {

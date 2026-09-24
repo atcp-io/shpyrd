@@ -1,0 +1,16 @@
+# One certificate for every <name>.<domain>: ingress-nginx serves it as its
+# default certificate, so a new project is trusted from its first second and
+# project Ingresses carry no certificate of their own.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: platform-wildcard
+  namespace: shpyrd-system
+spec:
+  secretName: platform-wildcard-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-dns01
+  dnsNames:
+    - "*.${SHPYRD_DOMAIN}"
+    - ${SHPYRD_DOMAIN}

@@ -40,6 +40,19 @@ const (
 	// policy-only mode next to the provider's CNI; "none" relies on the
 	// cluster's own engine (kind's kindnet enforces policies).
 	VarNetworkPolicy = "SHPYRD_NETWORK_POLICY"
+	// DNS provider (RFC-0061): "none" or "oci". The credential travels in
+	// Secrets written by the dns-credentials hook, never in variables.
+	VarDNSProvider    = "SHPYRD_DNS_PROVIDER"
+	VarDNSAuth        = "SHPYRD_DNS_AUTH"        // "key" (an API signing key) or "workload" (OKE workload identity)
+	VarDNSCompartment = "SHPYRD_DNS_COMPARTMENT" // compartment holding the zone
+	VarDNSTenancy     = "SHPYRD_DNS_TENANCY"
+	VarDNSRegion      = "SHPYRD_DNS_REGION"
+	VarDNSUser        = "SHPYRD_DNS_USER" // IAM user of the API key
+	// Derived from the DNS settings (see derivedVars).
+	VarDNSProfileSecret  = "SHPYRD_DNS_PROFILE_SECRET"  // the webhook's credential Secret name ("" with workload identity)
+	VarDNSProfileSecrets = "SHPYRD_DNS_PROFILE_SECRETS" // the same as a YAML list body
+	VarDefaultTLSSecret  = "SHPYRD_DEFAULT_TLS_SECRET"  // namespace/name of ingress-nginx's default certificate
+	VarWildcardTLS       = "SHPYRD_WILDCARD_TLS"        // "true" when the wildcard certificate serves every project host
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine
@@ -62,6 +75,19 @@ const RegistrySecretName = "shpyrd-registry"
 // RegistryHtpasswdSecretName holds the htpasswd file the in-cluster registry
 // authenticates against (key "htpasswd").
 const RegistryHtpasswdSecretName = "registry-htpasswd"
+
+// DNS automation (RFC-0061).
+const (
+	DNSAuthKey      = "key"
+	DNSAuthWorkload = "workload"
+	// DNSConfigSecretName holds ExternalDNS's oci.yaml (system namespace).
+	DNSConfigSecretName = "external-dns-config"
+	// DNSProfileSecretName holds the API key for the DNS-01 webhook
+	// (cert-manager namespace).
+	DNSProfileSecretName = "oci-dns"
+	// WildcardTLSSecretName is the platform's wildcard certificate.
+	WildcardTLSSecretName = "platform-wildcard-tls"
+)
 
 // Platform CA sources (SHPYRD_CA_SOURCE).
 const (
@@ -107,6 +133,18 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 	}
 	if vars[VarServerImage] == "" {
 		out[VarServerImage] = DefaultServerImage(vars[VarVersion])
+	}
+	// DNS (RFC-0061): with a provider, one wildcard certificate is the front
+	// door's default and project Ingresses carry none of their own.
+	out[VarDNSProfileSecret], out[VarDNSProfileSecrets] = "", ""
+	if vars[VarDNSProvider] != "" && vars[VarDNSProvider] != "none" && vars[VarDNSAuth] != DNSAuthWorkload {
+		out[VarDNSProfileSecret], out[VarDNSProfileSecrets] = DNSProfileSecretName, DNSProfileSecretName
+	}
+	out[VarDefaultTLSSecret] = DefaultSystemNamespace + "/shpyrd-tls"
+	out[VarWildcardTLS] = "false"
+	if vars[VarDNSProvider] != "" && vars[VarDNSProvider] != "none" {
+		out[VarDefaultTLSSecret] = DefaultSystemNamespace + "/" + WildcardTLSSecretName
+		out[VarWildcardTLS] = "true"
 	}
 	return out
 }

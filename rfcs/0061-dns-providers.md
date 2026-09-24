@@ -1,8 +1,8 @@
 # RFC-0061 DNS providers: automatic records and wildcard certificates
 
-**Status:** provisional
+**Status:** implemented (OCI DNS)
 
-**Owner:** unassigned
+**Owner:** Patrick Negri
 
 **Depends on:** RFC-0035 (cloud profiles), RFC-0036 (front doors)
 
@@ -131,18 +131,28 @@ instead of leaving the zone silently empty.
   ownership TXT records are deleted) and returns certificates to the RFC-0036 sources on
   the next renewal.
 
-## Open questions
+## Decisions
 
-1. OCI DNS only in the first version, Route 53 and Cloudflare with their profiles?
-   Default: yes.
-2. Serve the wildcard as the controllers' default certificate rather than copying the
-   secret into project namespaces? Default: yes.
-3. `--policy=sync` (ExternalDNS deletes records it owns when hosts disappear) or
-   `upsert-only`? Default: `sync`, scoped by the TXT owner id.
-4. Verify during implementation that OCI DNS accepts wildcard A records through the API
-   (undocumented either way); fallback is per-host records created by ExternalDNS for
-   every project, which the Ingress source already yields.
+1. OCI DNS first; Route 53 and Cloudflare arrive with their profiles.
+2. The wildcard is served as ingress-nginx's default certificate; project Ingresses
+   declare their TLS hosts without a certificate of their own.
+3. ExternalDNS runs with `--policy=sync` scoped by the TXT owner id
+   (`shpyrd-<cluster>`); the ownership record of the wildcard uses the label `wildcard`.
+4. OCI DNS accepts the wildcard A record (Terraform creates it, ExternalDNS adopts it).
 
 ## Implementation History
 
 - 2026-09-24: RFC written (split from RFC-0036); narrowed to OCI DNS first the same day.
+- 2026-09-24: Implemented for OCI DNS: `contrib/oci/terraform` creates the IAM side
+  (`dns_auth = "key"`: user, group, API key and policy; `"workload"`: the workload-identity
+  policy for the two service accounts); `shpyrd cluster init --dns oci` with
+  `--dns-compartment/--dns-tenancy/--dns-region` and `--dns-user/--dns-key-file` (the
+  fingerprint is derived) or `--dns-auth workload`; components `external-dns` (chart 1.22.0,
+  `sources: service,ingress`, TXT registry, `txt-wildcard-replacement`), `dns01-oci`
+  (the-i-engineers webhook 0.2.1) and `dns` (ClusterIssuer `letsencrypt-dns01`, Certificate
+  `platform-wildcard`); ingress-nginx serves it as `--default-ssl-certificate`; the
+  controller drops per-project certificates when `SHPYRD_WILDCARD_TLS=true`. Verified on
+  the proof of concept: the wildcard was issued in under three minutes, every host
+  including a brand-new project is trusted from its first request, records appear on
+  ExternalDNS's next sync. The load balancer Service also stopped managing security
+  lists (`security-list-management-mode: None`) so Terraform owns them.

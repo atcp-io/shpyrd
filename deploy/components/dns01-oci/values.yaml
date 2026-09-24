@@ -1,0 +1,17 @@
+# the-i-engineers/cert-manager-webhook-oci. With an API key the Secret
+# oci-dns (hook dns-credentials, this namespace) is read; without one the
+# webhook uses OKE workload identity.
+groupName: acme.shpyrd.io
+image:
+  tag: "0.2.1"
+certManager:
+  namespace: cert-manager
+  serviceAccountName: cert-manager
+ociProfileSecretNames: [${SHPYRD_DNS_PROFILE_SECRETS}]
+ociResourcePrincipal:
+  version: "2.2"
+  region: ${SHPYRD_DNS_REGION}
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi

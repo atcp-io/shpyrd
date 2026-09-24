@@ -48,13 +48,39 @@ output "pod_cidr" {
   value       = var.subnet_cidrs.pods
 }
 
+output "dns_compartment_ocid" {
+  description = "Compartment holding the DNS zone (--dns-compartment)."
+  value       = var.dns_zone != "" ? local.compartment_id : null
+}
+
+output "dns_zone_ocid" {
+  value = var.dns_zone != "" ? oci_dns_zone.platform[0].id : null
+}
+
+output "dns_auth" {
+  value = var.dns_zone != "" ? var.dns_auth : "none"
+}
+
+output "dns_user_ocid" {
+  description = "IAM user of the DNS automation (dns_auth = key): --dns-user."
+  value       = local.dns_key ? oci_identity_user.dns[0].id : null
+}
+
+output "dns_key_fingerprint" {
+  value = local.dns_key ? oci_identity_api_key.dns[0].fingerprint : null
+}
+
+output "dns_key_file" {
+  description = "Private key of the DNS automation user (dns_auth = key): --dns-key-file."
+  value       = local.dns_key ? abspath(local_sensitive_file.dns_key[0].filename) : null
+}
+
 output "next_steps" {
   value = <<-EOT
     ../kubeconfig.sh                       # kubeconfig context oke-${var.name} pointed at the tunnel
     ../tunnel.sh                           # Bastion session + ssh tunnel 127.0.0.1:6443 (3 hours; run again)
     kubectl --context oke-${var.name} get nodes
-    shpyrd cluster init --context oke-${var.name} --profile oci --domain <domain> \
-      --set SHPYRD_ACME_EMAIL=<email>${var.reserved_public_ip ? " --set SHPYRD_LB_IP=${oci_core_public_ip.lb[0].ip_address}" : ""} \
-      --set SHPYRD_REGISTRY_HOST=<region-key>.ocir.io/<tenancy-namespace> --registry-user <namespace>/<user> --registry-token-file <file>
+    shpyrd cluster init --context oke-${var.name} --profile oci --domain ${var.dns_zone != "" ? var.dns_zone : "<domain>"} \
+      --set SHPYRD_ACME_EMAIL=<email>${var.reserved_public_ip ? " --set SHPYRD_LB_IP=${oci_core_public_ip.lb[0].ip_address}" : ""}${local.dns_key ? " \\\n      --dns oci --dns-compartment ${local.compartment_id} --dns-tenancy ${var.tenancy_ocid} --dns-region ${var.region} \\\n      --dns-user ${oci_identity_user.dns[0].id} --dns-key-file ${abspath(local_sensitive_file.dns_key[0].filename)}" : ""}${local.dns_wi ? " \\\n      --dns oci --dns-compartment ${local.compartment_id} --dns-tenancy ${var.tenancy_ocid} --dns-region ${var.region} --dns-auth workload" : ""}
   EOT
 }

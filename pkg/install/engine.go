@@ -46,6 +46,10 @@ type Options struct {
 	// never to the install record; empty keeps an existing Secret.
 	RegistryUser     string
 	RegistryPassword string
+	// DNS automation credential (RFC-0061): an OCI API signing key of the
+	// user in SHPYRD_DNS_USER, written to Secrets by the dns-credentials hook.
+	DNSKeyPEM         string
+	DNSKeyFingerprint string
 	// Tree overrides the embedded manifests (tests, development).
 	Tree fs.FS
 	// Extensions are the enabled extensions' components, appended to the

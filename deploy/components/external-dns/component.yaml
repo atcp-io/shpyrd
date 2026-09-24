@@ -1,0 +1,13 @@
+name: external-dns
+description: Publishes the platform's DNS records in the provider's zone (RFC-0061)
+namespace: shpyrd-system
+hooks: [dns-credentials]
+helm:
+  repo: https://kubernetes-sigs.github.io/external-dns/
+  chart: external-dns
+  version: 1.22.0
+  release: external-dns
+  values: [values.yaml]
+wait:
+  - deployment: shpyrd-system/external-dns
+timeout: 5m

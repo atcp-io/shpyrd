@@ -79,6 +79,10 @@ spec:
               value: "${SHPYRD_REGISTRY_SIZE}"
             - name: SHPYRD_REGISTRY_GC
               value: "${SHPYRD_REGISTRY_GC}"
+            # With a DNS provider the wildcard certificate is the front
+            # door's default; project Ingresses then carry no certificate.
+            - name: SHPYRD_WILDCARD_TLS
+              value: "${SHPYRD_WILDCARD_TLS}"
             - name: SHPYRD_DATA_DIR
               value: /data
             - name: SHPYRD_LEADER_ELECT

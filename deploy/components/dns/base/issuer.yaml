@@ -1,0 +1,20 @@
+# Let's Encrypt through DNS-01: the only challenge that can issue a wildcard
+# and the one that works for hostnames the internet cannot reach.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${SHPYRD_ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-dns01-account
+    solvers:
+      - dns01:
+          webhook:
+            groupName: acme.shpyrd.io
+            solverName: ${SHPYRD_DNS_PROVIDER}
+            config:
+              compartmentOCID: ${SHPYRD_DNS_COMPARTMENT}
+              ociProfileSecretName: ${SHPYRD_DNS_PROFILE_SECRET}

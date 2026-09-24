@@ -62,6 +62,10 @@ type Config struct {
 	// the registry (the in-cluster one; provider registries keep their own
 	// retention).
 	RegistryDeletes bool
+	// WildcardTLS says the front door serves the platform's wildcard
+	// certificate by default (RFC-0061): project Ingresses get no
+	// certificate of their own.
+	WildcardTLS bool
 }
 
 // BuildServiceAccount is the ServiceAccount builds run as in a project
@@ -439,17 +443,25 @@ func (c Config) mutateService(app *shpyrdv1.App, p namedProcess, s *corev1.Servi
 	}}
 }
 
-// mutateIngress sets the fields shpyrd owns on the web Ingress.
+// mutateIngress sets the fields shpyrd owns on the web Ingress. With the
+// platform's wildcard certificate as the front door's default (RFC-0061)
+// the Ingress declares its hosts under TLS without a certificate of its own:
+// ingress-nginx serves the default and no issuance happens per project.
 func (c Config) mutateIngress(app *shpyrdv1.App, ing *networkingv1.Ingress) {
 	ing.Labels = mergeMaps(ing.Labels, processLabels(app, "web"))
 	ing.Annotations = mergeMaps(ing.Annotations, map[string]string{
-		"cert-manager.io/cluster-issuer":              c.ClusterIssuer,
 		"nginx.ingress.kubernetes.io/ssl-redirect":    "true",
 		"nginx.ingress.kubernetes.io/proxy-body-size": "50m",
 	})
 	hosts := c.domains(app)
 	ing.Spec.IngressClassName = ptr.To(c.IngressClass)
-	ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: hosts, SecretName: app.Name + "-tls"}}
+	if c.WildcardTLS {
+		delete(ing.Annotations, "cert-manager.io/cluster-issuer")
+		ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: hosts}}
+	} else {
+		ing.Annotations["cert-manager.io/cluster-issuer"] = c.ClusterIssuer
+		ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: hosts, SecretName: app.Name + "-tls"}}
+	}
 	pathType := networkingv1.PathTypePrefix
 	rules := make([]networkingv1.IngressRule, 0, len(hosts))
 	for _, h := range hosts {

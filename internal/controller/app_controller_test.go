@@ -126,8 +126,17 @@ func TestReconcilePinnedImage(t *testing.T) {
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-web1", Name: "web1"}, ing); err != nil {
 		t.Fatal(err)
 	}
-	if ing.Spec.Rules[0].Host != "web1.example.test" || ing.Annotations["cert-manager.io/cluster-issuer"] != "shpyrd-ca" {
+	if ing.Spec.Rules[0].Host != "web1.example.test" || ing.Annotations["cert-manager.io/cluster-issuer"] != "shpyrd-ca" || ing.Spec.TLS[0].SecretName != "web1-tls" {
 		t.Errorf("ingress host/issuer wrong: %+v", ing.Spec.Rules[0].Host)
+	}
+	// With the platform wildcard as the default certificate (RFC-0061) the
+	// Ingress keeps its TLS hosts but carries no certificate of its own.
+	wc := r.Config
+	wc.WildcardTLS = true
+	wcIng := ing.DeepCopy()
+	wc.mutateIngress(app, wcIng)
+	if _, has := wcIng.Annotations["cert-manager.io/cluster-issuer"]; has || wcIng.Spec.TLS[0].SecretName != "" || len(wcIng.Spec.TLS[0].Hosts) != 1 {
+		t.Errorf("wildcard ingress = %+v %+v", wcIng.Annotations, wcIng.Spec.TLS)
 	}
 
 	// Rollout completes -> Running.

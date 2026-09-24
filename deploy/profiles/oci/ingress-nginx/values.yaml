@@ -12,6 +12,18 @@ controller:
       service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
       service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
       service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "10"
+      # The subnets' security lists and NSGs (contrib/oci/terraform) already
+      # allow the load balancer's node-port and health-check traffic; the
+      # cloud controller must not edit them behind Terraform's back.
+      service.beta.kubernetes.io/oci-load-balancer-security-list-management-mode: "None"
+      # Records for *.<domain> are published by ExternalDNS when a DNS
+      # provider is configured (RFC-0061).
+      external-dns.kubernetes.io/hostname: "*.${SHPYRD_DOMAIN}"
   publishService:
     enabled: true
+  # Hosts without a certificate of their own are served with this one: the
+  # platform's wildcard when a DNS provider issues it (RFC-0061), else the
+  # dashboard's, which only matters for hostnames nothing serves.
+  extraArgs:
+    default-ssl-certificate: ${SHPYRD_DEFAULT_TLS_SECRET}
   replicaCount: 1
