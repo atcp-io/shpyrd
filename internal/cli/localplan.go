@@ -24,10 +24,14 @@ const (
 	defaultLocalDomain = "shpyrd.test"
 )
 
-// confirm asks a yes/no question on the terminal. --yes and a non-terminal
-// stdin take the default.
+// confirm asks a yes/no question on the terminal. --yes answers yes (it
+// means "do not ask", including for destructive questions that default to
+// no); a non-terminal stdin takes the default.
 func confirm(cmd *cobra.Command, yes bool, question string, defaultYes bool) bool {
-	if yes || !kexec.StdinIsTerminal() {
+	if yes {
+		return true
+	}
+	if !kexec.StdinIsTerminal() {
 		return defaultYes
 	}
 	hint := "[y/N]"
