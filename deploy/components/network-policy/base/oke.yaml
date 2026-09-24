@@ -1,0 +1,42 @@
+# The edits Oracle documents for running Calico alongside the OCI VCN-Native
+# Pod Networking CNI plugin ("Installing Calico alongside the OCI VCN-Native
+# Pod Networking CNI plugin"): no CNI installation (the provider's CNI
+# stays), no Typha, the OCI interface prefix, no default IP pools, chains
+# appended after the provider's, the nft iptables backend of Oracle Linux 8.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: calico-node
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      initContainers: null
+      containers:
+        - name: calico-node
+          envFrom: null
+          env:
+            - name: FELIX_TYPHAK8SSERVICENAME
+              $patch: delete
+            - name: FELIX_INTERFACEPREFIX
+              value: "oci"
+            - name: NO_DEFAULT_POOLS
+              value: "true"
+            - name: FELIX_CHAININSERTMODE
+              value: "Append"
+            - name: FELIX_IPTABLESMANGLEALLOWACTION
+              value: "Return"
+            - name: FELIX_IPTABLESBACKEND
+              value: "NFT"
+          volumeMounts:
+            - mountPath: /host/etc/cni/net.d
+              $patch: delete
+            - mountPath: /var/log/calico/cni
+              $patch: delete
+      volumes:
+        - name: cni-bin-dir
+          $patch: delete
+        - name: cni-net-dir
+          $patch: delete
+        - name: cni-log-dir
+          $patch: delete

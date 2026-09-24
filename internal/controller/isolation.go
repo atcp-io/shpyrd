@@ -26,6 +26,9 @@ import (
 // IsolationPolicyName is the NetworkPolicy in every project namespace.
 const IsolationPolicyName = "shpyrd-isolation"
 
+// linkLocalCIDR holds the cloud providers' instance metadata endpoints.
+const linkLocalCIDR = "169.254.0.0/16"
+
 // Pod Security Standards are applied in warn and audit mode: the app
 // containers are hardened by the controller, build pods (BuildKit) need
 // exemptions an enforcing mode would not give.
@@ -88,10 +91,13 @@ func (c Config) isolationPolicy() networkingv1.NetworkPolicySpec {
 		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
 		Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{samePods, nonProject}}},
 	}
-	// Egress: own pods, platform namespaces and the internet.
-	internet := networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0"}}
+	// Egress: own pods, platform namespaces and the internet; never other
+	// projects' pods, and never the cloud instance metadata service
+	// (169.254.169.254 and friends), through which a pod could borrow the
+	// node's cloud identity (RFC-0035).
+	internet := networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: []string{linkLocalCIDR}}}
 	if c.PodCIDR != "" {
-		internet.IPBlock.Except = []string{c.PodCIDR}
+		internet.IPBlock.Except = append(internet.IPBlock.Except, c.PodCIDR)
 	}
 	spec.Egress = []networkingv1.NetworkPolicyEgressRule{{To: []networkingv1.NetworkPolicyPeer{samePods, nonProject, internet}}}
 	return spec

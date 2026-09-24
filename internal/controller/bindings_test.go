@@ -154,6 +154,17 @@ func TestEnsureProjectLabel(t *testing.T) {
 	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].From) != 2 || len(np.Spec.Egress) != 1 || len(np.Spec.PolicyTypes) != 2 {
 		t.Errorf("policy = %+v", np.Spec)
 	}
+	// The internet is allowed except other projects' pods and the cloud
+	// instance metadata service (RFC-0035).
+	var except []string
+	for _, to := range np.Spec.Egress[0].To {
+		if to.IPBlock != nil {
+			except = to.IPBlock.Except
+		}
+	}
+	if len(except) == 0 || except[0] != linkLocalCIDR {
+		t.Errorf("egress except = %v, want the link-local range first", except)
+	}
 	d := &appsv1.Deployment{}
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-demo", Name: "demo-web"}, d); err != nil {
 		t.Fatal(err)

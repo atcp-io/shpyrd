@@ -14,6 +14,7 @@ vars:
   # by every kind cluster on this machine from ~/.shpyrd/ca.
   SHPYRD_CLUSTER_ISSUER: shpyrd-ca
   SHPYRD_CA_SOURCE: local
+  SHPYRD_NETWORK_POLICY: none        # kind's kindnet enforces NetworkPolicy (kind 0.24+)
   SHPYRD_ACME_EMAIL: ""
   # SHPYRD_SERVER_IMAGE follows the CLI version (a release installs its own
   # tag, a development build the latest release); --set overrides it.

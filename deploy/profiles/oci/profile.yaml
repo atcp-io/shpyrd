@@ -21,6 +21,10 @@ vars:
   SHPYRD_CLUSTER_ISSUER: letsencrypt
   SHPYRD_ACME_EMAIL: ""
   SHPYRD_CA_SOURCE: cluster
+  # OKE with VCN-native pod networking enforces no NetworkPolicy on its own;
+  # project isolation needs Calico in policy-only mode (Oracle's supported
+  # path). "none" when the cluster already runs a policy engine.
+  SHPYRD_NETWORK_POLICY: calico
   # A cloud load balancer terminates nothing and listens on 80/443: URLs carry no port.
   SHPYRD_FRONT_DOOR: lb
   # Reserved public address for the load balancer (contrib/oci/terraform output
@@ -36,7 +40,7 @@ runlevels:
   - name: rc0
     components: [monitoring-crds]
   - name: rc1
-    components: [cert-manager, registry-credentials]
+    components: [network-policy, cert-manager, registry-credentials]
   - name: rc2
     components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, registry, registry-nodes]
   - name: rc3

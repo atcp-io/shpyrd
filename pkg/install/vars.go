@@ -36,6 +36,10 @@ const (
 	VarRegistryIP   = "SHPYRD_REGISTRY_IP"   // fixed ClusterIP of the in-cluster registry ("" with an external registry)
 	VarRegistrySize = "SHPYRD_REGISTRY_SIZE" // size of its volume claim
 	VarCASource     = "SHPYRD_CA_SOURCE"     // where the platform CA comes from: "local" (~/.shpyrd/ca, shared by kind clusters) or "cluster" (generated once in the cluster)
+	// Network policy enforcement (RFC-0035): "calico" installs Calico in
+	// policy-only mode next to the provider's CNI; "none" relies on the
+	// cluster's own engine (kind's kindnet enforces policies).
+	VarNetworkPolicy = "SHPYRD_NETWORK_POLICY"
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine

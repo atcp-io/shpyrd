@@ -197,6 +197,18 @@ func (p *Profile) addExtensions(exts []ExtensionComponent) error {
 	return nil
 }
 
+// HasComponent says the profile installs the named component.
+func (p *Profile) HasComponent(name string) bool {
+	for _, rl := range p.Runlevels {
+		for _, c := range rl.Components {
+			if c == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (p *Profile) componentNames() []string {
 	var names []string
 	for _, rl := range p.Runlevels {

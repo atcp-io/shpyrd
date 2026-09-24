@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # Upstream policy-only manifest, vendored verbatim:
+  # https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico-policy-only.yaml
+  # (3.32.0 is the version Oracle tested on Kubernetes 1.36.)
+  - calico-policy-only.yaml
+patches:
+  - path: oke.yaml

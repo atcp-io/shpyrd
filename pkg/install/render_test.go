@@ -204,3 +204,38 @@ func (quiet) Runlevel(string, []string)  {}
 func (quiet) Step(string, string)        {}
 func (quiet) Done(string, time.Duration) {}
 func (quiet) Failed(string, error)       {}
+
+// The oci profile enforces NetworkPolicy with Calico in policy-only mode
+// (RFC-0035): the upstream manifest with Oracle's edits for VCN-native pod
+// networking.
+func TestNetworkPolicyRendersForOKE(t *testing.T) {
+	eng, err := New(nil, Options{Profile: "oci", Vars: map[string]string{VarDomain: "oci.example.com", VarACMEEmail: "ops@example.com"}, Reporter: &quiet{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eng.vars[VarNetworkPolicy] != "calico" || eng.components["network-policy"] == nil {
+		t.Fatalf("oci profile must install network-policy (SHPYRD_NETWORK_POLICY=%s)", eng.vars[VarNetworkPolicy])
+	}
+	objs, err := eng.renderComponent(eng.components["network-policy"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objs {
+		if o.GetKind() != "DaemonSet" || o.GetName() != "calico-node" {
+			continue
+		}
+		y := mustYAML(t, o)
+		for _, want := range []string{"FELIX_INTERFACEPREFIX", "NO_DEFAULT_POOLS", "FELIX_CHAININSERTMODE", "FELIX_IPTABLESBACKEND", "CALICO_NETWORKING_BACKEND"} {
+			if !strings.Contains(y, want) {
+				t.Errorf("calico-node lacks %s", want)
+			}
+		}
+		for _, absent := range []string{"initContainers", "FELIX_TYPHAK8SSERVICENAME", "cni-bin-dir", "cni-net-dir", "cni-log-dir", "kubernetes-services-endpoint"} {
+			if strings.Contains(y, absent) {
+				t.Errorf("calico-node still has %s", absent)
+			}
+		}
+		return
+	}
+	t.Error("calico-node DaemonSet not rendered")
+}

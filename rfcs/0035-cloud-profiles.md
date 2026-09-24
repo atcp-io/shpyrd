@@ -1,6 +1,6 @@
 # RFC-0035 Cloud profiles: Oracle Cloud (OKE) and AWS (EKS)
 
-**Status:** implemented (`oci` profile); `network-policy` component and AWS provisional
+**Status:** implemented (`oci` profile, `network-policy` component); AWS provisional
 
 **Owner:** unassigned (AWS)
 
@@ -128,12 +128,11 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 
 ## Open questions
 
-1. Install Calico policy-only by default on `oci` (`SHPYRD_NETWORK_POLICY=calico`), with
-   `none` to skip? Default: yes — isolation is part of the product, and it is Oracle's
-   documented path for VCN-native clusters.
-2. Block the instance metadata endpoint from project pods on cloud profiles? Default: yes.
-3. AWS: existing EKS cluster only (default: yes); a test account is needed before work
+1. AWS: existing EKS cluster only (default: yes); a test account is needed before work
    starts.
+
+Decided: Calico policy-only is installed by default on `oci` (`SHPYRD_NETWORK_POLICY=none`
+skips it), and project policies deny egress to the link-local range on every profile.
 
 ## Implementation History
 
@@ -147,6 +146,13 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 - 2026-09-24: Retitled to cover cloud profiles in general; OKE network policy finding
   recorded and the `network-policy` component (Calico policy-only) proposed as the `oci`
   default; AWS section kept provisional.
+- 2026-09-24: `network-policy` component: the upstream Calico policy-only manifest
+  (3.32.0, Oracle's tested version for Kubernetes 1.36) with Oracle's edits for VCN-native
+  pod networking as a kustomize patch; on by default for `oci`. Project policies deny
+  egress to 169.254.0.0/16 (instance metadata). `cluster init` warns when no policy engine
+  is found. Verified on the proof of concept: a pod in another project can no longer reach
+  a shop instance or its database, instance metadata is unreachable from project pods,
+  and internet, registry, ingress and builds keep working.
 - 2026-09-24: Infrastructure moved from `oci` CLI scripts to Terraform in
   `contrib/oci/terraform` (plain resources, OpenTofu-compatible), with a reserved public
   address for the load balancer (`SHPYRD_LB_IP`) and an optional OCI DNS zone with the

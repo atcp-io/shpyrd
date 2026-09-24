@@ -1,0 +1,10 @@
+name: network-policy
+description: Calico in policy-only mode, so Kubernetes NetworkPolicy is enforced next to the provider's CNI (OKE with VCN-native pod networking)
+namespace: kube-system
+kustomize:
+  path: base
+wait:
+  - crd: felixconfigurations.crd.projectcalico.org
+  - daemonSet: kube-system/calico-node
+  - deployment: kube-system/calico-kube-controllers
+timeout: 10m

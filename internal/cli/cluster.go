@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/deploy"
 	"shpyrd/pkg/api"
 	"shpyrd/pkg/audit"
 	"shpyrd/pkg/install"
@@ -521,6 +522,11 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		// earlier run) replaces the in-cluster one and its node trust.
 		skip = append(append([]string{}, skip...), "registry", "registry-nodes")
 	}
+	if vars[install.VarNetworkPolicy] == "none" {
+		if prof, err := install.LoadProfile(deploy.FS, flags.profile); err == nil && prof.HasComponent("network-policy") {
+			skip = append(append([]string{}, skip...), "network-policy")
+		}
+	}
 	opts := install.Options{
 		Profile:          flags.profile,
 		Vars:             vars,
@@ -596,7 +602,45 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
 	}
 	printLocalSummary(out, eng.Vars())
+	if engine := networkPolicyEngine(ctx, k); engine == "" {
+		fmt.Fprintf(out, "\nWarning: no network policy engine found (Calico, Cilium, kindnet, Antrea, kube-router): the cluster's CNI does not enforce\nNetworkPolicy, so projects are not isolated from each other. On OKE with VCN-native pod networking the oci profile installs\nCalico in policy-only mode (SHPYRD_NETWORK_POLICY=calico).\n")
+	}
 	return nil
+}
+
+// networkPolicyEngine names the NetworkPolicy-enforcing agent running on the
+// cluster's nodes, or "" when none is recognised. Kubernetes has no API for
+// this: NetworkPolicy objects are accepted whether or not anything enforces
+// them, so the known DaemonSets are the best signal.
+func networkPolicyEngine(ctx context.Context, k *kube.Client) string {
+	known := map[string]string{
+		"calico-node":     "Calico",
+		"cilium":          "Cilium",
+		"kindnet":         "kindnet", // enforces policies since kind 0.24
+		"antrea-agent":    "Antrea",
+		"kube-router":     "kube-router",
+		"weave-net":       "Weave Net",
+		"canal":           "Canal",
+		"aws-node":        "", // Amazon VPC CNI enforces only with its network policy agent alongside
+		"kube-flannel":    "",
+		"flannel":         "",
+		"kube-flannel-ds": "",
+	}
+	for _, ns := range []string{"kube-system", "calico-system", "cilium", "tigera-operator"} {
+		list, err := k.Kube.AppsV1().DaemonSets(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			continue
+		}
+		for _, ds := range list.Items {
+			if name, ok := known[ds.Name]; ok && name != "" {
+				return name
+			}
+			if ds.Name == "aws-network-policy-agent" {
+				return "Amazon VPC CNI network policy agent"
+			}
+		}
+	}
+	return ""
 }
 
 // certificateComponents are the components whose readiness needs a valid
