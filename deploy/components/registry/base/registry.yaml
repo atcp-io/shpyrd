@@ -57,6 +57,17 @@ data:
         enabled: true
       cache:
         blobdescriptor: inmemory
+      # Garbage collection (shpyrd cluster registry gc) runs the registry from
+      # a copy of this file with readonly enabled; env overrides cannot reach
+      # this section.
+      maintenance:
+        uploadpurging:
+          enabled: true
+          age: 168h
+          interval: 24h
+          dryrun: false
+        readonly:
+          enabled: false
     auth:
       htpasswd:
         realm: shpyrd

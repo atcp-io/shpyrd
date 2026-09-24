@@ -372,6 +372,7 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 		}
 		r.pruneSnapshots(ctx, app)
 	}
+	r.pruneImages(ctx, app)
 	// The note and rollback request are one-shot: consume them whether or
 	// not they produced a release, so they cannot label an unrelated later
 	// change. While a build for the noted change is still running they must

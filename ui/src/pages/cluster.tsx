@@ -7,6 +7,7 @@ import { MetricChart } from "@/components/metric-chart";
 import { SizesEditor } from "@/components/sizes-editor";
 import { GlobalsEditor } from "@/components/globals-editor";
 import { DrainsCard } from "@/components/drains-card";
+import { RegistryCard } from "@/components/registry-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -185,6 +186,7 @@ export function ClusterPage() {
         </CardContent>
       </Card>
 
+      {perms.clusterAdmin && <RegistryCard />}
       <SizesEditor readOnly={!perms.clusterAdmin} />
       {perms.clusterAdmin && <GlobalsEditor />}
       {perms.clusterAdmin && (

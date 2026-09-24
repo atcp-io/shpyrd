@@ -133,6 +133,11 @@ func (in *AppStatus) DeepCopyInto(out *AppStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.StaleImages != nil {
+		in, out := &in.StaleImages, &out.StaleImages
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Processes != nil {
 		in, out := &in.Processes, &out.Processes
 		*out = make(map[string]ProcessStatus, len(*in))

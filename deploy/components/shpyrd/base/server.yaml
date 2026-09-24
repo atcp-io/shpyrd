@@ -67,6 +67,18 @@ spec:
               value: /etc/shpyrd/webhook-tls
             - name: SHPYRD_CA_BUNDLE
               value: shpyrd-ca-bundle
+            # The server itself trusts the platform CA (registry catalog,
+            # manifest deletes) through the same bundle.
+            - name: SSL_CERT_FILE
+              value: /etc/shpyrd/ca/ca-certificates.crt
+            # In-cluster registry (RFC-0059): address, volume size and the
+            # weekly garbage collection schedule (cron, UTC; "off" disables).
+            - name: SHPYRD_REGISTRY_IP
+              value: "${SHPYRD_REGISTRY_IP}"
+            - name: SHPYRD_REGISTRY_SIZE
+              value: "${SHPYRD_REGISTRY_SIZE}"
+            - name: SHPYRD_REGISTRY_GC
+              value: "${SHPYRD_REGISTRY_GC}"
             - name: SHPYRD_DATA_DIR
               value: /data
             - name: SHPYRD_LEADER_ELECT
@@ -98,6 +110,9 @@ spec:
               mountPath: /data
             - name: webhook-tls
               mountPath: /etc/shpyrd/webhook-tls
+              readOnly: true
+            - name: shpyrd-ca
+              mountPath: /etc/shpyrd/ca
               readOnly: true
           # Probes tolerate a busy node (builds run on the same machine locally).
           startupProbe:
@@ -137,6 +152,9 @@ spec:
         - name: webhook-tls
           secret:
             secretName: shpyrd-webhook-tls
+        - name: shpyrd-ca
+          configMap:
+            name: shpyrd-ca-bundle
 ---
 apiVersion: v1
 kind: Service

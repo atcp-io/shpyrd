@@ -9,6 +9,7 @@ vars:
   SHPYRD_REGISTRY_INSECURE: "false"
   SHPYRD_REGISTRY_SECRET: shpyrd-registry
   SHPYRD_REGISTRY_SIZE: 20Gi
+  SHPYRD_REGISTRY_GC: "0 4 * * 0"    # weekly garbage collection (cron, UTC; "off" disables)
   # Certificates come from the development CA (ca-issuers component), shared
   # by every kind cluster on this machine from ~/.shpyrd/ca.
   SHPYRD_CLUSTER_ISSUER: shpyrd-ca

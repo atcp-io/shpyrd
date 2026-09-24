@@ -302,6 +302,11 @@ type AppStatus struct {
 	// Releases is the deployment history, oldest first.
 	// +optional
 	Releases []Release `json:"releases,omitempty"`
+	// StaleImages are images of releases that left the history and that no
+	// kept release uses; the controller deletes them from the in-cluster
+	// registry and removes them from the list (RFC-0059).
+	// +optional
+	StaleImages []string `json:"staleImages,omitempty"`
 	// Processes reports rollout state per process type.
 	// +optional
 	Processes map[string]ProcessStatus `json:"processes,omitempty"`

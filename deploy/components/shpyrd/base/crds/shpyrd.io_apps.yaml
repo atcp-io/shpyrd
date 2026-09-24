@@ -850,6 +850,14 @@ spec:
                   - number
                   type: object
                 type: array
+              staleImages:
+                description: |-
+                  StaleImages are images of releases that left the history and that no
+                  kept release uses; the controller deletes them from the in-cluster
+                  registry and removes them from the list (RFC-0059).
+                items:
+                  type: string
+                type: array
               url:
                 description: URL of the web process, when exposed.
                 type: string

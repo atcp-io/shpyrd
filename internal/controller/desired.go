@@ -58,6 +58,10 @@ type Config struct {
 	// namespace (public roots plus the platform CA); builds mount it so
 	// they trust the in-cluster registry. "" mounts nothing.
 	CABundle string
+	// RegistryDeletes says images of pruned releases may be deleted from
+	// the registry (the in-cluster one; provider registries keep their own
+	// retention).
+	RegistryDeletes bool
 }
 
 // BuildServiceAccount is the ServiceAccount builds run as in a project

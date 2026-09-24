@@ -122,6 +122,7 @@ func newClusterCmd(g *globalFlags) *cobra.Command {
 		newClusterExportCmd(),
 		newClusterTokenCmd(g),
 		newClusterDashboardCmd(g),
+		newClusterRegistryCmd(g),
 	)
 	return cmd
 }

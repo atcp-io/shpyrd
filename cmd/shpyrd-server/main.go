@@ -106,6 +106,18 @@ func run(o runOptions, logger *slog.Logger) error {
 	if len(extensions) > 0 {
 		logger.Info("extensions enabled", "extensions", ext.Names(extensions))
 	}
+	// The in-cluster registry's garbage collector (RFC-0059): the API starts
+	// it on demand, the controller manager runs its schedule on the leader.
+	var registryGC *controller.RegistryGC
+	if os.Getenv("SHPYRD_REGISTRY_IP") != "" && o.controller {
+		registryGC = &controller.RegistryGC{
+			Namespace: k.Namespace,
+			Schedule:  envOr("SHPYRD_REGISTRY_GC", controller.DefaultRegistryGCSchedule),
+			Image:     envOr("SHPYRD_REGISTRY_IMAGE", "docker.io/library/registry:3"),
+			Logger:    logger,
+		}
+	}
+
 	srv, err := api.New(k, api.Options{
 		Addr:           o.addr,
 		UI:             ui.Dist(),
@@ -122,7 +134,8 @@ func run(o runOptions, logger *slog.Logger) error {
 			GrafanaURL:   grafana,
 			DashboardURL: dashboard,
 		},
-		Logger: logger,
+		Logger:     logger,
+		RegistryGC: gcOrNil(registryGC),
 	})
 	if err != nil {
 		return err
@@ -151,6 +164,13 @@ func run(o runOptions, logger *slog.Logger) error {
 		mgr, err := newManager(k, o)
 		if err != nil {
 			return err
+		}
+		if registryGC != nil {
+			registryGC.Client = mgr.GetClient()
+			registryGC.Reader = mgr.GetAPIReader()
+			if err := mgr.Add(registryGC); err != nil {
+				return fmt.Errorf("registry garbage collector: %w", err)
+			}
 		}
 		g.Go(func() error {
 			logger.Info("starting controller manager")
@@ -201,6 +221,7 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 			RegistrySecret:   os.Getenv("SHPYRD_REGISTRY_SECRET"),
 			RegistryInsecure: registryInsecure(os.Getenv("SHPYRD_REGISTRY_INSECURE"), os.Getenv("SHPYRD_REGISTRY_HOST")),
 			CABundle:         envOr("SHPYRD_CA_BUNDLE", "shpyrd-ca-bundle"),
+			RegistryDeletes:  os.Getenv("SHPYRD_REGISTRY_IP") != "",
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
@@ -225,6 +246,14 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 		}
 	}
 	return mgr, nil
+}
+
+// gcOrNil keeps a nil *RegistryGC from becoming a non-nil interface.
+func gcOrNil(g *controller.RegistryGC) api.RegistryGC {
+	if g == nil {
+		return nil
+	}
+	return g
 }
 
 func envOr(key, def string) string {

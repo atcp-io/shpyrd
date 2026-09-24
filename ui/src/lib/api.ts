@@ -301,6 +301,34 @@ export type ClusterMetrics = {
   charts: Chart[];
 };
 
+// The image registry (RFC-0059).
+export type RegistryInfo = {
+  mode: "in-cluster" | "external";
+  host: string;
+  tls: boolean;
+  ready: boolean;
+  message?: string;
+  storage?: { usedBytes: number; capacityBytes: number; size: string };
+  images?: {
+    repositories: number;
+    tags: number;
+    largest: { name: string; tags: number }[];
+    error?: string;
+  };
+  certificate?: { issuer: string; notAfter: string };
+  gc?: {
+    schedule: string;
+    nextRun?: string;
+    running: boolean;
+    startedAt?: string;
+    lastRun?: string;
+    lastResult?: string;
+    lastDuration?: string;
+    reclaimedBytes: number;
+    usedBytes: number;
+  };
+};
+
 export type HelmRelease = {
   name: string;
   namespace: string;
@@ -565,8 +593,10 @@ export const api = {
       `${project(slug)}/resources/${kind}/${encodeURIComponent(name)}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
     ),
-  attach: (slug: string, body: { kind: string; name: string; prefix?: string }) =>
-    request<AppSummary>(`${project(slug)}/bindings`, json("POST", body)),
+  attach: (
+    slug: string,
+    body: { kind: string; name: string; prefix?: string },
+  ) => request<AppSummary>(`${project(slug)}/bindings`, json("POST", body)),
   detach: (slug: string, kind: string, rname: string) =>
     request<AppSummary>(
       `${project(slug)}/bindings/${kind}/${encodeURIComponent(rname)}`,
@@ -595,5 +625,8 @@ export const api = {
   cluster: () => request<ClusterSummary>("/api/cluster"),
   clusterMetrics: (range: string) =>
     request<ClusterMetrics>(`/api/cluster/metrics?range=${range}`),
+  registry: () => request<RegistryInfo>("/api/cluster/registry"),
+  registryGC: () =>
+    request<{ status: string }>("/api/cluster/registry/gc", { method: "POST" }),
   helmReleases: () => request<HelmRelease[]>("/api/helm/releases"),
 };

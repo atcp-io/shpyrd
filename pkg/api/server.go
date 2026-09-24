@@ -55,6 +55,9 @@ type Options struct {
 	// IngressService is the cluster-internal address of the ingress
 	// controller, used to reach issuers published on the cluster domain.
 	IngressService string
+	// RegistryGC is the in-cluster registry's garbage collector (RFC-0059);
+	// nil when this replica does not run the controller.
+	RegistryGC RegistryGC
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -90,6 +93,8 @@ type Server struct {
 	tokenFailures *rateLimiter
 	// passwordFailures throttles wrong passwords per account (RFC-0012).
 	passwordFailures *rateLimiter
+	// regCache holds the registry catalog summary for a minute.
+	regCache registryCache
 }
 
 // New wires the routes.
@@ -243,6 +248,8 @@ func (s *Server) routes() error {
 	api.GET("/helm/releases", s.require(authz.ClusterView), s.listHelmReleases)
 	api.GET("/cluster", s.require(authz.ClusterView), s.clusterSummary)
 	api.GET("/cluster/metrics", s.require(authz.ClusterView), s.clusterMetrics)
+	api.GET("/cluster/registry", s.require(authz.ClusterAdmin), s.registryInfo) // RFC-0059
+	api.POST("/cluster/registry/gc", s.require(authz.ClusterAdmin), s.registryGC)
 	api.GET("/sizes", s.getSizes) // any signed-in user: the size selector needs it
 	api.PUT("/sizes", s.require(authz.ClusterAdmin), s.putSizes)
 	api.GET("/globals", s.require(authz.ClusterAdmin), s.getGlobals) // RFC-0016

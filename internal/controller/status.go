@@ -192,9 +192,30 @@ func recordRelease(app *shpyrdv1.App, image, hash, globalHash, source string, no
 		Sizes:       sizes,
 	})
 	if len(app.Status.Releases) > maxReleases {
+		dropped := app.Status.Releases[:len(app.Status.Releases)-maxReleases]
 		app.Status.Releases = app.Status.Releases[len(app.Status.Releases)-maxReleases:]
+		app.Status.StaleImages = append(app.Status.StaleImages, unreferencedImages(dropped, app.Status.Releases)...)
 	}
 	return true
+}
+
+// unreferencedImages lists the images of dropped releases that no kept
+// release still uses (config-only releases share their predecessor's image).
+func unreferencedImages(dropped, kept []shpyrdv1.Release) []string {
+	inUse := map[string]bool{}
+	for _, r := range kept {
+		inUse[r.Image] = true
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range dropped {
+		if r.Image == "" || inUse[r.Image] || seen[r.Image] {
+			continue
+		}
+		seen[r.Image] = true
+		out = append(out, r.Image)
+	}
+	return out
 }
 
 // setCondition upserts a condition with the App's generation.
