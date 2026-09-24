@@ -17,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   Rocket,
+  RotateCcw,
   Trash2,
   Undo2,
   X,
@@ -154,6 +155,7 @@ export function AppDetailPage() {
               </a>
             </Button>
           )}
+          {perms.deploy && <RedeployButton app={a} onDone={refresh} />}
           {perms.deploy && (
             <DeployDialog app={a} onDone={refresh} disabled={busy} />
           )}
@@ -316,22 +318,65 @@ function ActivityPanel({
           {procs.map(([name, p]) => (
             <RolloutRow key={name} name={name} status={p} />
           ))}
-          {previous && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="ml-auto"
-              disabled={rollback.isPending || !perms.deploy}
-              onClick={() => rollback.mutate(previous.number)}
-            >
-              <Undo2 data-icon="inline-start" /> Roll back to v{previous.number}
-            </Button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {perms.deploy && <RedeployButton app={app} onDone={onChanged} />}
+            {previous && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={rollback.isPending || !perms.deploy}
+                onClick={() => rollback.mutate(previous.number)}
+              >
+                <Undo2 data-icon="inline-start" /> Roll back to v
+                {previous.number}
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
     );
   }
   return null;
+}
+
+// Redeploy tries the current release again without creating a release:
+// new instances of it, or, when the last build failed, the same source
+// built again. The server picks; the label says which it will be.
+function RedeployButton({
+  app,
+  onDone,
+}: {
+  app: AppDetail;
+  onDone: () => void;
+}) {
+  const buildFailed =
+    app.status.phase === "Failed" &&
+    (app.status.message ?? "").startsWith("build failed");
+  const busy = app.status.phase === "Building";
+  const redeploy = useMutation({
+    mutationFn: () => api.redeploy(app.slug),
+    onSuccess: (r) => {
+      toast.success(r.message);
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={redeploy.isPending || busy}
+      onClick={() => redeploy.mutate()}
+      title={
+        buildFailed
+          ? "Build the same source again"
+          : "Start new instances of the current release (no new release)"
+      }
+    >
+      <RotateCcw data-icon="inline-start" />{" "}
+      {buildFailed ? "Retry build" : "Redeploy"}
+    </Button>
+  );
 }
 
 function RolloutRow({
@@ -393,11 +438,7 @@ function BuildBanner({ app }: { app: AppDetail }) {
   useEffect(() => {
     if (!build) return;
     const ac = new AbortController();
-    return streamText(
-      api.buildLogsPath(app.slug, build, true),
-      ac,
-      setLines,
-    );
+    return streamText(api.buildLogsPath(app.slug, build, true), ac, setLines);
   }, [app.slug, build]);
   return (
     <Card className="border-sky-500/30">
@@ -444,7 +485,11 @@ function Overview({
   const current = releases[0];
   const busy = isBusy(app);
   const perms = usePerms(app.slug);
-  const config = useQuery({ queryKey: ["config"], queryFn: api.config, staleTime: 60_000 });
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
   const agentEnabled = config.data?.extensions?.includes("logs-agent") ?? true;
 
   const rollback = useMutation({
@@ -1103,9 +1148,7 @@ function Builds({ app }: { app: AppDetail }) {
     if (!activeName) return;
     const ac = new AbortController();
     return streamText(
-      api.buildLogsPath(app.slug, activeName,
-        activeStatus === "Building",
-      ),
+      api.buildLogsPath(app.slug, activeName, activeStatus === "Building"),
       ac,
       setLines,
       (e) => setLines([`(${e.message})`]),
@@ -1403,10 +1446,14 @@ function Config({ app }: { app: AppDetail }) {
                 ?.filter((g) => !vars.data?.vars.some((v) => v.name === g.name))
                 .map((g) => (
                   <TableRow key={"global-" + g.name} className="bg-muted/30">
-                    <TableCell className="font-mono text-xs">{g.name}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {g.name}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       provided by{" "}
-                      <span className="font-medium text-foreground">cluster</span>{" "}
+                      <span className="font-medium text-foreground">
+                        cluster
+                      </span>{" "}
                       (read-only; a config var of the same name overrides it)
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
@@ -1818,10 +1865,7 @@ function ResourcesCard({
   });
   const removeResource = useMutation({
     mutationFn: (r: ResourceInfo) =>
-      api.deleteResource(app.slug, r.kind,
-        r.name,
-        r.attachedTo.length > 0,
-      ),
+      api.deleteResource(app.slug, r.kind, r.name, r.attachedTo.length > 0),
     onSuccess: (_, r) => {
       toast.success(`Deleted ${r.kind} ${r.name}`);
       refresh();
@@ -1840,8 +1884,7 @@ function ResourcesCard({
     onError: (e: Error) => toast.error(e.message),
   });
   const detach = useMutation({
-    mutationFn: (r: ResourceInfo) =>
-      api.detach(app.slug, r.kind, r.name),
+    mutationFn: (r: ResourceInfo) => api.detach(app.slug, r.kind, r.name),
     onSuccess: (_, r) => {
       toast.success(`Detached ${r.kind} ${r.name}`);
       refresh();

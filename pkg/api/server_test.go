@@ -157,6 +157,54 @@ func TestScaleAndRollback(t *testing.T) {
 	}
 }
 
+// Redeploy restarts the current release, or builds again when the last
+// build failed; neither creates a release.
+func TestRedeploy(t *testing.T) {
+	app := sampleApp("web1", shpyrdv1.PhaseRunning, shpyrdv1.Release{Number: 1, Image: "img-a"})
+	s, cr := newTestServer(t, nil, []client.Object{app})
+	rec := do(t, s, "POST", "/api/projects/web1/redeploy", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("redeploy: %d %s", rec.Code, rec.Body.String())
+	}
+	var res RedeployResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	got := &shpyrdv1.App{}
+	if err := cr.Get(context.Background(), types.NamespacedName{Namespace: "app-web1", Name: "web1"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if res.Action != "restart" || got.Annotations[shpyrdv1.AnnotationRestartedAt] == "" || got.Annotations[shpyrdv1.AnnotationRebuildAt] != "" {
+		t.Errorf("running app: action=%s annotations=%v", res.Action, got.Annotations)
+	}
+
+	// A failed build makes redeploy rebuild instead.
+	failed := sampleApp("web2", shpyrdv1.PhaseFailed, shpyrdv1.Release{Number: 1, Image: "img-a"})
+	failed.Status.Conditions = []metav1.Condition{{Type: shpyrdv1.ConditionBuilt, Status: metav1.ConditionFalse, Reason: "BuildFailed"}}
+	s, cr = newTestServer(t, nil, []client.Object{failed})
+	rec = do(t, s, "POST", "/api/projects/web2/redeploy", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("redeploy failed build: %d %s", rec.Code, rec.Body.String())
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if err := cr.Get(context.Background(), types.NamespacedName{Namespace: "app-web2", Name: "web2"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if res.Action != "rebuild" || got.Annotations[shpyrdv1.AnnotationRebuildAt] == "" {
+		t.Errorf("failed build: action=%s annotations=%v", res.Action, got.Annotations)
+	}
+	// An explicit action is honoured; a pinned image cannot be rebuilt.
+	pinned := sampleApp("web3", shpyrdv1.PhaseRunning, shpyrdv1.Release{Number: 1, Image: "img-a"})
+	pinned.Spec.Source, pinned.Spec.Image = nil, "registry.test/x@sha256:bbbb"
+	s, _ = newTestServer(t, nil, []client.Object{pinned})
+	if rec := do(t, s, "POST", "/api/projects/web3/redeploy", `{"action":"rebuild"}`, true); rec.Code != http.StatusBadRequest {
+		t.Errorf("rebuild of a pinned image: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/projects/web3/redeploy", `{"action":"restart"}`, true); rec.Code != http.StatusOK {
+		t.Errorf("restart of a pinned image: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMetrics(t *testing.T) {
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("query")

@@ -17,6 +17,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -362,6 +364,56 @@ func (a *appClient) waitForBuild(ctx context.Context, name, prev string, timeout
 			return "", err
 		}
 	}
+}
+
+// waitForNewBuild polls until a build other than prev exists: the App's
+// LatestBuild (Dockerfile builds report it at once) or a kpack Build created
+// after the request (kpack only moves latestBuildRef when a triggered build
+// finishes).
+func (a *appClient) waitForNewBuild(ctx context.Context, name, prev string, since time.Time, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		app, err := a.getApp(ctx, name)
+		if err != nil {
+			return "", err
+		}
+		if b := app.Status.LatestBuild; b != "" && b != prev {
+			return b, nil
+		}
+		if b := a.newestKpackBuild(ctx, app, since); b != "" && b != prev {
+			return b, nil
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timed out waiting for a new build (%s)", firstNonEmpty(app.Status.Message, app.Status.Phase))
+		}
+		if err := sleepCtx(ctx, 2*time.Second); err != nil {
+			return "", err
+		}
+	}
+}
+
+// newestKpackBuild returns the name of the newest kpack Build of the app
+// created at or after since, or "".
+func (a *appClient) newestKpackBuild(ctx context.Context, app *shpyrdv1.App, since time.Time) string {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{Group: "kpack.io", Version: "v1alpha2", Kind: "BuildList"})
+	if err := a.c.List(ctx, list, client.InNamespace(app.Namespace), client.MatchingLabels{"image.kpack.io/image": app.Name}); err != nil {
+		return ""
+	}
+	var newest *unstructured.Unstructured
+	for i := range list.Items {
+		b := &list.Items[i]
+		if b.GetCreationTimestamp().Time.Before(since.Add(-time.Second)) {
+			continue
+		}
+		if newest == nil || b.GetCreationTimestamp().After(newest.GetCreationTimestamp().Time) {
+			newest = b
+		}
+	}
+	if newest == nil {
+		return ""
+	}
+	return newest.GetName()
 }
 
 // followBuild streams the build pod's steps to out, in order, and returns

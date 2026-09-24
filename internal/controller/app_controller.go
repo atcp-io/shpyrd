@@ -455,19 +455,63 @@ func (r *AppReconciler) reconcileKpackImage(ctx context.Context, app *shpyrdv1.A
 		return desired, nil
 	}
 
+	// A redeploy of the same source: kpack builds again when its latest
+	// Build carries the trigger annotation (what `kp image trigger` sets).
+	// The request is remembered on the Image so it fires once per redeploy.
+	rebuild := app.Annotations[shpyrdv1.AnnotationRebuildAt]
+	needsTrigger := rebuild != "" && current.GetAnnotations()[shpyrdv1.AnnotationRebuildAt] != rebuild
+	if needsTrigger {
+		if err := r.triggerKpackBuild(ctx, app, current); err != nil {
+			return nil, err
+		}
+	}
+
 	// Compare the fields we own.
-	if !equalJSON(current.Object["spec"], desired.Object["spec"]) || !labelsSubset(current.GetLabels(), desired.GetLabels()) {
+	if needsTrigger || !equalJSON(current.Object["spec"], desired.Object["spec"]) || !labelsSubset(current.GetLabels(), desired.GetLabels()) {
 		updated := current.DeepCopy()
 		updated.Object["spec"] = desired.Object["spec"]
 		updated.SetLabels(mergeMaps(updated.GetLabels(), desired.GetLabels()))
 		updated.SetOwnerReferences(desired.GetOwnerReferences())
+		if needsTrigger {
+			updated.SetAnnotations(mergeMaps(updated.GetAnnotations(), map[string]string{shpyrdv1.AnnotationRebuildAt: rebuild}))
+		}
 		if err := r.Update(ctx, updated); err != nil {
 			return nil, fmt.Errorf("update kpack image: %w", err)
 		}
-		r.Recorder.Event(app, corev1.EventTypeNormal, "BuildRequested", "updated kpack Image source")
+		if !needsTrigger {
+			r.Recorder.Event(app, corev1.EventTypeNormal, "BuildRequested", "updated kpack Image source")
+		}
 		return updated, nil
 	}
 	return current, nil
+}
+
+// kpackBuildNeededAnnotation on an Image's latest Build makes kpack schedule
+// another build of the same source (build reason TRIGGER).
+const kpackBuildNeededAnnotation = "image.kpack.io/additionalBuildNeeded"
+
+// triggerKpackBuild annotates the Image's latest Build so kpack builds
+// again. Without a previous build there is nothing to trigger: kpack builds
+// on its own.
+func (r *AppReconciler) triggerKpackBuild(ctx context.Context, app *shpyrdv1.App, img *unstructured.Unstructured) error {
+	name, _, _ := unstructured.NestedString(img.Object, "status", "latestBuildRef")
+	if name == "" {
+		return nil
+	}
+	b := &unstructured.Unstructured{}
+	b.SetGroupVersionKind(KpackBuildGVK)
+	if err := r.Get(ctx, types.NamespacedName{Namespace: app.Namespace, Name: name}, b); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("latest kpack build: %w", err)
+	}
+	b.SetAnnotations(mergeMaps(b.GetAnnotations(), map[string]string{kpackBuildNeededAnnotation: "true"}))
+	if err := r.Update(ctx, b); err != nil {
+		return fmt.Errorf("trigger kpack build: %w", err)
+	}
+	r.Recorder.Event(app, corev1.EventTypeNormal, "BuildRequested", "building the same source again (redeploy)")
+	return nil
 }
 
 // registryOf is the registry part of an image reference (up to the first slash).

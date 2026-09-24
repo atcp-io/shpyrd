@@ -321,6 +321,10 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 	d.Spec.Template.Annotations = mergeMaps(d.Spec.Template.Annotations, map[string]string{
 		shpyrdv1.AnnotationConfigHash: configHash,
 	})
+	if at := app.Annotations[shpyrdv1.AnnotationRestartedAt]; at != "" {
+		// A redeploy: same release, new pods.
+		d.Spec.Template.Annotations[shpyrdv1.AnnotationRestartedAt] = at
+	}
 	d.Spec.Template.Spec.EnableServiceLinks = ptr.To(false)
 	d.Spec.Template.Spec.ImagePullSecrets = c.imagePullSecrets()
 	d.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}

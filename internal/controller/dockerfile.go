@@ -175,6 +175,8 @@ func buildKey(app *shpyrdv1.App) string {
 		raw, _ := json.Marshal(b)
 		h.Write(raw)
 	}
+	// A redeploy of the same source builds again.
+	h.Write([]byte("rebuild:" + app.Annotations[shpyrdv1.AnnotationRebuildAt]))
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 

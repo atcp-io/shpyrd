@@ -51,6 +51,13 @@ const (
 	AnnotationBuildRevision = "shpyrd.io/build-revision"
 	// AnnotationBuildFailure holds the failure summary of a build Job.
 	AnnotationBuildFailure = "shpyrd.io/build-failure"
+	// AnnotationRestartedAt, on the App, restarts the instances of the
+	// current release (redeploy): the controller copies it to the pod
+	// templates, which roll without a new release.
+	AnnotationRestartedAt = "shpyrd.io/restarted-at"
+	// AnnotationRebuildAt, on the App, builds the current source again
+	// (redeploy after a failed build, or to pick up a new base image).
+	AnnotationRebuildAt = "shpyrd.io/rebuild-at"
 	// DefaultWebPort is the port web processes listen on ($PORT).
 	DefaultWebPort int32 = 8080
 	// EnvSecretSuffix: the Secret <app>-env holds config vars set with

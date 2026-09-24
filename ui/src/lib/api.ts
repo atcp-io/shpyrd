@@ -580,6 +580,11 @@ export const api = {
   sizes: () => request<SizeCatalog>("/api/sizes"),
   saveSizes: (catalog: SizeCatalog) =>
     request<SizeCatalog>("/api/sizes", json("PUT", catalog)),
+  redeploy: (slug: string, action?: "restart" | "rebuild") =>
+    request<{ action: string; message: string }>(
+      `${project(slug)}/redeploy`,
+      json("POST", action ? { action } : {}),
+    ),
   rollback: (slug: string, release: number) =>
     request<AppSummary>(`${project(slug)}/rollback`, json("POST", { release })),
   resources: (slug: string) =>

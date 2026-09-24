@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -501,6 +502,79 @@ func (s *Server) rollbackApp(c *gin.Context) {
 	}
 	s.audit(c, app.Name, "rollback", app.Name, fmt.Sprintf("to v%d", req.Release))
 	c.JSON(http.StatusOK, summarize(app))
+}
+
+// redeployRequest chooses what a redeploy does; empty lets the server
+// decide from the project's state.
+type redeployRequest struct {
+	// Action is "restart" (new instances of the current release) or
+	// "rebuild" (build the same source again).
+	Action string `json:"action"`
+}
+
+// RedeployResult says what the redeploy did.
+type RedeployResult struct {
+	Action  string     `json:"action"`
+	Message string     `json:"message"`
+	App     AppSummary `json:"app"`
+}
+
+// redeployApp restarts the current release, or builds the same source again
+// when the last build failed (or when asked): the button for "try it again"
+// that creates no release.
+func (s *Server) redeployApp(c *gin.Context) {
+	var req redeployRequest
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			abort(c, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if req.Action != "" && req.Action != "restart" && req.Action != "rebuild" {
+		abort(c, http.StatusBadRequest, fmt.Errorf("action must be restart or rebuild"))
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	action := req.Action
+	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
+		buildFailed := a.HasSource() && a.Spec.Image == "" && meta.IsStatusConditionFalse(a.Status.Conditions, shpyrdv1.ConditionBuilt)
+		if action == "" {
+			action = "restart"
+			if buildFailed {
+				action = "rebuild"
+			}
+		}
+		if action == "rebuild" && (!a.HasSource() || a.Spec.Image != "") {
+			return fmt.Errorf("nothing to build: the project runs a pinned image")
+		}
+		if action == "restart" && a.CurrentRelease() == nil {
+			return fmt.Errorf("nothing to restart: no release yet")
+		}
+		if action == "restart" && a.Status.Phase == shpyrdv1.PhaseBuilding {
+			return fmt.Errorf("a build is running; wait for it to finish")
+		}
+		if a.Annotations == nil {
+			a.Annotations = map[string]string{}
+		}
+		if action == "rebuild" {
+			a.Annotations[shpyrdv1.AnnotationRebuildAt] = now
+		} else {
+			a.Annotations[shpyrdv1.AnnotationRestartedAt] = now
+		}
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	msg := "Restarting the instances of the current release"
+	if cur := app.CurrentRelease(); cur != nil && action == "restart" {
+		msg = fmt.Sprintf("Restarting the instances of v%d", cur.Number)
+	}
+	if action == "rebuild" {
+		msg = "Building the same source again"
+	}
+	s.audit(c, app.Name, "redeploy", app.Name, action)
+	c.JSON(http.StatusOK, RedeployResult{Action: action, Message: msg, App: summarize(app)})
 }
 
 // restoreSizes puts back the instance sizes a release ran with.

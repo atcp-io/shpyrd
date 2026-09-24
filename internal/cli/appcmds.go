@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -551,4 +552,95 @@ func healthLabel(processName string, p shpyrdv1.Process) string {
 	default:
 		return "" // workers without a port: nothing to print
 	}
+}
+
+// shpyrd redeploy: new instances of the current release, or the same source
+// built again after a failed build (or with --rebuild). No release is created.
+func newRedeployCmd(g *globalFlags) *cobra.Command {
+	var (
+		appName string
+		rebuild bool
+		noWait  bool
+	)
+	cmd := &cobra.Command{
+		Use:   "redeploy",
+		Short: "Try the current release again: restart its instances, or build the same source again after a failed build",
+		Long: `Redeploy creates no release. With a healthy or unhealthy release it starts
+new instances of the current one (a rolling restart). When the last build
+failed, or with --rebuild, it builds the same source again; the release
+that results is a normal deploy.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			out := cmd.OutOrStdout()
+			name, err := resolveAppName(appName)
+			if err != nil {
+				return err
+			}
+			ac, err := newAppClient(g, out)
+			if err != nil {
+				return err
+			}
+			app, err := ac.getApp(ctx, name)
+			if err != nil {
+				return err
+			}
+			action := "restart"
+			buildFailed := app.HasSource() && app.Spec.Image == "" && meta.IsStatusConditionFalse(app.Status.Conditions, shpyrdv1.ConditionBuilt)
+			if rebuild || buildFailed {
+				action = "rebuild"
+				if !app.HasSource() || app.Spec.Image != "" {
+					return errors.New("nothing to build: the project runs a pinned image")
+				}
+			} else if app.Status.Phase == shpyrdv1.PhaseBuilding {
+				return errors.New("a build is running; wait for it to finish")
+			} else if app.CurrentRelease() == nil {
+				return errors.New("nothing to restart: no release yet")
+			}
+			now := time.Now().UTC().Format(time.RFC3339)
+			updated, err := ac.updateApp(ctx, name, func(a *shpyrdv1.App) error {
+				if a.Annotations == nil {
+					a.Annotations = map[string]string{}
+				}
+				if action == "rebuild" {
+					a.Annotations[shpyrdv1.AnnotationRebuildAt] = now
+				} else {
+					a.Annotations[shpyrdv1.AnnotationRestartedAt] = now
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			ac.audit(ctx, name, "redeploy", name, action)
+			if action == "rebuild" {
+				fmt.Fprintf(out, "==> Building %s again from the same source\n", name)
+			} else if cur := app.CurrentRelease(); cur != nil {
+				fmt.Fprintf(out, "==> Restarting the instances of %s v%d\n", name, cur.Number)
+			}
+			if noWait {
+				return nil
+			}
+			if action == "rebuild" {
+				build, err := ac.waitForNewBuild(ctx, name, app.Status.LatestBuild, time.Now().Add(-time.Minute), 3*time.Minute)
+				if err != nil {
+					return err
+				}
+				if err := ac.followBuild(ctx, appNamespace(name), build); err != nil {
+					return err
+				}
+			}
+			final, err := ac.waitRunning(ctx, name, updated.Generation, 10*time.Minute)
+			if err != nil {
+				return err
+			}
+			if rel := final.CurrentRelease(); rel != nil {
+				fmt.Fprintf(out, "\n%s is running v%d.\n", name, rel.Number)
+			}
+			return nil
+		},
+	}
+	appFlag(cmd, &appName)
+	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "build the same source again even if the last build succeeded")
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "return without waiting")
+	return cmd
 }
