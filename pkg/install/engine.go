@@ -624,6 +624,8 @@ func (e *Engine) overrides() map[string]string {
 		switch k {
 		case VarDomain, VarCluster, VarHTTPPort, VarHTTPSPort, VarFrontDoor, VarLocalDNS:
 			continue // seeded from their own flags
+		case VarServerImage:
+			continue // follows the CLI version; a development image is for one run
 		}
 		if e.profile.Vars[k] == v {
 			continue
