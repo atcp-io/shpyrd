@@ -30,7 +30,7 @@ laptop.
 
 ### Non-Goals
 
-- Managing DNS records for you (RFC-0036) and internal/external exposure (RFC-0036).
+- Managing DNS records for you (RFC-0061) and internal/external exposure (RFC-0036).
 
 ## Proposal
 
@@ -38,7 +38,7 @@ laptop.
   the default. Platform hostnames stay on the first.
 - `Domain` entries live on the App (`spec.domains: [{host, verified}]`); the controller
   renders Ingress rules and one Certificate per host (or uses a wildcard Certificate per base
-  domain when RFC-0036 provides DNS-01).
+  domain when RFC-0061 provides DNS-01).
 - **Custom domains** need proof: a TXT record `_shpyrd-verify.<host>` with a token shown by
   `shpyrd domains add` and the card; the controller checks it (and the CNAME/A pointing at
   the cluster) before serving. Platform admins may skip verification.

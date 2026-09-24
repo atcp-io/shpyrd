@@ -63,8 +63,8 @@ declare what they depend on.
 | [0032](0032-mcp-connector.md) | MCP connector | provisional | 0031 (remote) |
 | [0033](0033-workspaces.md) | Workspaces | provisional (blocked on definition) | 0008, 0016 |
 | [0034](0034-domains-and-certificates.md) | Domains and certificates | provisional | 0011 |
-| [0035](0035-aws-profile.md) | AWS profile | provisional | 0034, 0045 |
-| [0036](0036-dns-providers-and-exposure.md) | DNS providers and load balancer exposure | provisional | 0034, 0035 |
+| [0035](0035-cloud-profiles.md) | Cloud profiles: Oracle Cloud (OKE) and AWS (EKS) | implemented (`oci`); AWS provisional | 0045 |
+| [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | provisional | 0035, 0061 |
 | [0037](0037-platform-backup-and-restore.md) | Platform backup and restore | provisional | 0046 |
 | [0038](0038-postgres-backups-and-pitr.md) | Postgres backups and PITR | implementable | 0009, 0046 |
 | [0039](0039-postgres-pooling-rotation-resize.md) | Postgres pooling, rotation and resize | implementable | 0009 |
@@ -87,6 +87,9 @@ declare what they depend on.
 | [0056](0056-tracing-backend.md) | Tracing backend (Jaeger) | implementable | 0029, 0015 |
 | [0057](0057-local-names-and-front-door.md) | Local names and front door (dnsmasq wildcard, Caddy on 443) | implemented | 0001 |
 | [0058](0058-external-identity-providers.md) | External identity providers (Okta and OIDC, GitHub, Google) | implemented (GitHub round trip pending an OAuth app) | 0012 |
+| [0059](0059-in-cluster-registry-on-cloud.md) | In-cluster registry as the default on every profile | provisional | 0035, 0060 |
+| [0060](0060-volumes-on-cloud-profiles.md) | Volumes on cloud profiles: storage classes, provider minimums, snapshots | provisional | 0006, 0035, 0041 |
+| [0061](0061-dns-providers.md) | DNS providers: automatic records and wildcard certificates | provisional | 0035, 0036 |
 
 ## Phases
 
@@ -102,7 +105,7 @@ declare what they depend on.
 | G (old) | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | superseded by new G above |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
-| J | 0034, 0035, 0036, 0037 | domains, cloud, backup |
+| J | 0035 (done), 0059, 0060, 0036, 0061, 0034, 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
 | K | 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0033 | data stores, security, workspaces |
 | L | 0047, 0048, 0052, 0053, 0054, 0056 | autoscaling, cost, API-first CLI, MFA and passkeys, GitHub App, tracing |
 
