@@ -1,6 +1,6 @@
 # RFC-0035 Cloud profiles: Oracle Cloud (OKE) and AWS (EKS)
 
-**Status:** implemented (`oci` profile); AWS provisional
+**Status:** implemented (`oci` profile); `network-policy` component and AWS provisional
 
 **Owner:** unassigned (AWS)
 
@@ -104,22 +104,35 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
   `cluster init` runs reuse the domain, front door and registry.
 - Waits: load balancer address (`.status.loadBalancer.ingress`), DNS through public
   resolvers (local caches hold negative answers), certificate `Ready`.
-- Network policy enforcement is a cluster property, not a profile one: OKE with VCN-native
-  pod networking does not enforce `NetworkPolicy` unless the Cilium add-on (Enhanced
-  clusters) or Calico is installed — verified on the proof of concept, where a pod in one
-  project namespace reached another project's instance. `cluster init` detects a policy
-  engine (Calico, Cilium, kube-router, kindnet with network policies, Antrea) and warns
-  when none is present, with the provider's instructions; project isolation (RFC-0008) is
-  documented as requiring one.
+- Network policy enforcement is a cluster property, not a profile one, and shpyrd's
+  project isolation (RFC-0008) depends on it. OKE with VCN-native pod networking does not
+  enforce `NetworkPolicy` at all — verified on the proof of concept, where a pod in one
+  project namespace reached another project's instance. Oracle's supported answer is Calico
+  in policy-only mode (raw manifest with OKE-specific settings: `FELIX_INTERFACEPREFIX=oci`,
+  no default pools, `Append` chain insert mode, the NFT iptables backend on Oracle Linux 8;
+  tested Calico version per Kubernetes release, 3.32 for 1.36); it runs on Basic clusters
+  and managed node pools. Cilium is not an OKE add-on (Oracle only documents it as a
+  flannel replacement on Enhanced clusters) and network security groups on the pod subnet
+  are per node pool, not per project. The `oci` profile therefore installs a
+  `network-policy` component (Calico policy-only, version matched to the cluster's
+  Kubernetes version) by default; `SHPYRD_NETWORK_POLICY=none` skips it when the cluster
+  already enforces policies. `cluster init` also detects a policy engine on any profile
+  (Calico, Cilium, kindnet from kind 0.24, Antrea, kube-router) and warns when none is
+  present.
+- Instance metadata: on OCI every pod can use the node's instance principal through the
+  metadata endpoint unless something blocks it. Project network policies gain an egress
+  deny for `169.254.0.0/16` on cloud profiles (Oracle's own recommendation), which is only
+  meaningful with the policy engine above.
 - Costs on the proof of concept: two E5 workers at 2 OCPU / 12 GB about $0.10 per hour
   each, a flexible load balancer at 10 Mbps, block volumes from 50 GB (RFC-0060).
 
 ## Open questions
 
-1. Warn about a missing network policy engine, or install Calico in policy-only mode as an
-   optional component? Default: warn and document now; a `network-policy` component when
-   a second provider needs it.
-2. AWS: existing EKS cluster only (default: yes); a test account is needed before work
+1. Install Calico policy-only by default on `oci` (`SHPYRD_NETWORK_POLICY=calico`), with
+   `none` to skip? Default: yes — isolation is part of the product, and it is Oracle's
+   documented path for VCN-native clusters.
+2. Block the instance metadata endpoint from project pods on cloud profiles? Default: yes.
+3. AWS: existing EKS cluster only (default: yes); a test account is needed before work
    starts.
 
 ## Implementation History
@@ -131,4 +144,5 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
   the controller, fully qualified images for CRI-O, `hack/oci` scripts; the proof of
   concept runs at `oci.shpyrd.io` with a project on Postgres and Redis.
 - 2026-09-24: Retitled to cover cloud profiles in general; OKE network policy finding
-  recorded; AWS section kept provisional.
+  recorded and the `network-policy` component (Calico policy-only) proposed as the `oci`
+  default; AWS section kept provisional.
