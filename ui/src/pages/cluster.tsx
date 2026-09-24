@@ -109,6 +109,27 @@ export function ClusterPage() {
         />
       </div>
 
+      {(c.externalLBAddress || c.internalLBAddress) && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {c.externalLBAddress && (
+            <Info
+              label="External front door"
+              value={c.externalLBAddress}
+              mono
+              hint="Public load balancer — projects with exposure:external (default)"
+            />
+          )}
+          {c.internalLBAddress && (
+            <Info
+              label="Internal front door"
+              value={c.internalLBAddress}
+              mono
+              hint="Private load balancer — projects with exposure:internal"
+            />
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>

@@ -1,6 +1,6 @@
 # RFC-0036 Load balancer exposure: internal and external front doors
 
-**Status:** in progress
+**Status:** implemented
 
 **Owner:** Patrick Negri
 
@@ -11,7 +11,7 @@ on internal hosts
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-24 (rewritten: DNS providers moved to RFC-0061; OKE specifics; external by default)
+**Last update:** 2026-09-24 (rewritten + implemented)
 
 ## Summary
 
@@ -123,3 +123,14 @@ exists. Both should be a setting, not an infrastructure project.
 - 2026-09-24: Rewritten after the OKE proof of concept: DNS providers split out to
   RFC-0061, certificate sources for internal hosts settled, OKE annotations added.
   Decided: external by default for the platform as well; internal is a setting.
+- 2026-09-24: Implemented (v0.1.8–v0.1.9): `App.spec.exposure` field (external|internal,
+  default external); `ingress-nginx-internal` component on the `oci` profile with an OCI
+  private flexible load balancer in the private LB subnet (`--internal-lb-subnet`); the
+  controller picks the ingress class and sets the ExternalDNS target annotation for
+  internal Ingresses so per-host A records point at the private LB; `shpyrd exposure
+  internal|external` and `PUT /api/projects/:slug/exposure`; an Exposure badge on the
+  project header and the projects list; the `exposure:` key in `shpyrd.yaml`; `cluster
+  init` prints both LB addresses (and notes ExternalDNS when active); the cluster page
+  shows both front doors. Verified on OKE: switching shop to internal moves the Ingress to
+  the `nginx-internal` class and the target annotation to `10.0.10.179`; the A record
+  follows on the provider's next sync.

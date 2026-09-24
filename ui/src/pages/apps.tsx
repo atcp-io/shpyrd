@@ -8,6 +8,7 @@ import { ago } from "@/lib/format";
 import { usePerms } from "@/lib/me";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PhaseBadge } from "@/components/phase-badge";
+import { Globe2, Lock } from "lucide-react";
 import { ProcessChips } from "@/components/process-chips";
 import { Button } from "@/components/ui/button";
 import {
@@ -131,6 +132,7 @@ export function AppsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Phase</TableHead>
+                  <TableHead>Exposure</TableHead>
                   <TableHead>Release</TableHead>
                   <TableHead>Processes</TableHead>
                   <TableHead>URL</TableHead>
@@ -169,6 +171,23 @@ export function AppsPage() {
                     </TableCell>
                     <TableCell>
                       <PhaseBadge phase={a.phase} />
+                    </TableCell>
+                    <TableCell>
+                      {a.exposure === "internal" && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[11px] text-sky-700 dark:bg-sky-950 dark:text-sky-300"
+                          title="Served by the internal (private) load balancer"
+                        >
+                          <Lock className="size-3" />
+                          internal
+                        </span>
+                      )}
+                      {(!a.exposure || a.exposure === "external") && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+                          <Globe2 className="size-3" />
+                          external
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {a.release ? `v${a.release}` : "-"}

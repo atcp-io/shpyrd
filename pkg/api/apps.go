@@ -36,10 +36,14 @@ type AppSummary struct {
 	Source      string                            `json:"source,omitempty"`
 	Processes   map[string]shpyrdv1.ProcessStatus `json:"processes,omitempty"`
 	CreatedAt   time.Time                         `json:"createdAt"`
+	// Exposure is "external" (public LB, default) or "internal" (private LB,
+	// RFC-0036). Empty means external.
+	Exposure string `json:"exposure,omitempty"`
 }
 
 func summarize(a *shpyrdv1.App) AppSummary {
 	s := AppSummary{
+		Exposure:    a.Spec.Exposure,
 		Slug:        a.Name,
 		DisplayName: project.DisplayName(a),
 		Namespace:   a.Namespace,

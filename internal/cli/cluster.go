@@ -665,8 +665,22 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		if lbAddress == "" {
 			lbAddress, _ = loadBalancerAddress(ctx, k)
 		}
+		intLBAddr := internalLBAddress(ctx, k)
+		dns := eng.Vars()[install.VarDNSProvider]
+		domain := eng.Vars()[install.VarDomain]
 		if lbAddress != "" {
-			fmt.Fprintf(out, "  Load balancer: %s (DNS: *.%s -> %s)\n", lbAddress, eng.Vars()[install.VarDomain], lbAddress)
+			if dns != "" && dns != "none" {
+				fmt.Fprintf(out, "  External LB:   %s (ExternalDNS: *.%s)\n", lbAddress, domain)
+			} else {
+				fmt.Fprintf(out, "  External LB:   %s (DNS: *.%s -> %s)\n", lbAddress, domain, lbAddress)
+			}
+		}
+		if intLBAddr != "" {
+			if dns != "" && dns != "none" {
+				fmt.Fprintf(out, "  Internal LB:   %s (ExternalDNS: per host, exposure:internal)\n", intLBAddr)
+			} else {
+				fmt.Fprintf(out, "  Internal LB:   %s (DNS: per host pointing here for exposure:internal projects)\n", intLBAddr)
+			}
 		}
 	} else if caDir, err := localca.DefaultDir(); err == nil && flags.frontDoor != install.FrontDoorCaddy {
 		fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
@@ -734,6 +748,24 @@ func effectiveVar(vars map[string]string, prof *install.Profile, key string) str
 }
 
 // loadBalancerAddress is the public address of ingress-nginx's Service.
+// internalLBAddress returns the address of the internal ingress controller
+// Service, empty when none exists.
+func internalLBAddress(ctx context.Context, k *kube.Client) string {
+	svc, err := k.Kube.CoreV1().Services("ingress-nginx-internal").Get(ctx, "ingress-nginx-internal-controller", metav1.GetOptions{})
+	if err != nil || len(svc.Status.LoadBalancer.Ingress) == 0 {
+		return ""
+	}
+	for _, in := range svc.Status.LoadBalancer.Ingress {
+		if in.IP != "" {
+			return in.IP
+		}
+		if in.Hostname != "" {
+			return in.Hostname
+		}
+	}
+	return ""
+}
+
 func loadBalancerAddress(ctx context.Context, k *kube.Client) (string, error) {
 	svc, err := k.Kube.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
 	if err != nil {

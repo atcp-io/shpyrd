@@ -63,6 +63,9 @@ type projectConfig struct {
 	Build     *projectBuild             `json:"build,omitempty"`
 	Domains   []string                  `json:"domains,omitempty"`
 	Globals   *projectGlobals           `json:"globals,omitempty"`
+	// Exposure controls which front door serves this project:
+	// "external" (the public LB, default) or "internal" (RFC-0036).
+	Exposure string `json:"exposure,omitempty"`
 }
 
 // projectGlobals is the `globals` key (RFC-0016): `false` opts the project
@@ -220,6 +223,11 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 	}
 	if pc.Globals != nil {
 		a.Spec.Globals = pc.Globals.spec()
+	}
+	if pc.Exposure == "external" || pc.Exposure == "internal" {
+		a.Spec.Exposure = pc.Exposure
+	} else if pc.Exposure != "" {
+		return fmt.Errorf("shpyrd.yaml: exposure must be external or internal, got %q", pc.Exposure)
 	}
 	return nil
 }

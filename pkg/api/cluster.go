@@ -25,6 +25,9 @@ type ClusterSummary struct {
 	Vars       map[string]string `json:"vars,omitempty"`
 	// Extensions known to this build, with their state on the cluster.
 	Extensions []ExtensionInfo `json:"extensions"`
+	// Front doors (RFC-0036).
+	ExternalLBAddress string `json:"externalLBAddress,omitempty"`
+	InternalLBAddress string `json:"internalLBAddress,omitempty"`
 }
 
 // ExtensionInfo is one optional capability (RFC-0002).
@@ -108,6 +111,23 @@ func (s *Server) clusterSummary(c *gin.Context) {
 				phase = shpyrdv1.PhasePending
 			}
 			out.Phases[phase]++
+		}
+	}
+	// Load balancer addresses for the cluster page's front-door summary.
+	if svc, err := s.kube.Kube.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller", metav1.GetOptions{}); err == nil {
+		for _, in := range svc.Status.LoadBalancer.Ingress {
+			if in.IP != "" {
+				out.ExternalLBAddress = in.IP
+				break
+			}
+		}
+	}
+	if svc, err := s.kube.Kube.CoreV1().Services("ingress-nginx-internal").Get(ctx, "ingress-nginx-internal-controller", metav1.GetOptions{}); err == nil {
+		for _, in := range svc.Status.LoadBalancer.Ingress {
+			if in.IP != "" {
+				out.InternalLBAddress = in.IP
+				break
+			}
 		}
 	}
 	c.JSON(http.StatusOK, out)

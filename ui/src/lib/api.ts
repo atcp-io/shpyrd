@@ -117,6 +117,8 @@ export type AppSummary = {
   source?: string;
   processes?: Record<string, ProcessStatus>;
   createdAt: string;
+  /** "external" (public LB, default) or "internal" (private LB, RFC-0036). */
+  exposure?: "external" | "internal";
 };
 
 export type Release = {
@@ -281,6 +283,8 @@ export type ClusterSummary = {
   }[];
   apps: number;
   phases: Record<string, number>;
+  externalLBAddress?: string;
+  internalLBAddress?: string;
 };
 
 export type NodeUsage = {
