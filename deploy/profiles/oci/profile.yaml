@@ -61,7 +61,7 @@ runlevels:
   - name: rc1
     components: [network-policy, cert-manager, registry-credentials]
   - name: rc2
-    components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, registry, registry-nodes, external-dns, dns01-oci]
+    components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, ingress-nginx-internal, registry, registry-nodes, external-dns, dns01-oci]
   - name: rc3
     components: [kpack, monitoring, dns]
   - name: rc4

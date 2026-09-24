@@ -70,6 +70,9 @@ type initFlags struct {
 	dnsUser        string
 	dnsKeyFile     string
 	dnsFingerprint string
+	// Front doors (RFC-0036).
+	internalLBSubnet string // OCI subnet OCID for the private LB
+	platformExposure string // "" = profile default
 }
 
 func (f *initFlags) bind(cmd *cobra.Command) {
@@ -80,6 +83,8 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.registryHost, "registry-host", "", "use this registry instead of the in-cluster one, e.g. gru.ocir.io/<tenancy-namespace> (with --registry-user and --registry-token-file)")
 	cmd.Flags().StringVar(&f.registryUser, "registry-user", "", "user of the external registry, e.g. <tenancy-namespace>/<user> for OCIR")
 	cmd.Flags().StringVar(&f.registryTokenFile, "registry-token-file", "", "file holding the external registry's password or auth token")
+	cmd.Flags().StringVar(&f.internalLBSubnet, "internal-lb-subnet", "", "subnet OCID for the internal load balancer (OCI, RFC-0036); an empty value with SHPYRD_INTERNAL_LB=auto skips the internal controller")
+	cmd.Flags().StringVar(&f.platformExposure, "platform-exposure", "", "whether the platform dashboard uses the external or internal front door (external|internal)")
 	cmd.Flags().StringVar(&f.dns, "dns", "", "DNS provider that hosts the platform's zone: oci (records and the wildcard certificate are then automatic) or none")
 	cmd.Flags().StringVar(&f.dnsAuth, "dns-auth", "", "how the cluster authenticates to the DNS provider: key (default with --dns-key-file) or workload (OKE workload identity, enhanced clusters)")
 	cmd.Flags().StringVar(&f.dnsCompartment, "dns-compartment", "", "OCI compartment OCID holding the zone")

@@ -113,13 +113,16 @@ func (c Config) Defaults() Config {
 	if c.ClusterIssuer == "" {
 		c.ClusterIssuer = "shpyrd-ca"
 	}
-	if c.IngressClass == "" {
-		if c.IngressClassExternal != "" {
-			c.IngressClass = c.IngressClassExternal
-		} else {
-			c.IngressClass = "nginx"
-		}
+	if c.IngressClassExternal == "" {
+		c.IngressClassExternal = c.IngressClass
 	}
+	if c.IngressClassExternal == "" {
+		c.IngressClassExternal = "nginx"
+	}
+	if c.IngressClassInternal == "" {
+		c.IngressClassInternal = c.IngressClassExternal
+	}
+	c.IngressClass = c.IngressClassExternal
 	if c.DefaultBuilder == "" {
 		c.DefaultBuilder = "shpyrd"
 	}
@@ -464,7 +467,20 @@ func (c Config) mutateIngress(app *shpyrdv1.App, ing *networkingv1.Ingress) {
 		"nginx.ingress.kubernetes.io/proxy-body-size": "50m",
 	})
 	hosts := c.domains(app)
-	ing.Spec.IngressClassName = ptr.To(c.IngressClass)
+	// Pick the ingress class and ExternalDNS target based on exposure.
+	class := c.IngressClass // already set to IngressClassExternal by Defaults
+	if app.Spec.Exposure == "internal" {
+		if c.IngressClassInternal != "" {
+			class = c.IngressClassInternal
+		}
+		// Point the host's A record at the private LB, not the public one.
+		if c.InternalLBAddress != "" {
+			ing.Annotations["external-dns.kubernetes.io/target"] = c.InternalLBAddress
+		}
+	} else {
+		delete(ing.Annotations, "external-dns.kubernetes.io/target")
+	}
+	ing.Spec.IngressClassName = ptr.To(class)
 	if c.WildcardTLS {
 		delete(ing.Annotations, "cert-manager.io/cluster-issuer")
 		ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: hosts}}

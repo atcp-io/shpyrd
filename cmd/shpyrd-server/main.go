@@ -4,8 +4,10 @@ package main
 
 import (
 	"context"
+
 	"flag"
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -210,19 +212,22 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 		Scheme:        mgr.GetScheme(),
 		Recorder:      mgr.GetEventRecorderFor("shpyrd"),
 		Config: controller.Config{
-			Domain:           os.Getenv("SHPYRD_DOMAIN"),
-			HTTPSPort:        os.Getenv("SHPYRD_HTTPS_PORT"),
-			RegistryHost:     os.Getenv("SHPYRD_REGISTRY_HOST"),
-			ClusterIssuer:    os.Getenv("SHPYRD_CLUSTER_ISSUER"),
-			IngressClass:     os.Getenv("SHPYRD_INGRESS_CLASS"),
-			SystemNamespace:  k.Namespace,
-			BuildKitImage:    os.Getenv("SHPYRD_BUILDKIT_IMAGE"),
-			PodCIDR:          os.Getenv("SHPYRD_POD_CIDR"),
-			RegistrySecret:   os.Getenv("SHPYRD_REGISTRY_SECRET"),
-			RegistryInsecure: registryInsecure(os.Getenv("SHPYRD_REGISTRY_INSECURE"), os.Getenv("SHPYRD_REGISTRY_HOST")),
-			CABundle:         envOr("SHPYRD_CA_BUNDLE", "shpyrd-ca-bundle"),
-			RegistryDeletes:  os.Getenv("SHPYRD_REGISTRY_IP") != "",
-			WildcardTLS:      os.Getenv("SHPYRD_WILDCARD_TLS") == "true",
+			Domain:               os.Getenv("SHPYRD_DOMAIN"),
+			HTTPSPort:            os.Getenv("SHPYRD_HTTPS_PORT"),
+			RegistryHost:         os.Getenv("SHPYRD_REGISTRY_HOST"),
+			ClusterIssuer:        os.Getenv("SHPYRD_CLUSTER_ISSUER"),
+			IngressClass:         os.Getenv("SHPYRD_INGRESS_CLASS"),
+			SystemNamespace:      k.Namespace,
+			BuildKitImage:        os.Getenv("SHPYRD_BUILDKIT_IMAGE"),
+			PodCIDR:              os.Getenv("SHPYRD_POD_CIDR"),
+			RegistrySecret:       os.Getenv("SHPYRD_REGISTRY_SECRET"),
+			RegistryInsecure:     registryInsecure(os.Getenv("SHPYRD_REGISTRY_INSECURE"), os.Getenv("SHPYRD_REGISTRY_HOST")),
+			CABundle:             envOr("SHPYRD_CA_BUNDLE", "shpyrd-ca-bundle"),
+			RegistryDeletes:      os.Getenv("SHPYRD_REGISTRY_IP") != "",
+			WildcardTLS:          os.Getenv("SHPYRD_WILDCARD_TLS") == "true",
+			IngressClassExternal: envOr("SHPYRD_INGRESS_CLASS_EXTERNAL", "nginx"),
+			IngressClassInternal: envOr("SHPYRD_INGRESS_CLASS_INTERNAL", "nginx-internal"),
+			InternalLBAddress:    internalLBAddress(k),
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
@@ -247,6 +252,18 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 		}
 	}
 	return mgr, nil
+}
+
+// internalLBAddress reads the IP of the internal ingress-nginx Service at
+// startup; the controller uses it as the ExternalDNS target for Ingresses
+// with exposure:internal so host A records point at the private LB.
+func internalLBAddress(k *kube.Client) string {
+	svc, err := k.Kube.CoreV1().Services("ingress-nginx-internal").Get(
+		context.Background(), "ingress-nginx-internal-controller", metav1.GetOptions{})
+	if err != nil || len(svc.Status.LoadBalancer.Ingress) == 0 {
+		return ""
+	}
+	return svc.Status.LoadBalancer.Ingress[0].IP
 }
 
 // gcOrNil keeps a nil *RegistryGC from becoming a non-nil interface.
