@@ -29,4 +29,11 @@ wait:
       kind: ClusterBuilder
       name: shpyrd
       type: Ready
+  # Ready stays True for the previous builder while a new one is assembled
+  # (a registry change, a stack update): wait for the current spec too.
+  - condition:
+      apiVersion: kpack.io/v1alpha2
+      kind: ClusterBuilder
+      name: shpyrd
+      type: UpToDate
 timeout: 20m

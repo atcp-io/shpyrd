@@ -233,7 +233,12 @@ func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error
 	inCluster := e.vars[VarRegistryIP] != ""
 
 	user, password := e.opts.RegistryUser, e.opts.RegistryPassword
+	// Credentials for other registries (a previous external registry) are
+	// kept in the Secret so instances built from them can still be pulled
+	// until their next release.
+	auths := map[string]interface{}{}
 	if existing, err := secrets.Get(ctx, RegistrySecretName, metav1.GetOptions{}); err == nil {
+		auths = dockerConfigAuths(existing.Data[".dockerconfigjson"])
 		if user == "" {
 			if !inCluster {
 				e.rep.Step(c.Name, "keeping existing registry credentials")
@@ -243,18 +248,17 @@ func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error
 			// from the stored credential when it is missing (upgrade from
 			// an install without authentication).
 			if _, err := secrets.Get(ctx, RegistryHtpasswdSecretName, metav1.GetOptions{}); err == nil {
-				e.rep.Step(c.Name, "keeping existing registry credentials")
-				return nil
+				if u, _ := dockerConfigCredential(existing.Data[".dockerconfigjson"], host); u != "" {
+					e.rep.Step(c.Name, "keeping existing registry credentials")
+					return nil
+				}
 			}
 			user, password = dockerConfigCredential(existing.Data[".dockerconfigjson"], host)
-			if user == "" {
-				return fmt.Errorf("secret %s/%s holds no credential for %s; delete it and run again", c.Namespace, RegistrySecretName, host)
-			}
 		}
-	} else if user == "" {
-		if !inCluster {
-			return fmt.Errorf("the registry %s needs credentials: pass --registry-user and --registry-token-file", host)
-		}
+	} else if user == "" && !inCluster {
+		return fmt.Errorf("the registry %s needs credentials: pass --registry-user and --registry-token-file", host)
+	}
+	if user == "" {
 		user = "shpyrd"
 		raw := make([]byte, 24)
 		if _, err := rand.Read(raw); err != nil {
@@ -264,9 +268,8 @@ func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error
 	}
 
 	auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
-	cfg, _ := json.Marshal(map[string]interface{}{"auths": map[string]interface{}{
-		host: map[string]string{"username": user, "password": password, "auth": auth},
-	}})
+	auths[host] = map[string]string{"username": user, "password": password, "auth": auth}
+	cfg, _ := json.Marshal(map[string]interface{}{"auths": auths})
 	secret := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "v1",
 		"kind":       "Secret",
@@ -305,6 +308,18 @@ func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error
 	}
 	e.rep.Step(c.Name, "stored credentials for "+host+" as "+user)
 	return nil
+}
+
+// dockerConfigAuths returns the auths map of a dockerconfigjson document
+// (empty when it cannot be read).
+func dockerConfigAuths(raw []byte) map[string]interface{} {
+	var cfg struct {
+		Auths map[string]interface{} `json:"auths"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Auths == nil {
+		return map[string]interface{}{}
+	}
+	return cfg.Auths
 }
 
 // dockerConfigCredential extracts the user and password for host from a

@@ -515,8 +515,9 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		return err
 	}
 	skip := flags.skip
-	if vars[install.VarRegistryIP] == "" && flags.registryHost != "" || recordedExternalRegistry(ctx, k, flags) {
-		// An external registry replaces the in-cluster one and its node trust.
+	if ip, explicit := vars[install.VarRegistryIP]; explicit && ip == "" {
+		// An external registry (--registry-host now, or recorded from an
+		// earlier run) replaces the in-cluster one and its node trust.
 		skip = append(append([]string{}, skip...), "registry", "registry-nodes")
 	}
 	opts := install.Options{
@@ -768,29 +769,6 @@ func hasSet(set []string, key string) bool {
 		}
 	}
 	return false
-}
-
-// recordedExternalRegistry says the cluster was installed with an external
-// registry (no in-cluster address recorded), so the registry components
-// stay out on later runs too.
-func recordedExternalRegistry(ctx context.Context, k *kube.Client, flags *initFlags) bool {
-	if flags.registryHost != "" {
-		return true
-	}
-	if hasSet(flags.set, install.VarRegistryIP) {
-		for _, kv := range flags.set {
-			if kv == install.VarRegistryIP+"=" {
-				return true
-			}
-		}
-		return false
-	}
-	info, err := install.ReadInstallInfo(ctx, k, "")
-	if err != nil || info == nil {
-		return false
-	}
-	_, recorded := info.Vars[install.VarRegistryIP]
-	return recorded && info.Vars[install.VarRegistryIP] == ""
 }
 
 func newClusterStatusCmd(g *globalFlags) *cobra.Command {

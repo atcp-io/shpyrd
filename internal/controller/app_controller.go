@@ -438,7 +438,23 @@ func (r *AppReconciler) reconcileKpackImage(ctx context.Context, app *shpyrdv1.A
 		return nil, fmt.Errorf("get kpack image: %w", err)
 	}
 
-	// Compare the fields we own; spec.tag is immutable and unchanged.
+	// spec.tag is immutable in kpack: when the registry changed (an external
+	// registry replaced by the in-cluster one, RFC-0059) the Image is
+	// recreated. Its build history goes; releases live on the App.
+	curTag, _, _ := unstructured.NestedString(current.Object, "spec", "tag")
+	newTag, _, _ := unstructured.NestedString(desired.Object, "spec", "tag")
+	if curTag != "" && curTag != newTag {
+		if err := r.Delete(ctx, current); err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("delete kpack image for the new registry: %w", err)
+		}
+		if err := r.Create(ctx, desired); err != nil {
+			return nil, fmt.Errorf("recreate kpack image: %w", err)
+		}
+		r.Recorder.Eventf(app, corev1.EventTypeNormal, "BuildRequested", "registry changed (%s -> %s): kpack Image recreated", registryOf(curTag), registryOf(newTag))
+		return desired, nil
+	}
+
+	// Compare the fields we own.
 	if !equalJSON(current.Object["spec"], desired.Object["spec"]) || !labelsSubset(current.GetLabels(), desired.GetLabels()) {
 		updated := current.DeepCopy()
 		updated.Object["spec"] = desired.Object["spec"]
@@ -451,6 +467,14 @@ func (r *AppReconciler) reconcileKpackImage(ctx context.Context, app *shpyrdv1.A
 		return updated, nil
 	}
 	return current, nil
+}
+
+// registryOf is the registry part of an image reference (up to the first slash).
+func registryOf(ref string) string {
+	if i := strings.IndexByte(ref, '/'); i > 0 {
+		return ref[:i]
+	}
+	return ref
 }
 
 // processSizes resolves the size name of every process against the catalog

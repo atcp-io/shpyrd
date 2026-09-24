@@ -392,3 +392,36 @@ func TestDescribeConfigChangeAndSummary(t *testing.T) {
 		t.Errorf("summary = %v %q", ready, msg)
 	}
 }
+
+// A registry change (RFC-0059: OCIR replaced by the in-cluster registry)
+// recreates the kpack Image, whose tag is immutable.
+func TestKpackImageRecreatedWhenRegistryChanges(t *testing.T) {
+	app := &shpyrdv1.App{
+		ObjectMeta: metav1.ObjectMeta{Name: "mig", Namespace: "app-mig", Generation: 1},
+		Spec:       shpyrdv1.AppSpec{Source: &shpyrdv1.Source{Git: &shpyrdv1.GitSource{URL: "https://github.com/example/repo", Revision: "main"}}},
+	}
+	r, c := newTestReconciler(t, app)
+	r.Config.RegistryHost = "gru.ocir.io/ns"
+	runReconcile(t, r, app)
+	img := &unstructured.Unstructured{}
+	img.SetGroupVersionKind(KpackImageGVK)
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-mig", Name: "mig"}, img); err != nil {
+		t.Fatal(err)
+	}
+	if tag, _, _ := unstructured.NestedString(img.Object, "spec", "tag"); tag != "gru.ocir.io/ns/apps/mig" {
+		t.Fatalf("tag = %q", tag)
+	}
+	firstUID := img.GetUID()
+
+	r.Config.RegistryHost = "10.96.0.50:5000"
+	runReconcile(t, r, app)
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-mig", Name: "mig"}, img); err != nil {
+		t.Fatal(err)
+	}
+	if tag, _, _ := unstructured.NestedString(img.Object, "spec", "tag"); tag != "10.96.0.50:5000/apps/mig" {
+		t.Errorf("tag after registry change = %q", tag)
+	}
+	if img.GetUID() == firstUID && firstUID != "" {
+		t.Error("kpack Image must be recreated, not updated, when the tag changes")
+	}
+}
