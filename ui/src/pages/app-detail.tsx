@@ -17,6 +17,8 @@ import {
   Plus,
   RefreshCw,
   Rocket,
+  Globe2,
+  Lock,
   RotateCcw,
   Trash2,
   Undo2,
@@ -132,6 +134,7 @@ export function AppDetailPage() {
             )}
             {perms.config && <RenameButton app={a} onDone={refresh} />}
             <PhaseBadge phase={a.status.phase} />
+            <ExposureBadge app={a} onDone={refresh} />
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <ProcessChips processes={a.processes} />
@@ -337,6 +340,60 @@ function ActivityPanel({
     );
   }
   return null;
+}
+
+// Exposure badge with a toggle for project admins (RFC-0036).
+function ExposureBadge({
+  app,
+  onDone,
+}: {
+  app: AppDetail;
+  onDone: () => void;
+}) {
+  const perms = usePerms(app.slug);
+  const qc = useQueryClient();
+  const internal = app.spec.exposure === "internal";
+  const setExp = useMutation({
+    mutationFn: (exposure: "external" | "internal") =>
+      api.setExposure(app.slug, exposure),
+    onSuccess: () => {
+      toast.success(
+        internal
+          ? "Switched to external (public LB)"
+          : "Switched to internal (private LB)",
+      );
+      qc.invalidateQueries({ queryKey: ["app", app.slug] });
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  if (!internal && !perms.deploy) return null;
+  return (
+    <button
+      onClick={() =>
+        perms.deploy && setExp.mutate(internal ? "external" : "internal")
+      }
+      disabled={setExp.isPending}
+      title={
+        perms.deploy
+          ? internal
+            ? "Internal (private LB) — click to switch to external"
+            : "External (public LB) — click to switch to internal"
+          : internal
+            ? "Internal (private LB)"
+            : undefined
+      }
+      className={
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] " +
+        (internal
+          ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
+          : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300")
+      }
+    >
+      {internal ? <Lock className="size-3" /> : <Globe2 className="size-3" />}
+      {internal ? "internal" : "external"}
+    </button>
+  );
 }
 
 // Redeploy tries the current release again without creating a release:

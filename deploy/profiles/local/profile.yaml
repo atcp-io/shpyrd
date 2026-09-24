@@ -16,6 +16,13 @@ vars:
   SHPYRD_CA_SOURCE: local
   SHPYRD_NETWORK_POLICY: none        # kind's kindnet enforces NetworkPolicy (kind 0.24+)
   # No DNS provider locally (RFC-0061 is for cloud profiles).
+  # Front doors (RFC-0036): local has a single controller; internal is not
+  # supported (no private LB), so everything stays external.
+  SHPYRD_PLATFORM_EXPOSURE: external
+  SHPYRD_INTERNAL_LB: "false"
+  SHPYRD_INTERNAL_LB_SUBNET: ""
+  SHPYRD_INGRESS_CLASS_EXTERNAL: nginx
+  SHPYRD_INGRESS_CLASS_INTERNAL: nginx
   SHPYRD_DNS_PROVIDER: none
   SHPYRD_DNS_AUTH: key
   SHPYRD_DNS_COMPARTMENT: ""

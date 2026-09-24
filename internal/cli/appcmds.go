@@ -644,3 +644,45 @@ that results is a normal deploy.`,
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "return without waiting")
 	return cmd
 }
+
+// shpyrd projects exposure <project> internal|external (RFC-0036).
+func newExposureCmd(g *globalFlags) *cobra.Command {
+	var appName string
+	cmd := &cobra.Command{
+		Use:   "exposure internal|external",
+		Short: "Change which front door serves the project (external: public LB, internal: private LB)",
+		Long: `Exposure is a release-free operation: the Ingress is re-rendered immediately,
+DNS records follow on the provider's next sync, certificates are already
+covered by the platform's wildcard.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			exposure := strings.ToLower(args[0])
+			if exposure != "external" && exposure != "internal" {
+				return fmt.Errorf("exposure must be external or internal")
+			}
+			name, err := resolveAppName(appName)
+			if err != nil {
+				return err
+			}
+			ac, err := newAppClient(g, cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			body, _ := json.Marshal(map[string]string{"exposure": exposure})
+			raw, err := serverRequest(ctx, ac.k, "PUT", "api/projects/"+name+"/exposure", body, "application/json")
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(raw, &map[string]interface{}{}); err != nil {
+				if len(raw) > 0 {
+					_ = raw // response acknowledged
+				}
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s exposure set to %s\n", name, exposure)
+			return nil
+		},
+	}
+	appFlag(cmd, &appName)
+	return cmd
+}

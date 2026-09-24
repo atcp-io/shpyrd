@@ -1,6 +1,8 @@
 # RFC-0036 Load balancer exposure: internal and external front doors
 
-**Status:** provisional
+**Status:** in progress
+
+**Owner:** Patrick Negri
 
 **Owner:** unassigned
 

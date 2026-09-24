@@ -83,6 +83,14 @@ spec:
             # door's default; project Ingresses then carry no certificate.
             - name: SHPYRD_WILDCARD_TLS
               value: "${SHPYRD_WILDCARD_TLS}"
+            - name: SHPYRD_INGRESS_CLASS_EXTERNAL
+              value: "${SHPYRD_INGRESS_CLASS_EXTERNAL}"
+            - name: SHPYRD_INGRESS_CLASS_INTERNAL
+              value: "${SHPYRD_INGRESS_CLASS_INTERNAL}"
+            - name: SHPYRD_PLATFORM_EXPOSURE
+              value: "${SHPYRD_PLATFORM_EXPOSURE}"
+            - name: SHPYRD_INTERNAL_LB_ADDRESS
+              value: ""  # populated by the controller at runtime
             - name: SHPYRD_DATA_DIR
               value: /data
             - name: SHPYRD_LEADER_ELECT

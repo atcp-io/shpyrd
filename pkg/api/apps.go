@@ -522,6 +522,32 @@ type RedeployResult struct {
 // redeployApp restarts the current release, or builds the same source again
 // when the last build failed (or when asked): the button for "try it again"
 // that creates no release.
+// exposureRequest changes how a project is exposed (RFC-0036).
+type exposureRequest struct {
+	Exposure string `json:"exposure" binding:"required"`
+}
+
+func (s *Server) setExposure(c *gin.Context) {
+	var req exposureRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	if req.Exposure != "external" && req.Exposure != "internal" {
+		abort(c, http.StatusBadRequest, fmt.Errorf("exposure must be external or internal"))
+		return
+	}
+	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
+		a.Spec.Exposure = req.Exposure
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	s.audit(c, app.Name, "exposure", app.Name, req.Exposure)
+	c.JSON(http.StatusOK, summarize(app))
+}
+
 func (s *Server) redeployApp(c *gin.Context) {
 	var req redeployRequest
 	if c.Request.ContentLength > 0 {

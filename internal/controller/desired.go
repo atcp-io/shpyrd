@@ -66,6 +66,12 @@ type Config struct {
 	// certificate by default (RFC-0061): project Ingresses get no
 	// certificate of their own.
 	WildcardTLS bool
+	// Front doors (RFC-0036).
+	IngressClassExternal string // default "nginx"
+	IngressClassInternal string // default "nginx-internal"
+	// InternalLBAddress is the address of the internal load balancer;
+	// used as the ExternalDNS target for internal Ingresses.
+	InternalLBAddress string
 }
 
 // BuildServiceAccount is the ServiceAccount builds run as in a project
@@ -108,7 +114,11 @@ func (c Config) Defaults() Config {
 		c.ClusterIssuer = "shpyrd-ca"
 	}
 	if c.IngressClass == "" {
-		c.IngressClass = "nginx"
+		if c.IngressClassExternal != "" {
+			c.IngressClass = c.IngressClassExternal
+		} else {
+			c.IngressClass = "nginx"
+		}
 	}
 	if c.DefaultBuilder == "" {
 		c.DefaultBuilder = "shpyrd"

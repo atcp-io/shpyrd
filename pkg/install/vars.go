@@ -53,6 +53,12 @@ const (
 	VarDNSProfileSecrets = "SHPYRD_DNS_PROFILE_SECRETS" // the same as a YAML list body
 	VarDefaultTLSSecret  = "SHPYRD_DEFAULT_TLS_SECRET"  // namespace/name of ingress-nginx's default certificate
 	VarWildcardTLS       = "SHPYRD_WILDCARD_TLS"        // "true" when the wildcard certificate serves every project host
+	// Front doors (RFC-0036).
+	VarPlatformExposure      = "SHPYRD_PLATFORM_EXPOSURE"        // "external" or "internal"
+	VarInternalLB            = "SHPYRD_INTERNAL_LB"              // "auto" (create lazily), "true", "false"
+	VarInternalLBSubnet      = "SHPYRD_INTERNAL_LB_SUBNET"       // subnet OCID for the private LB (OCI)
+	VarIngressClassInternal  = "SHPYRD_INGRESS_CLASS_INTERNAL"   // ingress class of the internal controller
+	VarIngressClassExternal  = "SHPYRD_INGRESS_CLASS_EXTERNAL"   // ingress class of the external controller
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine

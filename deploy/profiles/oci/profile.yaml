@@ -30,6 +30,14 @@ vars:
   # --dns-auth workload on an enhanced cluster. Records for the platform's
   # hostnames are then published by ExternalDNS and one wildcard certificate
   # (DNS-01) serves every project.
+  # Front doors (RFC-0036): external LB for the platform (default; move to
+  # internal when you have a VPN). Pass --internal-lb-subnet <ocid> to
+  # create the private controller; SHPYRD_INTERNAL_LB=false skips it.
+  SHPYRD_PLATFORM_EXPOSURE: external
+  SHPYRD_INTERNAL_LB: "auto"
+  SHPYRD_INTERNAL_LB_SUBNET: ""
+  SHPYRD_INGRESS_CLASS_EXTERNAL: nginx
+  SHPYRD_INGRESS_CLASS_INTERNAL: nginx-internal
   SHPYRD_DNS_PROVIDER: none
   SHPYRD_DNS_AUTH: key
   SHPYRD_DNS_COMPARTMENT: ""

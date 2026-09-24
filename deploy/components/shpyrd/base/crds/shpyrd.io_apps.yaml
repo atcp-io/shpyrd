@@ -434,6 +434,15 @@ spec:
                   - name
                   type: object
                 type: array
+              exposure:
+                description: |-
+                  Exposure controls which front door serves this project: "external"
+                  (the public load balancer, default) or "internal" (the private one,
+                  RFC-0036). Changing this is a release-free operation.
+                enum:
+                - external
+                - internal
+                type: string
               globals:
                 description: |-
                   Globals controls the cluster-wide config vars a platform admin sets

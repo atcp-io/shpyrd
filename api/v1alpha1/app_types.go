@@ -115,6 +115,13 @@ type AppSpec struct {
 	// their connection details become config vars of every process.
 	// +optional
 	Bindings []Binding `json:"bindings,omitempty"`
+	// Exposure controls which front door serves this project: "external"
+	// (the public load balancer, default) or "internal" (the private one,
+	// RFC-0036). Changing this is a release-free operation.
+	// +optional
+	// +kubebuilder:validation:Enum=external;internal
+	Exposure string `json:"exposure,omitempty"`
+
 	// Globals controls the cluster-wide config vars a platform admin sets
 	// with `shpyrd globals` (RFC-0016). Nil injects all of them.
 	// +optional

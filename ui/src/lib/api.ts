@@ -163,6 +163,7 @@ export type AppDetail = {
     env?: { name: string; value?: string }[];
     domains?: string[];
     bindings?: { kind: string; name: string; prefix?: string }[];
+    exposure?: "external" | "internal";
     build?: {
       strategy?: "buildpacks" | "dockerfile";
       env?: { name: string; value?: string }[];
@@ -580,6 +581,8 @@ export const api = {
   sizes: () => request<SizeCatalog>("/api/sizes"),
   saveSizes: (catalog: SizeCatalog) =>
     request<SizeCatalog>("/api/sizes", json("PUT", catalog)),
+  setExposure: (slug: string, exposure: "external" | "internal") =>
+    request<AppSummary>(`${project(slug)}/exposure`, json("PUT", { exposure })),
   redeploy: (slug: string, action?: "restart" | "rebuild") =>
     request<{ action: string; message: string }>(
       `${project(slug)}/redeploy`,
