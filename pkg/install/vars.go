@@ -30,8 +30,12 @@ const (
 	// Cloud profiles (RFC-0034/0035 counterparts).
 	VarClusterIssuer    = "SHPYRD_CLUSTER_ISSUER"    // cert-manager ClusterIssuer for every certificate (shpyrd-ca locally, letsencrypt on cloud)
 	VarACMEEmail        = "SHPYRD_ACME_EMAIL"        // Let's Encrypt account email (cloud profiles)
-	VarRegistryInsecure = "SHPYRD_REGISTRY_INSECURE" // "true" for the plain-HTTP in-cluster registry
+	VarRegistryInsecure = "SHPYRD_REGISTRY_INSECURE" // "true" keeps the in-cluster registry on plain HTTP (escape hatch, RFC-0059)
 	VarRegistrySecret   = "SHPYRD_REGISTRY_SECRET"   // name of the registry credentials Secret ("" when the registry needs none)
+	// In-cluster registry (RFC-0059).
+	VarRegistryIP   = "SHPYRD_REGISTRY_IP"   // fixed ClusterIP of the in-cluster registry ("" with an external registry)
+	VarRegistrySize = "SHPYRD_REGISTRY_SIZE" // size of its volume claim
+	VarCASource     = "SHPYRD_CA_SOURCE"     // where the platform CA comes from: "local" (~/.shpyrd/ca, shared by kind clusters) or "cluster" (generated once in the cluster)
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine
@@ -50,6 +54,16 @@ const (
 // RegistrySecretName is the dockerconfigjson Secret with the credentials
 // builds push with and instances pull with (private registries).
 const RegistrySecretName = "shpyrd-registry"
+
+// RegistryHtpasswdSecretName holds the htpasswd file the in-cluster registry
+// authenticates against (key "htpasswd").
+const RegistryHtpasswdSecretName = "registry-htpasswd"
+
+// Platform CA sources (SHPYRD_CA_SOURCE).
+const (
+	CASourceLocal   = "local"
+	CASourceCluster = "cluster"
+)
 
 // ServerImageRepo is where release workflows publish the server image.
 const ServerImageRepo = "ghcr.io/shpyrd-io/shpyrd-server"

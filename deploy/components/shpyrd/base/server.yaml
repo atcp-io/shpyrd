@@ -59,6 +59,14 @@ spec:
               value: "${SHPYRD_REGISTRY_SECRET}"
             - name: SHPYRD_REGISTRY_INSECURE
               value: "${SHPYRD_REGISTRY_INSECURE}"
+            # Build pods get the platform CA (trust bundle + SSL_CERT_FILE) from
+            # the admission webhook below (RFC-0059).
+            - name: SHPYRD_WEBHOOK_ADDR
+              value: ":9443"
+            - name: SHPYRD_WEBHOOK_TLS_DIR
+              value: /etc/shpyrd/webhook-tls
+            - name: SHPYRD_CA_BUNDLE
+              value: shpyrd-ca-bundle
             - name: SHPYRD_DATA_DIR
               value: /data
             - name: SHPYRD_LEADER_ELECT
@@ -83,9 +91,14 @@ spec:
               containerPort: 8080
             - name: metrics
               containerPort: 8081
+            - name: webhook
+              containerPort: 9443
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: webhook-tls
+              mountPath: /etc/shpyrd/webhook-tls
+              readOnly: true
           # Probes tolerate a busy node (builds run on the same machine locally).
           startupProbe:
             httpGet:
@@ -121,6 +134,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: shpyrd-data
+        - name: webhook-tls
+          secret:
+            secretName: shpyrd-webhook-tls
 ---
 apiVersion: v1
 kind: Service
@@ -135,3 +151,6 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    - name: webhook
+      port: 9443
+      targetPort: webhook

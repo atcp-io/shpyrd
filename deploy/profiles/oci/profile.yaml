@@ -1,18 +1,25 @@
 name: oci
-description: Oracle Cloud (OKE) with a public load balancer, Let's Encrypt certificates and OCIR as the registry
+description: Oracle Cloud (OKE) with a public load balancer, Let's Encrypt certificates and the in-cluster registry
 vars:
-  # Pass --domain (a wildcard DNS record you own), the registry and the
-  # address (contrib/oci/terraform creates the cluster and prints them):
-  #   --set SHPYRD_REGISTRY_HOST=<region-key>.ocir.io/<tenancy-namespace>
-  #   --registry-user <tenancy-namespace>/<user> --registry-token-file ~/.oci/ocir-token
+  # Pass --domain (a wildcard DNS record you own) and the address
+  # (contrib/oci/terraform creates the cluster and prints them):
   #   --set SHPYRD_ACME_EMAIL=you@example.com --set SHPYRD_LB_IP=<reserved address>
+  # A provider registry instead of the in-cluster one (RFC-0059):
+  #   --registry-host <region-key>.ocir.io/<tenancy-namespace>
+  #   --registry-user <tenancy-namespace>/<user> --registry-token-file ~/.oci/ocir-token
   SHPYRD_DOMAIN: apps.example.com
-  SHPYRD_REGISTRY_HOST: gru.ocir.io/tenancy-namespace
+  # In-cluster registry on a fixed ClusterIP in the cluster's Service range
+  # (10.96.0.0/16 in contrib/oci/terraform), TLS from the platform CA.
+  SHPYRD_REGISTRY_IP: 10.96.0.50
+  SHPYRD_REGISTRY_HOST: 10.96.0.50:5000
   SHPYRD_REGISTRY_INSECURE: "false"
   SHPYRD_REGISTRY_SECRET: shpyrd-registry
-  SHPYRD_REGISTRY_IP: ""            # only the in-cluster registry (local profile) uses it
+  SHPYRD_REGISTRY_SIZE: 50Gi        # OCI block volumes start at 50 GB
+  # Public certificates from Let's Encrypt; the platform CA (generated once
+  # in the cluster) signs the registry and the admission webhook.
   SHPYRD_CLUSTER_ISSUER: letsencrypt
   SHPYRD_ACME_EMAIL: ""
+  SHPYRD_CA_SOURCE: cluster
   # A cloud load balancer terminates nothing and listens on 80/443: URLs carry no port.
   SHPYRD_FRONT_DOOR: lb
   # Reserved public address for the load balancer (contrib/oci/terraform output
@@ -28,9 +35,9 @@ runlevels:
   - name: rc0
     components: [monitoring-crds]
   - name: rc1
-    components: [cert-manager]
+    components: [cert-manager, registry-credentials]
   - name: rc2
-    components: [letsencrypt-issuers, ingress-nginx, registry-credentials]
+    components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, registry, registry-nodes]
   - name: rc3
     components: [kpack, monitoring]
   - name: rc4

@@ -80,30 +80,66 @@ func Load(dir string) (*CA, error) {
 	return &CA{Dir: dir, CertPEM: certPEM, KeyPEM: keyPEM, Cert: cert}, nil
 }
 
-// Create generates a new ECDSA P-256 root CA valid for ten years.
+// LoadCert reads only the certificate from dir (no private key): enough to
+// install it in a trust store.
+func LoadCert(dir string) (*CA, error) {
+	certPEM, err := os.ReadFile(filepath.Join(dir, certFile))
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, fmt.Errorf("%s: not a PEM certificate", filepath.Join(dir, certFile))
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return &CA{Dir: dir, CertPEM: certPEM, Cert: cert}, nil
+}
+
+// Create generates a new ECDSA P-256 root CA valid for ten years and
+// writes it to dir.
 func Create(dir string) (*CA, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
-	if err != nil {
 		return nil, err
 	}
 	host, _ := os.Hostname()
 	if host == "" {
 		host = "local"
 	}
+	certPEM, keyPEM, cert, err := Generate("shpyrd development CA", host)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, certFile), certPEM, 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, keyFile), keyPEM, 0o600); err != nil {
+		return nil, err
+	}
+	return &CA{Dir: dir, CertPEM: certPEM, KeyPEM: keyPEM, Cert: cert}, nil
+}
+
+// Generate makes an ECDSA P-256 root CA valid for ten years, named
+// "<organization> <unit>", and returns it PEM encoded (nothing is written).
+// The installer uses it for the platform CA of a cloud cluster.
+func Generate(organization, unit string) (certPEM, keyPEM []byte, cert *x509.Certificate, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			Organization:       []string{"shpyrd development CA"},
-			OrganizationalUnit: []string{host},
-			CommonName:         "shpyrd development CA " + host,
+			Organization:       []string{organization},
+			OrganizationalUnit: []string{unit},
+			CommonName:         organization + " " + unit,
 		},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(validity),
@@ -115,23 +151,16 @@ func Create(dir string) (*CA, error) {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-
-	if err := os.WriteFile(filepath.Join(dir, certFile), certPEM, 0o644); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(filepath.Join(dir, keyFile), keyPEM, 0o600); err != nil {
-		return nil, err
-	}
-	cert, _ := x509.ParseCertificate(der)
-	return &CA{Dir: dir, CertPEM: certPEM, KeyPEM: keyPEM, Cert: cert}, nil
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	cert, _ = x509.ParseCertificate(der)
+	return certPEM, keyPEM, cert, nil
 }
 
 // CertPath is the path of the CA certificate file.

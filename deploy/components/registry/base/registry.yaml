@@ -1,8 +1,13 @@
-# Plain HTTP registry on a fixed ClusterIP. Because the address is RFC1918,
-# go-containerregistry based tools (kpack, the buildpacks lifecycle) use
-# HTTP for it automatically; kind nodes get a containerd hosts.toml for the
-# same host. The NodePort lets the machine running kind push to
-# localhost:30050 (used by `shpyrd deploy --local-build`).
+# The in-cluster registry (RFC-0059): one replica on a fixed ClusterIP,
+# TLS only, with a certificate from the platform CA whose SAN is that
+# address, and HTTP basic auth against the credential the installer
+# generated (Secrets shpyrd-registry and registry-htpasswd, hook
+# registry-credentials). Builds trust the CA through the trust bundle
+# (kpack: the build-pod webhook; BuildKit: SSL_CERT_FILE); nodes through the
+# registry-nodes component. Health and metrics are served without
+# authentication on the debug port. There is no plaintext listener:
+# go-containerregistry races http against https for RFC 1918 addresses, and
+# only a TLS-only registry makes that race always end on https.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,7 +16,29 @@ spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      storage: 20Gi
+      storage: ${SHPYRD_REGISTRY_SIZE}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: registry-tls
+spec:
+  secretName: registry-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: shpyrd-ca
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  ipAddresses:
+    - ${SHPYRD_REGISTRY_IP}
+    - 127.0.0.1
+  dnsNames:
+    - registry.${SHPYRD_SYSTEM_NS}.svc
+    - registry.${SHPYRD_SYSTEM_NS}.svc.cluster.local
+    - localhost
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -30,8 +57,20 @@ data:
         enabled: true
       cache:
         blobdescriptor: inmemory
+    auth:
+      htpasswd:
+        realm: shpyrd
+        path: /etc/registry/auth/htpasswd
     http:
       addr: :5000
+      tls:
+        certificate: /etc/registry/tls/tls.crt
+        key: /etc/registry/tls/tls.key
+      debug:
+        addr: :5001
+        prometheus:
+          enabled: true
+          path: /metrics
       headers:
         X-Content-Type-Options: [nosniff]
     health:
@@ -69,23 +108,31 @@ spec:
           image: docker.io/library/registry:3
           args: ["serve", "/etc/distribution/config.yml"]
           ports:
-            - name: http
+            - name: https
               containerPort: 5000
+            - name: debug
+              containerPort: 5001
           volumeMounts:
             - name: data
               mountPath: /var/lib/registry
             - name: config
               mountPath: /etc/distribution
               readOnly: true
+            - name: tls
+              mountPath: /etc/registry/tls
+              readOnly: true
+            - name: auth
+              mountPath: /etc/registry/auth
+              readOnly: true
           readinessProbe:
             httpGet:
-              path: /v2/
-              port: http
+              path: /debug/health
+              port: debug
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /v2/
-              port: http
+              path: /debug/health
+              port: debug
             periodSeconds: 20
           resources:
             requests:
@@ -102,6 +149,12 @@ spec:
         - name: config
           configMap:
             name: registry-config
+        - name: tls
+          secret:
+            secretName: registry-tls
+        - name: auth
+          secret:
+            secretName: registry-htpasswd
 ---
 apiVersion: v1
 kind: Service
@@ -115,7 +168,10 @@ spec:
   selector:
     app.kubernetes.io/name: registry
   ports:
-    - name: http
+    - name: https
       port: 5000
-      targetPort: http
+      targetPort: https
       nodePort: 30050
+    - name: debug
+      port: 5001
+      targetPort: debug

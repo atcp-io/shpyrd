@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -164,22 +165,39 @@ func adminTokenHook(ctx context.Context, e *Engine, c *Component) error {
 // TLS Secret in the component namespace, where a cert-manager ClusterIssuer
 // of type CA picks it up.
 func localCAHook(ctx context.Context, e *Engine, c *Component) error {
-	dir := e.opts.CADir
-	if dir == "" {
+	// A CA the cluster already has is never replaced: certificates issued
+	// from it are trusted by nodes, builds and operator machines.
+	if existing, err := e.kube.Kube.CoreV1().Secrets(c.Namespace).Get(ctx, LocalCASecretName, metav1.GetOptions{}); err == nil && len(existing.Data["tls.crt"]) > 0 {
+		e.rep.Step(c.Name, "using the platform CA already in the cluster")
+		return nil
+	}
+	var certPEM, keyPEM []byte
+	if e.vars[VarCASource] == CASourceCluster {
 		var err error
-		dir, err = localca.DefaultDir()
+		certPEM, keyPEM, _, err = localca.Generate("shpyrd platform CA", e.vars[VarCluster])
 		if err != nil {
-			return err
+			return fmt.Errorf("platform CA: %w", err)
 		}
-	}
-	ca, created, err := localca.LoadOrCreate(dir)
-	if err != nil {
-		return fmt.Errorf("local CA: %w", err)
-	}
-	if created {
-		e.rep.Step(c.Name, "generated development root CA at "+ca.CertPath())
+		e.rep.Step(c.Name, "generated the platform CA in the cluster (shpyrd cluster trust installs it on this machine)")
 	} else {
-		e.rep.Step(c.Name, "using development root CA from "+ca.CertPath())
+		dir := e.opts.CADir
+		if dir == "" {
+			var err error
+			dir, err = localca.DefaultDir()
+			if err != nil {
+				return err
+			}
+		}
+		ca, created, err := localca.LoadOrCreate(dir)
+		if err != nil {
+			return fmt.Errorf("local CA: %w", err)
+		}
+		if created {
+			e.rep.Step(c.Name, "generated development root CA at "+ca.CertPath())
+		} else {
+			e.rep.Step(c.Name, "using development root CA from "+ca.CertPath())
+		}
+		certPEM, keyPEM = ca.CertPEM, ca.KeyPEM
 	}
 
 	secret := &unstructured.Unstructured{Object: map[string]interface{}{
@@ -192,9 +210,9 @@ func localCAHook(ctx context.Context, e *Engine, c *Component) error {
 			"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": fieldManager},
 		},
 		"data": map[string]interface{}{
-			"tls.crt": base64.StdEncoding.EncodeToString(ca.CertPEM),
-			"tls.key": base64.StdEncoding.EncodeToString(ca.KeyPEM),
-			"ca.crt":  base64.StdEncoding.EncodeToString(ca.CertPEM),
+			"tls.crt": base64.StdEncoding.EncodeToString(certPEM),
+			"tls.key": base64.StdEncoding.EncodeToString(keyPEM),
+			"ca.crt":  base64.StdEncoding.EncodeToString(certPEM),
 		},
 	}}
 	if err := e.applier.applyOne(ctx, secret, c.Namespace, false); err != nil {
@@ -203,25 +221,51 @@ func localCAHook(ctx context.Context, e *Engine, c *Component) error {
 	return nil
 }
 
-// registryCredentialsHook writes the private registry's credentials as a
-// dockerconfigjson Secret (RegistrySecretName) in the component namespace,
-// where the kpack builder ServiceAccount links it and the App controller
-// mirrors it into project namespaces for builds and image pulls. Without
-// credentials on the command line an existing Secret is kept; a missing
-// one is an error that says how to pass them.
+// registryCredentialsHook writes the registry's credentials as Secret
+// shpyrd-registry (dockerconfigjson) in the system namespace: the controller
+// mirrors it into every project for pushes and pulls. For the in-cluster
+// registry (RFC-0059) it generates one platform credential and the htpasswd
+// file the registry authenticates against; for an external registry it takes
+// --registry-user and --registry-token-file. Existing credentials are kept.
 func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error {
 	secrets := e.kube.Kube.CoreV1().Secrets(c.Namespace)
-	if e.opts.RegistryUser == "" || e.opts.RegistryPassword == "" {
-		if _, err := secrets.Get(ctx, RegistrySecretName, metav1.GetOptions{}); err == nil {
-			e.rep.Step(c.Name, "keeping existing registry credentials")
-			return nil
-		}
-		return fmt.Errorf("the registry %s needs credentials: pass --registry-user and --registry-token-file (or --registry-password-env)", registryHostOf(e.vars[VarRegistryHost]))
-	}
 	host := registryHostOf(e.vars[VarRegistryHost])
-	auth := base64.StdEncoding.EncodeToString([]byte(e.opts.RegistryUser + ":" + e.opts.RegistryPassword))
+	inCluster := e.vars[VarRegistryIP] != ""
+
+	user, password := e.opts.RegistryUser, e.opts.RegistryPassword
+	if existing, err := secrets.Get(ctx, RegistrySecretName, metav1.GetOptions{}); err == nil {
+		if user == "" {
+			if !inCluster {
+				e.rep.Step(c.Name, "keeping existing registry credentials")
+				return nil
+			}
+			// The htpasswd file must match the credential in use; rebuild it
+			// from the stored credential when it is missing (upgrade from
+			// an install without authentication).
+			if _, err := secrets.Get(ctx, RegistryHtpasswdSecretName, metav1.GetOptions{}); err == nil {
+				e.rep.Step(c.Name, "keeping existing registry credentials")
+				return nil
+			}
+			user, password = dockerConfigCredential(existing.Data[".dockerconfigjson"], host)
+			if user == "" {
+				return fmt.Errorf("secret %s/%s holds no credential for %s; delete it and run again", c.Namespace, RegistrySecretName, host)
+			}
+		}
+	} else if user == "" {
+		if !inCluster {
+			return fmt.Errorf("the registry %s needs credentials: pass --registry-user and --registry-token-file", host)
+		}
+		user = "shpyrd"
+		raw := make([]byte, 24)
+		if _, err := rand.Read(raw); err != nil {
+			return err
+		}
+		password = hex.EncodeToString(raw)
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
 	cfg, _ := json.Marshal(map[string]interface{}{"auths": map[string]interface{}{
-		host: map[string]string{"username": e.opts.RegistryUser, "password": e.opts.RegistryPassword, "auth": auth},
+		host: map[string]string{"username": user, "password": password, "auth": auth},
 	}})
 	secret := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "v1",
@@ -237,8 +281,58 @@ func registryCredentialsHook(ctx context.Context, e *Engine, c *Component) error
 	if err := e.applier.applyOne(ctx, secret, c.Namespace, false); err != nil {
 		return fmt.Errorf("secret %s/%s: %w", c.Namespace, RegistrySecretName, err)
 	}
-	e.rep.Step(c.Name, "stored credentials for "+host+" as "+e.opts.RegistryUser)
+	if inCluster {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		htpasswd := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"type":       "Opaque",
+			"metadata": map[string]interface{}{
+				"name":      RegistryHtpasswdSecretName,
+				"namespace": c.Namespace,
+				"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": fieldManager},
+			},
+			"data": map[string]interface{}{"htpasswd": base64.StdEncoding.EncodeToString([]byte(user + ":" + string(hash) + "\n"))},
+		}}
+		if err := e.applier.applyOne(ctx, htpasswd, c.Namespace, false); err != nil {
+			return fmt.Errorf("secret %s/%s: %w", c.Namespace, RegistryHtpasswdSecretName, err)
+		}
+		e.rep.Step(c.Name, "in-cluster registry "+host+": credential "+user+" (Secret "+RegistrySecretName+")")
+		return nil
+	}
+	e.rep.Step(c.Name, "stored credentials for "+host+" as "+user)
 	return nil
+}
+
+// dockerConfigCredential extracts the user and password for host from a
+// dockerconfigjson document.
+func dockerConfigCredential(raw []byte, host string) (user, password string) {
+	var cfg struct {
+		Auths map[string]struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Auth     string `json:"auth"`
+		} `json:"auths"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "", ""
+	}
+	a, ok := cfg.Auths[host]
+	if !ok {
+		return "", ""
+	}
+	if a.Username != "" {
+		return a.Username, a.Password
+	}
+	if dec, err := base64.StdEncoding.DecodeString(a.Auth); err == nil {
+		if u, p, ok := strings.Cut(string(dec), ":"); ok {
+			return u, p
+		}
+	}
+	return "", ""
 }
 
 // registryHostOf returns the host part of SHPYRD_REGISTRY_HOST, which may

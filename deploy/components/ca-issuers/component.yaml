@@ -1,5 +1,5 @@
 name: ca-issuers
-description: ClusterIssuer backed by the shpyrd development root CA (local profile)
+description: ClusterIssuer backed by the platform CA (from ~/.shpyrd/ca locally, generated in the cluster on cloud profiles)
 namespace: cert-manager
 hooks: [local-ca]
 kustomize:

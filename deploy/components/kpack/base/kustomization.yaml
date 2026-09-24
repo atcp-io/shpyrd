@@ -5,3 +5,45 @@ resources:
   # https://github.com/buildpacks-community/kpack/releases/download/v0.18.0/release-0.18.0.yaml
   - release.yaml
   - builder.yaml
+patches:
+  # The registry needs a credential on every profile (RFC-0059): the builder
+  # ServiceAccount carries Secret shpyrd-registry (hook registry-credentials)
+  # for the builder image push and pull.
+  - target:
+      kind: ServiceAccount
+      name: kpack-builder
+    patch: |
+      - op: add
+        path: /secrets
+        value:
+          - name: shpyrd-registry
+      - op: add
+        path: /imagePullSecrets
+        value:
+          - name: shpyrd-registry
+  # The controller assembles the builder and pushes it to the registry, whose
+  # certificate comes from the platform CA: it trusts the cluster's bundle
+  # (trust-manager ConfigMap shpyrd-ca-bundle) through Go's SSL_CERT_FILE.
+  # kpack has no CA setting of its own (kpack issue #207).
+  - target:
+      kind: Deployment
+      name: kpack-controller
+      namespace: kpack
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SSL_CERT_FILE
+          value: /etc/shpyrd/ca/ca-certificates.crt
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: shpyrd-ca
+            mountPath: /etc/shpyrd/ca
+            readOnly: true
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: shpyrd-ca
+            configMap:
+              name: shpyrd-ca-bundle

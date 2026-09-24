@@ -1,9 +1,14 @@
 name: registry
-description: In-cluster OCI registry for built application images and the kpack builder
+description: In-cluster OCI registry for built application images and the kpack builder (TLS from the platform CA, one platform credential)
 namespace: shpyrd-system
 kustomize:
   path: base
 wait:
+  - condition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      name: registry-tls
+      type: Ready
   - deployment: shpyrd-system/registry
   - endpoints: shpyrd-system/registry
 timeout: 5m

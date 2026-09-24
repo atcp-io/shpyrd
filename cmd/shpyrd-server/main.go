@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"shpyrd/internal/controller"
 
 	"shpyrd/pkg/api"
+	"shpyrd/pkg/buildtrust"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/ext/all"
 	"shpyrd/pkg/kube"
@@ -133,6 +133,20 @@ func run(o runOptions, logger *slog.Logger) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return srv.Run(ctx) })
 
+	// Build pods trust the platform CA through this webhook (RFC-0059).
+	if addr := os.Getenv("SHPYRD_WEBHOOK_ADDR"); addr != "" {
+		hook, err := buildtrust.New(buildtrust.Options{
+			Addr:   addr,
+			TLSDir: envOr("SHPYRD_WEBHOOK_TLS_DIR", "/etc/shpyrd/webhook-tls"),
+			Bundle: envOr("SHPYRD_CA_BUNDLE", "shpyrd-ca-bundle"),
+			Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+		g.Go(func() error { return hook.Run(ctx) })
+	}
+
 	if o.controller {
 		mgr, err := newManager(k, o)
 		if err != nil {
@@ -186,6 +200,7 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 			PodCIDR:          os.Getenv("SHPYRD_POD_CIDR"),
 			RegistrySecret:   os.Getenv("SHPYRD_REGISTRY_SECRET"),
 			RegistryInsecure: registryInsecure(os.Getenv("SHPYRD_REGISTRY_INSECURE"), os.Getenv("SHPYRD_REGISTRY_HOST")),
+			CABundle:         envOr("SHPYRD_CA_BUNDLE", "shpyrd-ca-bundle"),
 		},
 	}
 	if err := rec.SetupWithManager(mgr); err != nil {
@@ -219,21 +234,9 @@ func envOr(key, def string) string {
 	return def
 }
 
-// registryInsecure follows SHPYRD_REGISTRY_INSECURE when set; otherwise an
-// IP-addressed registry (the in-cluster one) is plain HTTP and a named
-// host speaks TLS.
+// registryInsecure follows SHPYRD_REGISTRY_INSECURE; every registry,
+// including the in-cluster one (RFC-0059), speaks TLS unless it says so.
 func registryInsecure(flag, host string) bool {
-	switch flag {
-	case "true":
-		return true
-	case "false":
-		return false
-	}
-	if i := strings.IndexByte(host, '/'); i > 0 {
-		host = host[:i]
-	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	return net.ParseIP(host) != nil
+	_ = host
+	return flag == "true"
 }

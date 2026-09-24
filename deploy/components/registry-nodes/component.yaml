@@ -1,0 +1,8 @@
+name: registry-nodes
+description: Makes every node's container runtime trust the in-cluster registry's certificate (containerd and CRI-O)
+namespace: shpyrd-system
+kustomize:
+  path: base
+wait:
+  - daemonSet: shpyrd-system/registry-nodes
+timeout: 5m

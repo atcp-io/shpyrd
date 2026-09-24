@@ -1,0 +1,124 @@
+# Node pulls come from the kubelet's container runtime, which trusts only
+# the system roots: this DaemonSet writes the platform CA where the runtime
+# reads per-registry trust (containerd: /etc/containerd/certs.d/<host>/
+# with a hosts.toml, read on the fly when config_path is set, as kind, OKE,
+# EKS and GKE images do; CRI-O: /etc/containers/certs.d/<host>/ca.crt, read
+# at pull time). The init container does the work; a pause container holds
+# the pod so the DaemonSet reports readiness and new nodes get it before any
+# project pod is scheduled (system-node-critical).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-nodes
+data:
+  trust.sh: |
+    #!/bin/sh
+    set -eu
+    host="$REGISTRY_HOST"
+    ca=/ca/ca.crt
+    written=0
+    if [ -f /host/etc/containerd/config.toml ]; then
+      d="/host/etc/containerd/certs.d/$host"
+      mkdir -p "$d"
+      cp "$ca" "$d/ca.crt"
+      cat > "$d/hosts.toml" <<EOT
+    server = "https://$host"
+
+    [host."https://$host"]
+      capabilities = ["pull", "resolve", "push"]
+      ca = "/etc/containerd/certs.d/$host/ca.crt"
+    EOT
+      echo "containerd: $host trusts the platform CA"
+      written=1
+    fi
+    if [ -f /host/etc/containers/registries.conf ] || [ -f /host/etc/containers/policy.json ] || [ -d /host/etc/containers/registries.conf.d ]; then
+      d="/host/etc/containers/certs.d/$host"
+      mkdir -p "$d"
+      cp "$ca" "$d/ca.crt"
+      rm -f /host/etc/containers/registries.conf.d/shpyrd-registry.conf
+      echo "cri-o: $host trusts the platform CA"
+      written=1
+    fi
+    if [ "$written" = 0 ]; then
+      echo "no containerd (/etc/containerd/config.toml) or CRI-O (/etc/containers) configuration on this node" >&2
+      exit 1
+    fi
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-nodes
+  labels:
+    app.kubernetes.io/name: registry-nodes
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: registry-nodes
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: registry-nodes
+    spec:
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: trust
+          image: docker.io/library/busybox:1.37.0
+          command: ["sh", "/scripts/trust.sh"]
+          env:
+            - name: REGISTRY_HOST
+              value: ${SHPYRD_REGISTRY_HOST}
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              # Root-owned runtime directories are not always traversable
+              # without them (kind ships /etc/containerd as 0644).
+              add: [DAC_OVERRIDE, DAC_READ_SEARCH]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: ca
+              mountPath: /ca
+              readOnly: true
+            - name: containerd
+              mountPath: /host/etc/containerd
+            - name: containers
+              mountPath: /host/etc/containers
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65535
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: scripts
+          configMap:
+            name: registry-nodes
+            defaultMode: 0555
+        - name: ca
+          secret:
+            secretName: registry-tls
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: containerd
+          hostPath:
+            path: /etc/containerd
+        - name: containers
+          hostPath:
+            path: /etc/containers

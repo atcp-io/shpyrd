@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/buildtrust"
 )
 
 // Dockerfile builds run as Kubernetes Jobs: an init container fetches the
@@ -306,7 +307,8 @@ func (c Config) desiredBuildJob(app *shpyrdv1.App, n int, key string) *batchv1.J
 		contextDir += sub
 	}
 	repo := c.imageTag(app)
-	// The in-cluster registry speaks plain HTTP; a real registry does not.
+	// Only an external registry without TLS is pushed to over plain HTTP;
+	// the in-cluster registry's certificate is trusted through the bundle.
 	insecure := ""
 	if c.RegistryInsecure {
 		insecure = ",registry.insecure=true"
@@ -370,26 +372,26 @@ echo "pushed $IMAGE_REPO@$digest"`
 						Image:   c.BuildKitImage,
 						Command: []string{"sh", "-ec", buildScript, "buildctl"},
 						Args:    args,
-						Env: append([]corev1.EnvVar{
+						Env: append(append([]corev1.EnvVar{
 							{Name: "BUILDKITD_FLAGS", Value: "--oci-worker-no-process-sandbox"},
 							{Name: "IMAGE_REPO", Value: repo},
-						}, c.buildKitAuthEnv()...),
+						}, c.buildKitAuthEnv()...), c.trustEnv()...),
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("250m"),
 							corev1.ResourceMemory: resource.MustParse("512Mi"),
 						}},
 						SecurityContext: unconfined,
-						VolumeMounts: append([]corev1.VolumeMount{
+						VolumeMounts: append(append([]corev1.VolumeMount{
 							{Name: "workspace", MountPath: workspaceDir},
 							{Name: "buildkit", MountPath: "/home/user/.local/share/buildkit"},
-						}, c.buildKitAuthMounts()...),
+						}, c.buildKitAuthMounts()...), c.trustMounts()...),
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 					}},
 					ImagePullSecrets: c.imagePullSecrets(),
-					Volumes: append([]corev1.Volume{
+					Volumes: append(append([]corev1.Volume{
 						{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "buildkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-					}, c.buildKitAuthVolumes()...),
+					}, c.buildKitAuthVolumes()...), c.trustVolumes()...),
 				},
 			},
 		},
@@ -454,6 +456,32 @@ func (c Config) buildKitAuthMounts() []corev1.VolumeMount {
 		return nil
 	}
 	return []corev1.VolumeMount{{Name: "registry-auth", MountPath: dockerConfigDir, ReadOnly: true}}
+}
+
+// The trust bundle for BuildKit (RFC-0059): buildkitd and buildctl are Go
+// programs, so SSL_CERT_FILE makes them trust the in-cluster registry's
+// certificate along with the public roots the bundle carries.
+func (c Config) trustEnv() []corev1.EnvVar {
+	if c.CABundle == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: buildtrust.EnvVar, Value: buildtrust.MountPath + "/" + buildtrust.BundleKey}}
+}
+
+func (c Config) trustMounts() []corev1.VolumeMount {
+	if c.CABundle == "" {
+		return nil
+	}
+	return []corev1.VolumeMount{{Name: buildtrust.VolumeName, MountPath: buildtrust.MountPath, ReadOnly: true}}
+}
+
+func (c Config) trustVolumes() []corev1.Volume {
+	if c.CABundle == "" {
+		return nil
+	}
+	return []corev1.Volume{{Name: buildtrust.VolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+		LocalObjectReference: corev1.LocalObjectReference{Name: c.CABundle},
+	}}}}
 }
 
 func (c Config) buildKitAuthVolumes() []corev1.Volume {

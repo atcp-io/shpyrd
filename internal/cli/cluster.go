@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -51,8 +53,10 @@ type initFlags struct {
 	frontDoor string // auto, kind or caddy
 	localDNS  bool
 	caddy     *localnet.Caddy
-	// Private registry credentials (cloud profiles): written to a Secret by
-	// the registry-credentials hook, never to the install record.
+	// An external registry instead of the in-cluster one (RFC-0059); its
+	// credentials are written to a Secret by the registry-credentials hook,
+	// never to the install record.
+	registryHost      string
 	registryUser      string
 	registryTokenFile string
 }
@@ -62,8 +66,9 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.domain, "domain", defaultDomain, "wildcard domain for projects and the dashboard (shpyrd.test with --local-dns)")
 	cmd.Flags().StringVar(&f.frontDoor, "front-door", frontDoorAuto, "who serves 443: kind (host ports), caddy (an existing Caddy proxies to kind), or auto (detect and ask)")
 	cmd.Flags().BoolVar(&f.localDNS, "local-dns", false, "make *.<domain> resolve to this machine with dnsmasq and /etc/resolver (macOS)")
-	cmd.Flags().StringVar(&f.registryUser, "registry-user", "", "private registry user for builds and pulls (cloud profiles), e.g. <tenancy-namespace>/<user> for OCIR")
-	cmd.Flags().StringVar(&f.registryTokenFile, "registry-token-file", "", "file holding the registry password or auth token (cloud profiles)")
+	cmd.Flags().StringVar(&f.registryHost, "registry-host", "", "use this registry instead of the in-cluster one, e.g. gru.ocir.io/<tenancy-namespace> (with --registry-user and --registry-token-file)")
+	cmd.Flags().StringVar(&f.registryUser, "registry-user", "", "user of the external registry, e.g. <tenancy-namespace>/<user> for OCIR")
+	cmd.Flags().StringVar(&f.registryTokenFile, "registry-token-file", "", "file holding the external registry's password or auth token")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
@@ -87,6 +92,12 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 		vars[install.VarFrontDoor] = f.frontDoor
 	}
 	vars[install.VarLocalDNS] = strconv.FormatBool(f.localDNS)
+	if f.registryHost != "" {
+		// External registry: no in-cluster address, TLS from a public CA.
+		vars[install.VarRegistryHost] = f.registryHost
+		vars[install.VarRegistryIP] = ""
+		vars[install.VarRegistryInsecure] = "false"
+	}
 	for _, kv := range f.set {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok || !strings.HasPrefix(k, "SHPYRD_") {
@@ -107,7 +118,7 @@ func newClusterCmd(g *globalFlags) *cobra.Command {
 		newClusterInitCmd(g),
 		newClusterStatusCmd(g),
 		newClusterDestroyCmd(g),
-		newClusterTrustCACmd(),
+		newClusterTrustCACmd(g),
 		newClusterExportCmd(),
 		newClusterTokenCmd(g),
 		newClusterDashboardCmd(g),
@@ -485,6 +496,9 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if (flags.registryUser == "") != (registryPassword == "") {
 		return errors.New("--registry-user and --registry-token-file go together")
 	}
+	if flags.registryHost != "" && flags.registryUser == "" && len(flags.only) == 0 {
+		return errors.New("--registry-host needs --registry-user and --registry-token-file")
+	}
 
 	k, err := kube.Connect(kopts)
 	if err != nil {
@@ -500,10 +514,15 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if err != nil {
 		return err
 	}
+	skip := flags.skip
+	if vars[install.VarRegistryIP] == "" && flags.registryHost != "" || recordedExternalRegistry(ctx, k, flags) {
+		// An external registry replaces the in-cluster one and its node trust.
+		skip = append(append([]string{}, skip...), "registry", "registry-nodes")
+	}
 	opts := install.Options{
 		Profile:          flags.profile,
 		Vars:             vars,
-		Skip:             flags.skip,
+		Skip:             skip,
 		Only:             flags.only,
 		Version:          Version,
 		Extensions:       extComps,
@@ -559,19 +578,20 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	fmt.Fprintf(out, "\nshpyrd is ready.\n\n")
 	fmt.Fprintf(out, "  Dashboard:  %s\n", base("shpyrd"))
 	fmt.Fprintf(out, "  Grafana:    %s\n", base("grafana"))
-	if cloud {
+	if eng.Vars()[install.VarRegistryIP] != "" {
+		fmt.Fprintf(out, "  Registry:   in-cluster at %s (TLS from the platform CA, credential in Secret %s)\n", eng.Vars()[install.VarRegistryHost], install.RegistrySecretName)
+	} else {
 		fmt.Fprintf(out, "  Registry:   %s (credentials in Secret %s)\n", eng.Vars()[install.VarRegistryHost], install.RegistrySecretName)
+	}
+	if cloud {
 		if lbAddress == "" {
 			lbAddress, _ = loadBalancerAddress(ctx, k)
 		}
 		if lbAddress != "" {
 			fmt.Fprintf(out, "  Load balancer: %s (DNS: *.%s -> %s)\n", lbAddress, eng.Vars()[install.VarDomain], lbAddress)
 		}
-	} else {
-		fmt.Fprintf(out, "  Registry:   %s (host: localhost:30050)\n", eng.Vars()[install.VarRegistryHost])
-		if caDir, err := localca.DefaultDir(); err == nil && flags.frontDoor != install.FrontDoorCaddy {
-			fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
-		}
+	} else if caDir, err := localca.DefaultDir(); err == nil && flags.frontDoor != install.FrontDoorCaddy {
+		fmt.Fprintf(out, "  Root CA:    %s/rootCA.pem\n", caDir)
 	}
 	printLocalSummary(out, eng.Vars())
 	return nil
@@ -727,7 +747,50 @@ func seedFromRecord(ctx context.Context, cmd *cobra.Command, kopts kube.Options,
 	if !f.Changed("local-dns") {
 		flags.localDNS = info.Vars[install.VarLocalDNS] == "true"
 	}
+	// Variables the operator set explicitly (--set, --registry-host) are
+	// kept across runs; profile defaults stay live for everything else.
+	for k, v := range info.Overrides {
+		if k == install.VarRegistryHost && f.Changed("registry-host") {
+			continue
+		}
+		if !hasSet(flags.set, k) {
+			flags.set = append(flags.set, k+"="+v)
+		}
+	}
 	return nil
+}
+
+// hasSet says --set already names the variable.
+func hasSet(set []string, key string) bool {
+	for _, kv := range set {
+		if strings.HasPrefix(kv, key+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// recordedExternalRegistry says the cluster was installed with an external
+// registry (no in-cluster address recorded), so the registry components
+// stay out on later runs too.
+func recordedExternalRegistry(ctx context.Context, k *kube.Client, flags *initFlags) bool {
+	if flags.registryHost != "" {
+		return true
+	}
+	if hasSet(flags.set, install.VarRegistryIP) {
+		for _, kv := range flags.set {
+			if kv == install.VarRegistryIP+"=" {
+				return true
+			}
+		}
+		return false
+	}
+	info, err := install.ReadInstallInfo(ctx, k, "")
+	if err != nil || info == nil {
+		return false
+	}
+	_, recorded := info.Vars[install.VarRegistryIP]
+	return recorded && info.Vars[install.VarRegistryIP] == ""
 }
 
 func newClusterStatusCmd(g *globalFlags) *cobra.Command {
@@ -830,13 +893,26 @@ func newClusterDestroyCmd(g *globalFlags) *cobra.Command {
 	return cmd
 }
 
-func newClusterTrustCACmd() *cobra.Command {
+func newClusterTrustCACmd(g *globalFlags) *cobra.Command {
 	var dir string
 	cmd := &cobra.Command{
-		Use:   "trust-ca",
-		Short: "Install the development root CA in the operating system trust store",
+		Use:     "trust-ca",
+		Aliases: []string{"trust"},
+		Short:   "Install the platform CA in the operating system trust store",
+		Long: `Installs the platform CA in the operating system trust store, so the
+dashboard and applications of a local cluster, and the in-cluster registry
+of any cluster, are trusted on this machine.
+
+Local clusters share the development CA in ~/.shpyrd/ca. A cloud cluster
+generated its own CA at install; with --context (or the current context)
+pointing at it, that CA is fetched from the cluster and installed.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			ctx := signalContext()
+			if ca, name, ok := clusterCA(ctx, kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx}); ok {
+				fmt.Fprintf(out, "Installing the platform CA of cluster %s (%s) into the system trust store (administrator rights required)...\n", name, ca.Cert.Subject.CommonName)
+				return trustCA(out, ca)
+			}
 			if dir == "" {
 				var err error
 				dir, err = localca.DefaultDir()
@@ -852,22 +928,65 @@ func newClusterTrustCACmd() *cobra.Command {
 				fmt.Fprintf(out, "Generated development root CA at %s\n", ca.CertPath())
 			}
 			fmt.Fprintf(out, "Installing %s into the system trust store (administrator rights required)...\n", ca.CertPath())
-			res, err := ca.Trust()
-			if err != nil {
-				fmt.Fprintln(out, res.Instructions)
-				return err
-			}
-			if res.Installed {
-				fmt.Fprintln(out, "Development CA trusted.")
-			}
-			if res.Instructions != "" {
-				fmt.Fprintln(out, res.Instructions)
-			}
-			return nil
+			return trustCA(out, ca)
 		},
 	}
 	cmd.Flags().StringVar(&dir, "ca-dir", "", "directory of the development CA (default ~/.shpyrd/ca)")
 	return cmd
+}
+
+func trustCA(out io.Writer, ca *localca.CA) error {
+	res, err := ca.Trust()
+	if err != nil {
+		fmt.Fprintln(out, res.Instructions)
+		return err
+	}
+	if res.Installed {
+		fmt.Fprintln(out, "Platform CA trusted.")
+	}
+	if res.Instructions != "" {
+		fmt.Fprintln(out, res.Instructions)
+	}
+	return nil
+}
+
+// clusterCA fetches the platform CA of a cluster whose CA was generated in
+// the cluster (SHPYRD_CA_SOURCE=cluster) into ~/.shpyrd/clusters/<name>/,
+// where Trust can read it. ok is false for local clusters and when the
+// cluster cannot be reached.
+func clusterCA(ctx context.Context, kopts kube.Options) (*localca.CA, string, bool) {
+	k, err := kube.Connect(kopts)
+	if err != nil {
+		return nil, "", false
+	}
+	info, err := install.ReadInstallInfo(ctx, k, "")
+	if err != nil || info == nil || info.Vars[install.VarCASource] != install.CASourceCluster {
+		return nil, "", false
+	}
+	sec, err := k.Kube.CoreV1().Secrets("cert-manager").Get(ctx, install.LocalCASecretName, metav1.GetOptions{})
+	if err != nil || len(sec.Data["tls.crt"]) == 0 {
+		return nil, "", false
+	}
+	name := info.Vars[install.VarCluster]
+	if name == "" {
+		name = "cluster"
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, "", false
+	}
+	dir := filepath.Join(home, ".shpyrd", "clusters", name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, "", false
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rootCA.pem"), sec.Data["tls.crt"], 0o644); err != nil {
+		return nil, "", false
+	}
+	ca, err := localca.LoadCert(dir)
+	if err != nil {
+		return nil, "", false
+	}
+	return ca, name, true
 }
 
 func newClusterExportCmd() *cobra.Command {

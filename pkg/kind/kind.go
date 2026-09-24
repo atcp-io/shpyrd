@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"sigs.k8s.io/kind/pkg/cluster"
-	"sigs.k8s.io/kind/pkg/cluster/nodes"
 	kindcmd "sigs.k8s.io/kind/pkg/cmd"
 	"sigs.k8s.io/kind/pkg/log"
 )
@@ -29,8 +28,8 @@ type Config struct {
 	HTTPPort  int
 	HTTPSPort int
 	// RegistryHost is how workloads and nodes address the in-cluster
-	// registry (host:port, plain HTTP). Nodes get a containerd hosts.toml
-	// for it so image pulls use HTTP.
+	// registry (host:port). Node trust for its certificate is written by
+	// the registry-nodes component once the cluster runs (RFC-0059).
 	RegistryHost string
 	// RegistryNodePort is mapped to the same host port so the machine
 	// running kind can push to localhost:RegistryNodePort.
@@ -205,11 +204,6 @@ func (p *Provider) Create(c Config) error {
 	if err := p.p.Create(c.Name, opts...); err != nil {
 		return fmt.Errorf("kind create: %w", err)
 	}
-	if c.RegistryHost != "" {
-		if err := p.ConfigureRegistryMirror(c.Name, c.RegistryHost); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -217,43 +211,6 @@ func (p *Provider) Create(c Config) error {
 func (p *Provider) Delete(name, kubeconfigPath string) error {
 	if err := p.p.Delete(name, kubeconfigPath); err != nil {
 		return fmt.Errorf("kind delete: %w", err)
-	}
-	return nil
-}
-
-// ConfigureRegistryMirror writes a containerd hosts.toml on every node so
-// that pulls of <registryHost>/... use plain HTTP. Nodes reach the registry
-// ClusterIP directly through kube-proxy. kind node images set
-// config_path = /etc/containerd/certs.d, so no containerd restart is needed.
-func (p *Provider) ConfigureRegistryMirror(name, registryHost string) error {
-	nodeList, err := p.p.ListInternalNodes(name)
-	if err != nil {
-		return fmt.Errorf("list nodes: %w", err)
-	}
-	hostsToml := fmt.Sprintf(`server = "http://%s"
-
-[host."http://%s"]
-  capabilities = ["pull", "resolve", "push"]
-  skip_verify = true
-`, registryHost, registryHost)
-	dir := "/etc/containerd/certs.d/" + registryHost
-	for _, n := range nodeList {
-		if err := writeFile(n, dir+"/hosts.toml", hostsToml); err != nil {
-			return fmt.Errorf("node %s: %w", n.String(), err)
-		}
-	}
-	return nil
-}
-
-func writeFile(n nodes.Node, path, content string) error {
-	dir := path[:strings.LastIndex(path, "/")]
-	if err := n.Command("mkdir", "-p", dir).Run(); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-	cmd := n.Command("cp", "/dev/stdin", path)
-	cmd.SetStdin(strings.NewReader(content))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }

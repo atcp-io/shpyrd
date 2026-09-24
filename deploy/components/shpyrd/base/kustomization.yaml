@@ -15,4 +15,5 @@ resources:
   - rbac.yaml
   - storage.yaml
   - server.yaml
+  - webhook.yaml
   - ingress.yaml

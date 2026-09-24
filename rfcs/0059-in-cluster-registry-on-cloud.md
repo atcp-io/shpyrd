@@ -1,8 +1,8 @@
 # RFC-0059 In-cluster registry as the default on every profile
 
-**Status:** provisional
+**Status:** in progress
 
-**Owner:** unassigned
+**Owner:** Patrick Negri (main)
 
 **Depends on:** RFC-0035 (cloud profiles), RFC-0060 (storage classes per profile)
 

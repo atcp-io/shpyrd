@@ -50,8 +50,14 @@ type Config struct {
 	// (the in-cluster registry). It is mirrored into every project
 	// namespace: builds push with it, instances pull with it.
 	RegistrySecret string
-	// RegistryInsecure says the registry speaks plain HTTP (in-cluster).
+	// RegistryInsecure says the registry speaks plain HTTP (an external
+	// registry without TLS; the in-cluster registry serves TLS from the
+	// platform CA since RFC-0059).
 	RegistryInsecure bool
+	// CABundle names the trust bundle ConfigMap trust-manager puts in every
+	// namespace (public roots plus the platform CA); builds mount it so
+	// they trust the in-cluster registry. "" mounts nothing.
+	CABundle string
 }
 
 // BuildServiceAccount is the ServiceAccount builds run as in a project

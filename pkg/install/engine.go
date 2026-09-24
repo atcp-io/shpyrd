@@ -550,10 +550,12 @@ func (e *Engine) record(ctx context.Context, c *Component) error {
 
 func (e *Engine) recordProfile(ctx context.Context) error {
 	vars, _ := yaml.Marshal(e.vars)
+	overrides, _ := yaml.Marshal(e.overrides())
 	cm := e.recordObject(map[string]interface{}{
 		"profile":   e.profile.Name,
 		"version":   e.opts.Version,
 		"vars":      string(vars),
+		"overrides": string(overrides),
 		"updatedAt": time.Now().UTC().Format(time.RFC3339),
 	})
 	return e.applier.applyOneAs(ctx, cm, e.SystemNamespace(), false, fieldManager+"-record-profile")
@@ -604,10 +606,31 @@ func ReadRecords(ctx context.Context, k *kube.Client, systemNS string) (map[stri
 
 // InstallInfo is the profile level part of the install record.
 type InstallInfo struct {
-	Profile   string
-	Version   string
-	Vars      map[string]string
+	Profile string
+	Version string
+	Vars    map[string]string
+	// Overrides are the variables the operator set explicitly (--set and
+	// the flags that map to variables); `cluster init` carries them over
+	// so a re-run does not need every flag again.
+	Overrides map[string]string
 	UpdatedAt string
+}
+
+// overrides are the explicitly given variables worth carrying over: the
+// ones that differ from what the profile would derive on its own.
+func (e *Engine) overrides() map[string]string {
+	out := map[string]string{}
+	for k, v := range e.opts.Vars {
+		switch k {
+		case VarDomain, VarCluster, VarHTTPPort, VarHTTPSPort, VarFrontDoor, VarLocalDNS:
+			continue // seeded from their own flags
+		}
+		if e.profile.Vars[k] == v {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // ReadInstallInfo reads the profile level record, or an error when the
@@ -622,6 +645,7 @@ func ReadInstallInfo(ctx context.Context, k *kube.Client, systemNS string) (*Ins
 	}
 	info := &InstallInfo{Profile: cm.Data["profile"], Version: cm.Data["version"], UpdatedAt: cm.Data["updatedAt"]}
 	_ = yaml.Unmarshal([]byte(cm.Data["vars"]), &info.Vars)
+	_ = yaml.Unmarshal([]byte(cm.Data["overrides"]), &info.Overrides)
 	return info, nil
 }
 

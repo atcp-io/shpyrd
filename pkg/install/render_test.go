@@ -15,35 +15,82 @@ func TestLocalProfileRenders(t *testing.T) {
 }
 
 // The cloud profile renders with every variable defined and URLs without a
-// port (a load balancer listens on 443).
+// port (a load balancer listens on 443). Since RFC-0059 it runs the same
+// in-cluster registry as the local profile, with the platform CA generated
+// in the cluster.
 func TestOCIProfileRenders(t *testing.T) {
-	eng := testProfileRenders(t, "oci", map[string]string{VarDomain: "oci.example.com", VarACMEEmail: "ops@example.com", VarRegistryHost: "gru.ocir.io/ns"}, "https://auth.oci.example.com")
-	if eng.vars[VarClusterIssuer] != "letsencrypt" || eng.vars[VarURLPort] != "443" || eng.vars[VarRegistrySecret] != RegistrySecretName {
-		t.Errorf("oci vars: issuer=%s urlport=%s registrysecret=%s", eng.vars[VarClusterIssuer], eng.vars[VarURLPort], eng.vars[VarRegistrySecret])
+	eng := testProfileRenders(t, "oci", map[string]string{VarDomain: "oci.example.com", VarACMEEmail: "ops@example.com"}, "https://auth.oci.example.com")
+	if eng.vars[VarClusterIssuer] != "letsencrypt" || eng.vars[VarURLPort] != "443" || eng.vars[VarRegistrySecret] != RegistrySecretName || eng.vars[VarCASource] != CASourceCluster {
+		t.Errorf("oci vars: issuer=%s urlport=%s registrysecret=%s ca=%s", eng.vars[VarClusterIssuer], eng.vars[VarURLPort], eng.vars[VarRegistrySecret], eng.vars[VarCASource])
 	}
-	for _, absent := range []string{"registry", "ca-issuers", "trust-manager"} {
-		if eng.components[absent] != nil {
-			t.Errorf("oci profile must not install %s", absent)
-		}
-	}
-	for _, present := range []string{"letsencrypt-issuers", "registry-credentials", "ingress-nginx", "kpack", "shpyrd"} {
+	for _, present := range []string{"letsencrypt-issuers", "ca-issuers", "trust-manager", "registry-credentials", "registry", "registry-nodes", "ingress-nginx", "kpack", "shpyrd"} {
 		if eng.components[present] == nil {
 			t.Errorf("oci profile must install %s", present)
 		}
 	}
-	// The kpack overlay links the registry Secret to the builder ServiceAccount.
-	objs, err := eng.renderComponent(eng.components["kpack"])
+}
+
+// Every profile links the registry credential to the builder ServiceAccount
+// and gives the kpack controller the trust bundle (RFC-0059).
+func TestKpackRendersRegistryTrust(t *testing.T) {
+	for _, profile := range []string{"local", "oci"} {
+		eng, err := New(nil, Options{Profile: profile, Vars: map[string]string{VarDomain: "example.test"}, Reporter: &quiet{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		objs, err := eng.renderComponent(eng.components["kpack"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sa, controller bool
+		for _, o := range objs {
+			y := mustYAML(t, o)
+			if o.GetKind() == "ServiceAccount" && o.GetName() == "kpack-builder" {
+				sa = strings.Contains(y, RegistrySecretName)
+			}
+			if o.GetKind() == "Deployment" && o.GetName() == "kpack-controller" {
+				controller = strings.Contains(y, "SSL_CERT_FILE") && strings.Contains(y, CABundleName)
+			}
+		}
+		if !sa || !controller {
+			t.Errorf("%s: kpack-builder secret=%v controller trust=%v", profile, sa, controller)
+		}
+	}
+}
+
+// The registry serves TLS from the platform CA with the ClusterIP as a SAN
+// and authenticates against the generated htpasswd; nodes get the CA from
+// the registry-nodes DaemonSet.
+func TestRegistryRendersTLS(t *testing.T) {
+	eng, err := New(nil, Options{Profile: "local", Vars: map[string]string{VarDomain: "example.test"}, Reporter: &quiet{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	objs, err := eng.renderComponent(eng.components["registry"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cert, config bool
 	for _, o := range objs {
-		if o.GetKind() == "ServiceAccount" && o.GetName() == "kpack-builder" {
-			found = strings.Contains(mustYAML(t, o), RegistrySecretName)
+		y := mustYAML(t, o)
+		switch {
+		case o.GetKind() == "Certificate":
+			cert = strings.Contains(y, "10.96.0.50") && strings.Contains(y, "shpyrd-ca")
+		case o.GetKind() == "ConfigMap":
+			config = strings.Contains(y, "tls:") && strings.Contains(y, "htpasswd") && !strings.Contains(y, "http: true")
 		}
 	}
-	if !found {
-		t.Error("kpack-builder ServiceAccount must reference the registry Secret on the oci profile")
+	if !cert || !config {
+		t.Errorf("registry: certificate=%v tls+auth config=%v", cert, config)
+	}
+	objs, err = eng.renderComponent(eng.components["registry-nodes"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objs {
+		if o.GetKind() == "DaemonSet" && !strings.Contains(mustYAML(t, o), "10.96.0.50:5000") {
+			t.Error("registry-nodes must carry the registry host")
+		}
 	}
 }
 

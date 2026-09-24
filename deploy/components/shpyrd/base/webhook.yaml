@@ -1,0 +1,57 @@
+# Admission webhook for kpack build pods (RFC-0059): every step of a build
+# talks to the registry and kpack cannot be told about a private CA, so
+# shpyrd-server mounts the cluster's trust bundle into each container of a
+# build pod and sets SSL_CERT_FILE (all steps are Go binaries). Scoped to
+# pods labelled kpack.io/build in project namespaces; a failure blocks only
+# those pods, which kpack retries.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: shpyrd-webhook-tls
+spec:
+  secretName: shpyrd-webhook-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: shpyrd-ca
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - shpyrd-server.${SHPYRD_SYSTEM_NS}.svc
+    - shpyrd-server.${SHPYRD_SYSTEM_NS}.svc.cluster.local
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: shpyrd-build-pods
+  annotations:
+    cert-manager.io/inject-ca-from: ${SHPYRD_SYSTEM_NS}/shpyrd-webhook-tls
+webhooks:
+  - name: build-pods.shpyrd.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    matchPolicy: Equivalent
+    clientConfig:
+      service:
+        name: shpyrd-server
+        namespace: ${SHPYRD_SYSTEM_NS}
+        port: 9443
+        path: /webhooks/build-pod
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+        scope: Namespaced
+    objectSelector:
+      matchExpressions:
+        - key: kpack.io/build
+          operator: Exists
+    namespaceSelector:
+      matchExpressions:
+        - key: shpyrd.io/project
+          operator: Exists
