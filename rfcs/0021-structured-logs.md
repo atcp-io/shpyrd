@@ -1,6 +1,6 @@
 # RFC-0021 Structured logs in the viewer and the CLI
 
-**Status:** in progress
+**Status:** implemented
 
 **Owner:** Marcelo Paez Sequeira (shpyrd-io/shpyrd rfc-0021-structured-logs)
 
@@ -51,3 +51,28 @@ read and the viewer's level highlighting misses it.
 
 - 2026-09-22: RFC written.
 - 2026-09-25: implementation started.
+- 2026-09-25: implemented.
+  - `pkg/logfmt`: `Parse` reads one line into a level, a message, a timestamp and the
+    remaining fields; `Entry.Pretty` renders "LEVEL message key=value...". A line counts as
+    structured only when the whole line is a JSON object, so an array, a scalar, a
+    truncated object or trailing content stays plain text.
+  - `ui/src/lib/logs.ts`: the same contract in the browser, plus `atLeast` for the level
+    filter and `lineMatches` for filtering over fields. The plain-line level guess moved
+    here out of `log-view.tsx`, so structured and plain lines share one definition.
+  - Both parsers consume every spelling of a well-known key (a line writing `msg` and
+    `message` shows neither as a field) and keep the remaining fields in the order the line
+    wrote them, with the error field first; nested values render as compact JSON.
+  - Viewer: a JSON line reads as its level and message with the fields behind a chevron;
+    the level select picks a floor ("All levels" through "Errors only") and applies to plain
+    lines too; Raw shows each line as the application wrote it. The text filter matches
+    field keys and values. Each line is parsed once and kept against the line object in a
+    WeakMap, because the stream re-renders on every 100 ms batch.
+  - CLI: `shpyrd logs` renders JSON lines when stdout is a terminal, `--pretty` and `--json`
+    force either and refuse to be combined. The time and instance columns stay the
+    container's, so a line's own time field is not printed twice.
+  - Tests: vitest joins the dashboard (`npm run test`, run by `make test` and the Dashboard
+    CI job) with 36 tests, including react-dom/server smoke tests of the viewer that need no
+    DOM; `pkg/logfmt` and the CLI helpers carry 18 Go tests over the same case table, so the
+    two parsers cannot drift.
+  - Not built, and not promised by this RFC: a `--level` filter for the CLI, and `key=value`
+    queries in the filter box (it matches field keys and values as substrings).

@@ -93,7 +93,7 @@ shpyrd deploy --git https://github.com/org/repo --dockerfile             # ...or
 shpyrd secrets set DATABASE_URL=postgres://...   # config vars -> new release, rolling restart (values are never shown again)
 shpyrd scale web=2 worker=1         # process types come from the buildpack (Procfile / launch.toml)
 shpyrd resize web=shared-l          # sizes: shpyrd sizes list (shared = burstable CPU, dedicated = guaranteed)
-shpyrd logs -f --process web
+shpyrd logs -f --process web        # JSON lines render readably on a terminal; --json passes them through
 shpyrd shell --instance web.2       # bash in a running instance, with the buildpack environment
 shpyrd run rails db:migrate         # one-off instance of the current release; exit code passes through
 shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its config vars
@@ -180,11 +180,12 @@ config vars and destroy apps. Per app it shows: metrics modelled on Heroku/Fly
 memory as a percentage of each process' allocation, network, with release
 markers), a live build log while building, the
 build history, logs from every instance (`web.1`, `worker.2`...) with level
-highlighting, filtering and live tail, and the config var names. Config var
-values are write-only: they can be added, replaced or removed but never read
-back, in the UI or the CLI. The cluster page shows capacity: CPU and memory used
-versus reserved by instance requests, per node and in total, plus the installed
-components and the available extensions.
+highlighting, filtering and live tail (JSON lines read as their level and
+message, with the rest of the fields one click away), and the config var names.
+Config var values are write-only: they can be added, replaced or removed but
+never read back, in the UI or the CLI. The cluster page shows capacity: CPU and
+memory used versus reserved by instance requests, per node and in total, plus
+the installed components and the available extensions.
 
 ## Extensions and sign-in
 
