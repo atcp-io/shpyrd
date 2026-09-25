@@ -83,10 +83,6 @@ jobs:
         with:
           name: ui-dist
           path: ui/dist
-      - name: Install kind
-        run: |
-          curl -fsSLo kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x kind && sudo mv kind /usr/local/bin/kind
       - name: Build the CLI and the server image
         run: |
           make cli
@@ -95,7 +91,7 @@ jobs:
         run: ./bin/shpyrd cluster create --name ci --skip shpyrd --http-port 8080 --https-port 8443
       - name: Install the server built from this commit
         run: |
-          kind load docker-image shpyrd-server:ci --name ci
+          make dev-load SERVER_IMAGE=shpyrd-server:ci CLUSTER=ci
           ./bin/shpyrd cluster init --context kind-ci --only shpyrd --set SHPYRD_SERVER_IMAGE=shpyrd-server:ci --http-port 8080 --https-port 8443
           ./bin/shpyrd cluster status --context kind-ci
       - name: Deploy a buildpacks project and a Dockerfile project

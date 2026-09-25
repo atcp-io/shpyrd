@@ -323,15 +323,15 @@ rfcs/                 design documents
 
 ```sh
 make dev-cluster     # cluster with everything except the shpyrd server
-make dev-deploy      # build the server image, load it into kind, apply the shpyrd component
+make dev-deploy      # build the server image, load it into the cluster, apply the shpyrd component
 make test vet
 ```
 
 The UI can be developed against a local server: `go run ./cmd/shpyrd-server`
 in one terminal, `cd ui && npm run dev` in another (Vite proxies `/api`).
 
-CI runs `go vet`, `go test`, the dashboard lint and build, and an end-to-end
-job on a kind cluster (`.github/workflows/ci.yml`). A tag `vX.Y.Z` releases:
+CI runs `go vet`, `go test`, the dashboard lint, tests and build, and an
+end-to-end job on a kind cluster (`.github/workflows/ci.yml`). A tag `vX.Y.Z` releases:
 GoReleaser builds the CLI archives, checksums, release notes and the Homebrew
 cask in [shpyrd-io/homebrew-tap](https://github.com/shpyrd-io/homebrew-tap);
 buildx pushes the multi-arch server image to GHCR (`release.yml`).

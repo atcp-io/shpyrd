@@ -63,9 +63,29 @@ clean:
 dev-cluster: cli
 	./bin/shpyrd cluster create --name $(CLUSTER) --skip shpyrd
 
-## Build the server image and load it into the kind cluster
+## Build the server image and load it into every node of the kind cluster.
+## This is what `kind load docker-image` does (import into containerd's k8s.io
+## namespace with the node's snapshotter), without needing a kind binary on
+## PATH: the cluster is created by the kind library in go.mod, and a kind CLI
+## older than that library cannot read the node's containerd config.
 dev-load: dev-image
-	kind load docker-image $(SERVER_IMAGE) --name $(CLUSTER)
+	@set -e; \
+	nodes=$$(docker ps -q --filter "label=io.x-k8s.kind.cluster=$(CLUSTER)"); \
+	if [ -z "$$nodes" ]; then \
+		echo "no kind cluster named $(CLUSTER); run 'make dev-cluster'" >&2; exit 1; \
+	fi; \
+	archive=$$(mktemp); \
+	trap 'rm -f "$$archive"' EXIT; \
+	docker save -o "$$archive" $(SERVER_IMAGE); \
+	for node in $$nodes; do \
+		name=$$(docker inspect --format '{{.Name}}' $$node | cut -c2-); \
+		snapshotter=$$(docker exec $$node containerd config dump 2>/dev/null \
+			| sed -n "s/^[[:space:]]*snapshotter = '\(..*\)'/\1/p" | head -1); \
+		echo "Loading $(SERVER_IMAGE) into $$name ($${snapshotter:-overlayfs})..."; \
+		docker exec -i $$node ctr --namespace=k8s.io images import \
+			--all-platforms --digests --snapshotter="$${snapshotter:-overlayfs}" - \
+			< "$$archive" >/dev/null; \
+	done
 
 ## Load the image and (re)apply the shpyrd component
 dev-deploy: cli dev-load
