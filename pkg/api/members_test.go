@@ -7,8 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	"shpyrd/pkg/kube"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/ext"
@@ -173,5 +179,57 @@ func TestAuthorization(t *testing.T) {
 	}
 	if MemberName("shop", "viewer", "Ada+Dev@Example.test", "") != "shop-viewer-user-ada-plus-dev-at-example-test" {
 		t.Errorf("member name = %s", MemberName("shop", "viewer", "Ada+Dev@Example.test", ""))
+	}
+}
+
+// adminOnlyExt mounts one route on the admin group, the way auth-local
+// mounts its users API.
+type adminOnlyExt struct{}
+
+func (adminOnlyExt) Name() string                          { return "admin-only" }
+func (adminOnlyExt) Description() string                   { return "test" }
+func (adminOnlyExt) Component() *ext.ComponentRef          { return nil }
+func (adminOnlyExt) Register(ctrl.Manager, ext.Deps) error { return nil }
+func (adminOnlyExt) Types() []ext.ResourceType             { return nil }
+func (adminOnlyExt) CLI(ext.CLIGlobals) []*cobra.Command   { return nil }
+func (adminOnlyExt) Routes(r ext.Router, _ ext.Deps) error {
+	r.Admin().GET("/admin-only", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	return nil
+}
+
+// RFC-0007/RFC-0008: extension routes on the admin group (the users API)
+// need the cluster.admin action, not just a session.
+func TestExtensionAdminRoutesNeedPlatformAdmin(t *testing.T) {
+	shop := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: "app-shop"}}
+	scheme, err := kube.Scheme()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(shop).WithStatusSubresource(&shpyrdv1.App{}).Build()
+	k := &kube.Client{Kube: kubefake.NewSimpleClientset(), Namespace: "shpyrd-system"}
+	s, err := newServer(k, Options{Token: testToken, Apps: cr, Extensions: []ext.Extension{adminOnlyExt{}}, Public: PublicConfig{Domain: "example.test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.authz.TTL = 1
+
+	// Enforcement on: one platform-admin team.
+	if rec := do(t, s, "POST", "/api/teams", `{"name":"ops","members":["ops@example.test"],"platformRole":"platform-admin"}`, true); rec.Code != http.StatusCreated {
+		t.Fatalf("create team: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/projects/shop/members", `{"role":"developer","user":"dev@example.test"}`, true); rec.Code != http.StatusCreated {
+		t.Fatalf("add member: %d %s", rec.Code, rec.Body.String())
+	}
+	devSID, _ := signIn(t, s, ext.Identity{Subject: "u1", Email: "dev@example.test", Provider: "local"})
+	opsSID, _ := signIn(t, s, ext.Identity{Subject: "u2", Email: "ops@example.test", Provider: "local"})
+
+	if rec := doCookie(t, s, "GET", "/api/admin-only", "", devSID, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("developer on an admin route: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doCookie(t, s, "GET", "/api/admin-only", "", opsSID, ""); rec.Code != http.StatusOK {
+		t.Errorf("platform admin on an admin route: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "GET", "/api/admin-only", "", true); rec.Code != http.StatusOK {
+		t.Errorf("admin token on an admin route: %d", rec.Code)
 	}
 }

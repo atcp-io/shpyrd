@@ -170,7 +170,7 @@ certificate is issued as soon as DNS resolves here.
 func printDomains(out io.Writer, res *api.DomainsResult) {
 	fmt.Fprintf(out, "Project hostname: %s (always served; the CNAME target)\n", res.Target)
 	if res.Address != "" {
-		fmt.Fprintf(out, "Front door:       %s (the %s record target for a zone apex)\n", res.Address, api.ApexRecordType(res.Address))
+		fmt.Fprintf(out, "Front door:       %s (the %s record target for a zone apex)\n", strings.ReplaceAll(res.Address, ",", " and "), api.ApexRecordType(res.Address))
 	}
 	if len(res.Domains) == 0 {
 		fmt.Fprintln(out, "\nNo custom domains. Add one with `shpyrd domains add www.example.com`.")

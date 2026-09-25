@@ -14,6 +14,7 @@ import (
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/internal/controller"
+	"shpyrd/pkg/install"
 )
 
 // Custom domains (RFC-0034): POST adds a hostname the owner points at the
@@ -165,20 +166,27 @@ func (s *Server) domainsResult(ctx context.Context, app *shpyrdv1.App, host stri
 }
 
 // ApexRecordType is the record a zone apex (which cannot carry a CNAME)
-// points at the front door with: A where the load balancer has an address,
-// ALIAS where it has a hostname (an NLB on AWS).
+// points at the front door with: A where the load balancer has addresses
+// (one or several, comma-separated), ALIAS where it has a hostname only.
 func ApexRecordType(address string) string {
-	if net.ParseIP(address) != nil {
-		return "A"
+	for _, a := range strings.Split(address, ",") {
+		if net.ParseIP(strings.TrimSpace(a)) == nil {
+			return "ALIAS"
+		}
 	}
-	return "ALIAS"
+	return "A"
 }
 
-// frontDoorAddress is the load balancer a project's hosts resolve to.
+// frontDoorAddress is the load balancer a project's hosts resolve to: the
+// static addresses the profile reserved for the public front door when it
+// has them (SHPYRD_LB_IP; several on AWS, one per zone), else what the
+// Service reports.
 func (s *Server) frontDoorAddress(ctx context.Context, app *shpyrdv1.App) string {
 	ns, name := "ingress-nginx", "ingress-nginx-controller"
 	if app.Spec.Exposure == "internal" {
 		ns, name = "ingress-nginx-internal", "ingress-nginx-internal-controller"
+	} else if fixed := s.vars(install.VarLBIP); fixed != "" {
+		return fixed
 	}
 	svc, err := s.kube.Kube.CoreV1().Services(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {

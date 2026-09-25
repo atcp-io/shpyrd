@@ -232,7 +232,10 @@ func (r *AppReconciler) dnsState(ctx context.Context, host, target, address stri
 		// Without a known address, resolving at all is the best we can say.
 		return DNSOK
 	}
-	targetIPs := map[string]bool{address: true}
+	targetIPs := map[string]bool{}
+	for _, a := range strings.Split(address, ",") {
+		targetIPs[strings.TrimSpace(a)] = true
+	}
 	if tips, err := resolver.LookupIPAddr(lctx, target); err == nil {
 		for _, ip := range tips {
 			targetIPs[ip.IP.String()] = true

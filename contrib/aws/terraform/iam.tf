@@ -85,3 +85,25 @@ resource "aws_eks_pod_identity_association" "cert_manager" {
   role_arn        = aws_iam_role.dns["cert-manager"].arn
   depends_on      = [aws_eks_addon.pod_identity]
 }
+
+# --- AWS Load Balancer Controller (RFC-0035) ---------------------------------
+# The upstream policy for the pinned controller version (iam/), unchanged.
+
+resource "aws_iam_role" "lb_controller" {
+  name               = "${var.name}-aws-load-balancer-controller"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_assume.json
+}
+
+resource "aws_iam_role_policy" "lb_controller" {
+  name   = "aws-load-balancer-controller"
+  role   = aws_iam_role.lb_controller.name
+  policy = file("${path.module}/iam/aws-load-balancer-controller.json")
+}
+
+resource "aws_eks_pod_identity_association" "lb_controller" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "kube-system"
+  service_account = "aws-load-balancer-controller"
+  role_arn        = aws_iam_role.lb_controller.arn
+  depends_on      = [aws_eks_addon.pod_identity]
+}

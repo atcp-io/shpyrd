@@ -31,11 +31,11 @@ func TestOCIProfileRenders(t *testing.T) {
 }
 
 func TestAWSProfileRenders(t *testing.T) {
-	eng := testProfileRenders(t, "aws", map[string]string{VarDomain: "aws.example.com", VarACMEEmail: "ops@example.com", VarDNSProvider: "aws", VarDNSZoneID: "Z123", VarDNSRegion: "us-east-1", VarEFSID: "fs-0123"}, "https://auth.aws.example.com")
+	eng := testProfileRenders(t, "aws", map[string]string{VarDomain: "aws.example.com", VarACMEEmail: "ops@example.com", VarDNSProvider: "aws", VarDNSZoneID: "Z123", VarDNSRegion: "us-east-1", VarEFSID: "fs-0123", VarAWSCluster: "shpyrd-dev", VarAWSRegion: "us-east-1", VarAWSVPCID: "vpc-1", VarAWSLBEIPs: "eipalloc-1,eipalloc-2"}, "https://auth.aws.example.com")
 	if eng.vars[VarClusterIssuer] != "letsencrypt" || eng.vars[VarNetworkPolicy] != "none" || eng.vars[VarStorageClass] != "gp3" || eng.vars[VarWildcardTLS] != "true" {
 		t.Errorf("aws vars: issuer=%s policy=%s class=%s wildcard=%s", eng.vars[VarClusterIssuer], eng.vars[VarNetworkPolicy], eng.vars[VarStorageClass], eng.vars[VarWildcardTLS])
 	}
-	for _, present := range []string{"letsencrypt-issuers", "registry", "registry-nodes", "ingress-nginx", "ingress-nginx-internal", "external-dns", "dns", "snapshot-controller", "storage-gp3", "storage-efs", "kpack", "shpyrd"} {
+	for _, present := range []string{"aws-load-balancer-controller", "letsencrypt-issuers", "registry", "registry-nodes", "ingress-nginx", "ingress-nginx-internal", "external-dns", "dns", "snapshot-controller", "storage-gp3", "storage-efs", "kpack", "shpyrd"} {
 		if eng.components[present] == nil {
 			t.Errorf("aws profile must install %s", present)
 		}
@@ -66,7 +66,7 @@ func TestAWSProfileRenders(t *testing.T) {
 	}
 	svc := vals["controller"].(map[string]interface{})["service"].(map[string]interface{})
 	ann := svc["annotations"].(map[string]interface{})
-	if _, has := svc["loadBalancerIP"]; has || ann["service.beta.kubernetes.io/aws-load-balancer-type"] != "nlb" || ann["external-dns.kubernetes.io/hostname"] != "*.aws.example.com" {
+	if _, has := svc["loadBalancerIP"]; has || ann["service.beta.kubernetes.io/aws-load-balancer-type"] != "external" || ann["service.beta.kubernetes.io/aws-load-balancer-nlb-target-type"] != "ip" || ann["service.beta.kubernetes.io/aws-load-balancer-eip-allocations"] != "eipalloc-1,eipalloc-2" || ann["external-dns.kubernetes.io/hostname"] != "*.aws.example.com" {
 		t.Errorf("aws ingress-nginx service values: %v", svc)
 	}
 	if _, oci := ann["oci.oraclecloud.com/load-balancer-type"]; oci {

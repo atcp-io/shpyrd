@@ -41,17 +41,25 @@ resource "aws_subnet" "private" {
   }
 }
 
-# One NAT gateway (a second one doubles a fixed cost for a development
-# cluster; production wants one per zone).
+# NAT gateways: one per availability zone by default, so a zone outage
+# leaves the other zone's egress alone; nat_gateway_per_az = false shares a
+# single one (a fixed cost saved on a development cluster).
+locals {
+  nat_count = var.nat_gateway_per_az ? 2 : 1
+}
+
 resource "aws_eip" "nat" {
+  count  = local.nat_count
   domain = "vpc"
-  tags   = { Name = "${var.name}-nat" }
+  tags   = { Name = "${var.name}-nat-${local.azs[count.index]}" }
 }
 
 resource "aws_nat_gateway" "this" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
-  tags          = { Name = "${var.name}-nat" }
+  count = local.nat_count
+
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.public[count.index].id
+  tags          = { Name = "${var.name}-nat-${local.azs[count.index]}" }
   depends_on    = [aws_internet_gateway.this]
 }
 
@@ -64,13 +72,16 @@ resource "aws_route_table" "public" {
   tags = { Name = "${var.name}-rt-public" }
 }
 
+# One private route table per zone, through that zone's NAT gateway (or
+# the shared one).
 resource "aws_route_table" "private" {
+  count  = 2
   vpc_id = aws_vpc.this.id
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.this.id
+    nat_gateway_id = aws_nat_gateway.this[min(count.index, local.nat_count - 1)].id
   }
-  tags = { Name = "${var.name}-rt-private" }
+  tags = { Name = "${var.name}-rt-private-${local.azs[count.index]}" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -82,5 +93,16 @@ resource "aws_route_table_association" "public" {
 resource "aws_route_table_association" "private" {
   count          = 2
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[count.index].id
+}
+
+# Static addresses of the public front door (RFC-0036): one Elastic IP per
+# zone, attached to the Network Load Balancer by the AWS Load Balancer
+# Controller (SHPYRD_AWS_LB_EIPS). DNS points at the hostname; the addresses
+# are what customers allow-list or point an apex A record at, and they
+# survive a rebuild of the load balancer.
+resource "aws_eip" "lb" {
+  count  = 2
+  domain = "vpc"
+  tags   = { Name = "${var.name}-lb-${local.azs[count.index]}" }
 }

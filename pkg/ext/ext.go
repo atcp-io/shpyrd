@@ -54,10 +54,13 @@ type ResourceType struct {
 	Bindable bool
 }
 
-// Router gives extensions the two route groups of the API.
+// Router gives extensions the route groups of the API: public (no
+// session), protected (any signed-in identity) and admin (platform
+// administrators only, the cluster.admin action of RFC-0008).
 type Router interface {
 	Public() gin.IRouter
 	Protected() gin.IRouter
+	Admin() gin.IRouter
 }
 
 // Deps is what the server hands to extensions.

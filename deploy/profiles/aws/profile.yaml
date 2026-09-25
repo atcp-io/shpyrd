@@ -26,9 +26,18 @@ vars:
   # cert-manager (contrib/aws/terraform). Records for the platform's
   # hostnames are then published by ExternalDNS and one wildcard certificate
   # (DNS-01) serves every project.
-  # Front doors (RFC-0036): an internet-facing NLB for the platform (default;
-  # move to internal when the VPN is your way in) and an internal NLB for
+  # Front doors (RFC-0036): Network Load Balancers from the AWS Load Balancer
+  # Controller, with pod targets: an internet-facing one for apps (and the
+  # platform, unless --platform-exposure internal puts it on the VPN side)
+  # on the Elastic IPs Terraform reserved, and an internal one for
   # exposure:internal, both in the subnets Terraform tagged for them.
+  # contrib/aws/terraform prints the values:
+  #   --set SHPYRD_AWS_CLUSTER=<name> --set SHPYRD_AWS_REGION=<region>
+  #   --set SHPYRD_AWS_VPC_ID=<vpc> --set SHPYRD_AWS_LB_EIPS=<eipalloc>,<eipalloc>
+  SHPYRD_AWS_CLUSTER: ""
+  SHPYRD_AWS_REGION: ""
+  SHPYRD_AWS_VPC_ID: ""
+  SHPYRD_AWS_LB_EIPS: ""
   SHPYRD_PLATFORM_EXPOSURE: external
   SHPYRD_INTERNAL_LB: "auto"
   SHPYRD_INTERNAL_LB_SUBNET: ""
@@ -54,7 +63,9 @@ vars:
   SHPYRD_DNS_USER: ""
   # A cloud load balancer terminates nothing and listens on 80/443: URLs carry no port.
   SHPYRD_FRONT_DOOR: lb
-  # Network Load Balancers have hostnames, not addresses: stays empty.
+  # The public front door's Elastic IPs (comma-separated; Terraform prints
+  # them): what customers allow-list or point an apex A record at. DNS uses
+  # the load balancer's hostname regardless.
   SHPYRD_LB_IP: ""
   SHPYRD_LOCAL_DNS: "false"
   SHPYRD_HTTP_PORT: "80"
@@ -65,7 +76,7 @@ runlevels:
   - name: rc0
     components: [monitoring-crds]
   - name: rc1
-    components: [cert-manager, registry-credentials, snapshot-controller, storage-gp3, storage-efs]
+    components: [aws-load-balancer-controller, cert-manager, registry-credentials, snapshot-controller, storage-gp3, storage-efs]
   - name: rc2
     components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, ingress-nginx-internal, registry, registry-nodes, external-dns]
   - name: rc3

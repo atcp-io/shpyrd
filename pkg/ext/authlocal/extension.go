@@ -54,8 +54,9 @@ func (extension) Routes(r ext.Router, deps ext.Deps) error {
 	if deps.Kube != nil {
 		store.Dynamic = deps.Kube.Dynamic
 	}
+	// Accounts are managed by platform administrators (RFC-0007, RFC-0008).
 	h := &handlers{store: store}
-	api := r.Protected()
+	api := r.Admin()
 	api.GET("/users", h.list)
 	api.POST("/users", h.create)
 	api.PUT("/users/:email/password", h.setPassword)

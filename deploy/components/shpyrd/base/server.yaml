@@ -102,6 +102,8 @@ spec:
               value: "${SHPYRD_INGRESS_CLASS_INTERNAL}"
             - name: SHPYRD_PLATFORM_EXPOSURE
               value: "${SHPYRD_PLATFORM_EXPOSURE}"
+            - name: SHPYRD_LB_IP
+              value: "${SHPYRD_LB_IP}"
             - name: SHPYRD_INTERNAL_LB_ADDRESS
               value: ""  # populated by the controller at runtime
             - name: SHPYRD_DATA_DIR

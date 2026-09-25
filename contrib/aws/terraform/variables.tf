@@ -63,6 +63,12 @@ variable "api_public_access" {
   default     = false
 }
 
+variable "nat_gateway_per_az" {
+  description = "One NAT gateway per availability zone (egress survives a zone outage); false shares a single one, the cheaper layout for a development cluster."
+  type        = bool
+  default     = true
+}
+
 variable "admin_cidrs" {
   description = "Addresses allowed to reach the public Kubernetes API endpoint when api_public_access is on; empty means this machine's address."
   type        = list(string)

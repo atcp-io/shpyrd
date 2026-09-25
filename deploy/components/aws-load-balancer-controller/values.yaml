@@ -1,0 +1,25 @@
+# The controller AWS maintains for load balancers, replacing the frozen
+# in-tree provider: NLBs with IP targets (traffic goes to the ingress-nginx
+# pods, no node hop, health per pod), Elastic IPs, security groups. Its IAM
+# role comes through EKS Pod Identity (contrib/aws/terraform associates
+# kube-system/aws-load-balancer-controller). The region and VPC are given
+# explicitly: pods cannot always reach the instance metadata service.
+clusterName: ${SHPYRD_AWS_CLUSTER}
+region: ${SHPYRD_AWS_REGION}
+vpcId: ${SHPYRD_AWS_VPC_ID}
+replicaCount: 1
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+# Every Service of type LoadBalancer is the controller's; the front doors
+# carry explicit annotations regardless.
+enableServiceMutatorWebhook: false
+defaultTargetType: ip
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    app.kubernetes.io/part-of: shpyrd
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi

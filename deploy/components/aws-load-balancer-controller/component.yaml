@@ -1,0 +1,12 @@
+name: aws-load-balancer-controller
+description: "AWS Load Balancer Controller: Network Load Balancers with pod (IP) targets and static Elastic IPs for the front doors (RFC-0035)"
+namespace: kube-system
+helm:
+  repo: https://aws.github.io/eks-charts
+  chart: aws-load-balancer-controller
+  version: 3.5.0
+  release: aws-load-balancer-controller
+  values: [values.yaml]
+wait:
+  - deployment: kube-system/aws-load-balancer-controller
+timeout: 5m

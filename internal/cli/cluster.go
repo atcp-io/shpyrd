@@ -130,6 +130,9 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 	if f.platformExposure != "" {
 		vars[install.VarPlatformExposure] = f.platformExposure
 	}
+	if f.internalLBSubnet != "" {
+		vars[install.VarInternalLBSubnet] = f.internalLBSubnet
+	}
 	if f.dnsAuth != "" {
 		vars[install.VarDNSAuth] = f.dnsAuth
 	} else if f.dnsKeyFile != "" {

@@ -175,6 +175,13 @@ func run(o runOptions, logger *slog.Logger) error {
 				return fmt.Errorf("registry garbage collector: %w", err)
 			}
 		}
+		if os.Getenv(install.VarRegistryIP) != "" {
+			// The in-cluster registry restarts when its certificate is renewed (RFC-0059).
+			rotation := &controller.RegistryRotation{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Namespace: k.Namespace, Secret: "registry-tls", Deploy: "registry"}
+			if err := mgr.Add(rotation); err != nil {
+				return fmt.Errorf("registry rotation: %w", err)
+			}
+		}
 		g.Go(func() error {
 			logger.Info("starting controller manager")
 			return mgr.Start(ctx)
@@ -263,9 +270,14 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	return mgr, nil
 }
 
-// externalLBAddress reads the public front door's address (the ingress-nginx
-// Service), what a custom domain's A record points at (RFC-0034).
+// externalLBAddress reads the public front door's address, what a custom
+// domain's A record points at (RFC-0034): the static addresses the profile
+// reserved (SHPYRD_LB_IP, comma-separated on AWS), else the ingress-nginx
+// Service's.
 func externalLBAddress(k *kube.Client) string {
+	if fixed := os.Getenv(install.VarLBIP); fixed != "" {
+		return fixed
+	}
 	svc, err := k.Kube.CoreV1().Services("ingress-nginx").Get(
 		context.Background(), "ingress-nginx-controller", metav1.GetOptions{})
 	if err != nil {

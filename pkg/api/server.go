@@ -194,10 +194,11 @@ func (s *Server) deps() ext.Deps {
 }
 
 // routeGroups implements ext.Router.
-type routeGroups struct{ pub, api gin.IRouter }
+type routeGroups struct{ pub, api, admin gin.IRouter }
 
 func (r routeGroups) Public() gin.IRouter    { return r.pub }
 func (r routeGroups) Protected() gin.IRouter { return r.api }
+func (r routeGroups) Admin() gin.IRouter     { return r.admin }
 
 // Handler exposes the router, e.g. for tests.
 func (s *Server) Handler() http.Handler { return s.engine }
@@ -323,7 +324,7 @@ func (s *Server) routes() error {
 	// Extensions mount their routes and register login providers.
 	deps := s.deps()
 	for _, x := range s.opts.Extensions {
-		if err := x.Routes(routeGroups{pub: pub, api: api}, deps); err != nil {
+		if err := x.Routes(routeGroups{pub: pub, api: api, admin: api.Group("", s.require(authz.ClusterAdmin))}, deps); err != nil {
 			return fmt.Errorf("extension %s: %w", x.Name(), err)
 		}
 	}

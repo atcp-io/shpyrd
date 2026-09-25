@@ -8,6 +8,7 @@ kubernetes_version = "1.36"
 
 node_instance_type = "t3a.large"
 node_count         = 2
+# nat_gateway_per_az = false        # one shared NAT gateway instead of one per zone
 
 # The Kubernetes API is private (VPN) by default; true adds a public endpoint for admin_cidrs.
 # api_public_access = true

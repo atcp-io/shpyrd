@@ -55,6 +55,7 @@ const (
 	VarDefaultTLSSecret  = "SHPYRD_DEFAULT_TLS_SECRET"  // namespace/name of ingress-nginx's default certificate
 	VarWildcardTLS       = "SHPYRD_WILDCARD_TLS"        // "true" when the wildcard certificate serves every project host
 	// Front doors (RFC-0036).
+	VarLBIP                 = "SHPYRD_LB_IP"                  // static address(es) of the public front door: OCI's reserved IP, AWS's Elastic IPs (comma-separated)
 	VarPlatformExposure     = "SHPYRD_PLATFORM_EXPOSURE"      // "external" or "internal"
 	VarInternalLB           = "SHPYRD_INTERNAL_LB"            // "auto" (create lazily), "true", "false"
 	VarInternalLBSubnet     = "SHPYRD_INTERNAL_LB_SUBNET"     // subnet OCID for the private LB (OCI)
@@ -70,6 +71,12 @@ const (
 	VarFSSMountTarget     = "SHPYRD_FSS_MOUNT_TARGET"     // OCI File Storage mount target OCID behind shared volumes ("" = no shared volumes)
 	VarFSSAD              = "SHPYRD_FSS_AD"               // availability domain of the shared volumes' file systems (OCI)
 	VarEFSID              = "SHPYRD_EFS_ID"               // EFS file system behind shared volumes ("" = no shared volumes) (AWS)
+	// AWS Load Balancer Controller (RFC-0035): the cluster it manages and the
+	// Elastic IPs of the public front door.
+	VarAWSCluster = "SHPYRD_AWS_CLUSTER"
+	VarAWSRegion  = "SHPYRD_AWS_REGION"
+	VarAWSVPCID   = "SHPYRD_AWS_VPC_ID"
+	VarAWSLBEIPs  = "SHPYRD_AWS_LB_EIPS"
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine

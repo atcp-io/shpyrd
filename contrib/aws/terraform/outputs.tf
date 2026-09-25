@@ -49,6 +49,20 @@ output "vpn_profile" {
   value       = var.vpn ? abspath(local_sensitive_file.vpn_profile[0].filename) : null
 }
 
+output "vpc_id" {
+  value = aws_vpc.this.id
+}
+
+output "load_balancer_ips" {
+  description = "Static addresses of the public front door (one per zone): allow-list them, point apex A records at them."
+  value       = aws_eip.lb[*].public_ip
+}
+
+output "load_balancer_eip_allocations" {
+  description = "Elastic IP allocations the public NLB attaches (--set SHPYRD_AWS_LB_EIPS=...)."
+  value       = join(",", aws_eip.lb[*].id)
+}
+
 output "registry_ip" {
   description = "ClusterIP of the in-cluster registry inside the Service range (the profile default matches service_cidr = 10.100.0.0/16)."
   value       = local.registry_ip
@@ -60,6 +74,8 @@ output "next_steps" {
     ../kubeconfig.sh                       # kubectl context eks-${var.name}${var.api_public_access ? " (public endpoint allowed from ${join(", ", local.admin_cidrs)})" : " (private endpoint: VPN connected)"}
     kubectl --context eks-${var.name} get nodes
     shpyrd cluster init --context eks-${var.name} --profile aws --domain ${var.dns_zone != "" ? var.dns_zone : "<domain>"} \
-      --set SHPYRD_ACME_EMAIL=<email>${var.shared_storage ? " --set SHPYRD_EFS_ID=${aws_efs_file_system.shared[0].id}" : ""}${var.dns_zone != "" ? " \\\n      --dns aws --dns-zone-id ${aws_route53_zone.platform[0].zone_id} --dns-region ${var.region}" : ""}
+      --set SHPYRD_ACME_EMAIL=<email> \
+      --set SHPYRD_AWS_CLUSTER=${aws_eks_cluster.this.name} --set SHPYRD_AWS_REGION=${var.region} --set SHPYRD_AWS_VPC_ID=${aws_vpc.this.id} \
+      --set SHPYRD_AWS_LB_EIPS=${join(",", aws_eip.lb[*].id)} --set SHPYRD_LB_IP=${join(",", aws_eip.lb[*].public_ip)}${var.shared_storage ? " --set SHPYRD_EFS_ID=${aws_efs_file_system.shared[0].id}" : ""}${var.dns_zone != "" ? " \\\n      --dns aws --dns-zone-id ${aws_route53_zone.platform[0].zone_id} --dns-region ${var.region}" : ""}
   EOT
 }

@@ -1,14 +1,21 @@
-# AWS profile: an internet-facing Network Load Balancer from the in-tree
-# cloud provider in the public subnets (kubernetes.io/role/elb). It has a
-# hostname rather than an address; ExternalDNS publishes *.<domain> as an
-# alias of it when a DNS provider is configured (RFC-0061).
+# AWS profile: an internet-facing Network Load Balancer with pod targets
+# from the AWS Load Balancer Controller, in the public subnets
+# (kubernetes.io/role/elb), on the Elastic IPs contrib/aws/terraform
+# reserved (SHPYRD_AWS_LB_EIPS, one per zone) so DNS survives a rebuild of
+# the load balancer. It also has a hostname; ExternalDNS publishes
+# *.<domain> as an alias of it when a DNS provider is configured (RFC-0061).
 controller:
   service:
     type: LoadBalancer
     externalTrafficPolicy: Local
     annotations:
-      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+      service.beta.kubernetes.io/aws-load-balancer-type: "external"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "${SHPYRD_AWS_LB_EIPS}"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "HTTP"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/healthz"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "10254"
       external-dns.kubernetes.io/hostname: "*.${SHPYRD_DOMAIN}"
   publishService:
     enabled: true
