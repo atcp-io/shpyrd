@@ -7,4 +7,7 @@ resource "aws_route53_zone" "platform" {
 
   name    = var.dns_zone
   comment = "shpyrd platform ${var.name}"
+  # Records ExternalDNS owned may outlive the cluster (it withdraws them
+  # only while it runs); destroy takes them along.
+  force_destroy = true
 }

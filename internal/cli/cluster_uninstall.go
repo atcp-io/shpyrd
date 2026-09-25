@@ -94,6 +94,22 @@ func runDestroyCloud(ctx context.Context, out io.Writer, k *kube.Client, c clien
 		}
 	}
 
+	// 1b. Ingresses: the platform's own hostnames. Removing them while
+	// ExternalDNS still runs lets it withdraw the records it owns (its sync
+	// policy deletes what it created); a minute is its reconcile interval.
+	if ings, err := k.Kube.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{}); err == nil && len(ings.Items) > 0 {
+		fmt.Fprintf(out, "Deleting %d ingress(es)...\n", len(ings.Items))
+		for _, ing := range ings.Items {
+			_ = k.Kube.NetworkingV1().Ingresses(ing.Namespace).Delete(ctx, ing.Name, metav1.DeleteOptions{})
+		}
+		if _, err := k.Kube.AppsV1().Deployments(install.DefaultSystemNamespace).Get(ctx, "external-dns", metav1.GetOptions{}); err == nil {
+			fmt.Fprintln(out, "  giving ExternalDNS a minute to withdraw the DNS records it owns")
+			if err := sleepCtx(ctx, 75*time.Second); err != nil {
+				return err
+			}
+		}
+	}
+
 	// 2. Load balancers: the cloud controller removes the cloud object
 	// before the Service finalizer lets go.
 	if len(lbs) > 0 {
@@ -109,6 +125,17 @@ func runDestroyCloud(ctx context.Context, out io.Writer, k *kube.Client, c clien
 			return len(cur), err
 		}); err != nil {
 			return err
+		}
+	}
+
+	// The wildcard record hangs off the external front door's Service: the
+	// same minute after the load balancers are gone.
+	if len(lbs) > 0 {
+		if _, err := k.Kube.AppsV1().Deployments(install.DefaultSystemNamespace).Get(ctx, "external-dns", metav1.GetOptions{}); err == nil {
+			fmt.Fprintln(out, "  giving ExternalDNS a minute to withdraw the wildcard record")
+			if err := sleepCtx(ctx, 75*time.Second); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -161,8 +188,8 @@ func runDestroyCloud(ctx context.Context, out io.Writer, k *kube.Client, c clien
 
 	fmt.Fprintln(out, "The platform's cloud resources are gone. Remove the infrastructure:")
 	switch info.Profile {
-	case "oci":
-		fmt.Fprintln(out, "  cd contrib/oci/terraform && terraform destroy")
+	case "oci", "aws":
+		fmt.Fprintf(out, "  cd contrib/%s/terraform && terraform destroy\n", info.Profile)
 	default:
 		fmt.Fprintln(out, "  destroy the cluster with the tooling that created it")
 	}

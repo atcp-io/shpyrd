@@ -68,7 +68,7 @@ func TestDestroyCloudOrderAndOutput(t *testing.T) {
 		t.Fatalf("destroy: %v\n%s", err, out.String())
 	}
 	text := out.String()
-	for _, want := range []string{"Deleting 1 project(s)", "projects: done", "Deleting 1 load balancer(s)", "load balancers: done", "Deleting 1 disk(s)", "disks: done", "Retain policy", "kept (50Gi)", "terraform destroy", "kubectl config delete-context oke-shpyrd-dev"} {
+	for _, want := range []string{"Deleting 1 project(s)", "projects: done", "Deleting 1 load balancer(s)", "load balancers: done", "Deleting 1 disk(s)", "disks: done", "Retain policy", "kept (50Gi)", "contrib/oci/terraform && terraform destroy", "kubectl config delete-context oke-shpyrd-dev"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}
