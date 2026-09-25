@@ -184,3 +184,30 @@ describe("parseLogLine with two spellings of one well-known key", () => {
     expect(l.fields).toEqual([{ key: "keep", value: "1" }]);
   });
 });
+
+// Mirrors TestParseNumericLevels in pkg/logfmt.
+describe("parseLogLine with a numeric level", () => {
+  it("names pino's scale by its bucket", () => {
+    for (const [level, want, text] of [
+      [10, "debug", "debug"],
+      [30, "info", "info"],
+      [40, "warn", "warn"],
+      [50, "error", "error"],
+      [60, "error", "error"],
+    ] as const) {
+      const l = parseLogLine(`{"level":${level},"msg":"x"}`);
+      expect([l.level, l.levelText]).toEqual([want, text]);
+    }
+  });
+
+  it("names the syslog severities by their bucket", () => {
+    for (const [level, want] of [
+      [3, "error"],
+      [4, "warn"],
+      [6, "info"],
+      [7, "debug"],
+    ] as const) {
+      expect(parseLogLine(`{"level":${level},"msg":"x"}`).level).toBe(want);
+    }
+  });
+});

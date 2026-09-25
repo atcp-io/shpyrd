@@ -61,7 +61,9 @@ read and the viewer's level highlighting misses it.
     here out of `log-view.tsx`, so structured and plain lines share one definition.
   - Both parsers consume every spelling of a well-known key (a line writing `msg` and
     `message` shows neither as a field) and keep the remaining fields in the order the line
-    wrote them, with the error field first; nested values render as compact JSON.
+    wrote them, with the error field first; nested values render as compact JSON, unescaped.
+  - A numeric level is read and named by its bucket, so pino's `"level":30` reads as INFO
+    rather than 30: tens up to 60 are pino's scale, 0 to 7 the syslog severities.
   - Viewer: a JSON line reads as its level and message with the fields behind a chevron;
     the level select picks a floor ("All levels" through "Errors only") and applies to plain
     lines too; Raw shows each line as the application wrote it. The text filter matches
@@ -71,8 +73,9 @@ read and the viewer's level highlighting misses it.
     force either and refuse to be combined. The time and instance columns stay the
     container's, so a line's own time field is not printed twice.
   - Tests: vitest joins the dashboard (`npm run test`, run by `make test` and the Dashboard
-    CI job) with 36 tests, including react-dom/server smoke tests of the viewer that need no
-    DOM; `pkg/logfmt` and the CLI helpers carry 18 Go tests over the same case table, so the
-    two parsers cannot drift.
+    CI job) with 38 tests, including react-dom/server smoke tests of the viewer that need no
+    DOM; `pkg/logfmt` carries 18 and the CLI helpers 10, over the same case table, so the two
+    parsers cannot drift. Rendering real zap, logrus, pino, bunyan and structlog lines is
+    what turned up the numeric levels and the escaped nested values.
   - Not built, and not promised by this RFC: a `--level` filter for the CLI, and `key=value`
     queries in the filter box (it matches field keys and values as substrings).

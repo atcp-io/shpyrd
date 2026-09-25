@@ -98,19 +98,46 @@ export function parseLogLine(raw: string): ParsedLine {
     fields.push({ key: k, value: fieldValue(obj[k]) });
   }
 
+  let level: LogLevel;
+  let label = levelText;
+  if (levelText === "") {
+    level = guessLevel(message);
+  } else {
+    level = normalizeLevel(levelText);
+    // A number says nothing to the reader: name it by its bucket.
+    if (/^-?\d+$/.test(levelText.trim())) label = level;
+  }
+
   return {
     structured: true,
-    level: levelText ? normalizeLevel(levelText) : guessLevel(message),
-    levelText,
+    level,
+    levelText: label,
     message,
     time: time || undefined,
     fields,
   };
 }
 
-/** Folds a logger's level name into a severity bucket. */
+/** Reads pino's scale (10 trace to 60 fatal) and, below 10, the syslog
+ * severities (0 emerg to 7 debug). */
+function numericLevel(n: number): LogLevel {
+  if (n < 10) {
+    if (n <= 3) return "error";
+    if (n === 4) return "warn";
+    return n <= 6 ? "info" : "debug";
+  }
+  if (n >= 50) return "error";
+  if (n >= 40) return "warn";
+  return n >= 30 ? "info" : "debug";
+}
+
+/** Folds a logger's level into a severity bucket, by name or by number:
+ * pino counts in tens up to 60, the syslog severities count down from 0,
+ * and both are common enough to read. */
 export function normalizeLevel(text: string): LogLevel {
-  switch (text.trim().toLowerCase()) {
+  const t = text.trim();
+  if (/^-?\d+$/.test(t)) return numericLevel(Number(t));
+  switch (t.toLowerCase()) {
     case "error":
     case "err":
     case "fatal":

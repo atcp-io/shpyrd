@@ -100,10 +100,15 @@ func Parse(line string) Entry {
 		e.Fields = append(e.Fields, Field{Key: "error", Value: errValue})
 	}
 	e.Fields = append(e.Fields, rest...)
-	if e.LevelText != "" {
-		e.Level = NormalizeLevel(e.LevelText)
-	} else {
+	switch {
+	case e.LevelText == "":
 		e.Level = guessLevel(e.Message)
+	default:
+		e.Level = NormalizeLevel(e.LevelText)
+		// A number says nothing to the reader: name it by its bucket.
+		if _, err := strconv.Atoi(e.LevelText); err == nil {
+			e.LevelText = string(e.Level)
+		}
 	}
 	return e
 }
@@ -127,9 +132,15 @@ func (e Entry) Pretty() string {
 	return strings.Join(parts, " ")
 }
 
-// NormalizeLevel folds a logger's level name into a severity bucket.
+// NormalizeLevel folds a logger's level into a severity bucket, by name or
+// by number: pino counts in tens up to 60, the syslog severities count down
+// from 0, and both are common enough to read.
 func NormalizeLevel(text string) Level {
-	switch strings.ToLower(strings.TrimSpace(text)) {
+	text = strings.TrimSpace(text)
+	if n, err := strconv.Atoi(text); err == nil {
+		return numericLevel(n)
+	}
+	switch strings.ToLower(text) {
 	case "error", "err", "fatal", "crit", "critical", "panic", "alert", "emerg", "emergency":
 		return LevelError
 	case "warn", "warning":
@@ -138,6 +149,33 @@ func NormalizeLevel(text string) Level {
 		return LevelDebug
 	default:
 		return LevelInfo
+	}
+}
+
+// numericLevel reads pino's scale (10 trace to 60 fatal) and, below 10, the
+// syslog severities (0 emerg to 7 debug).
+func numericLevel(n int) Level {
+	if n < 10 {
+		switch {
+		case n <= 3:
+			return LevelError
+		case n == 4:
+			return LevelWarn
+		case n <= 6:
+			return LevelInfo
+		default:
+			return LevelDebug
+		}
+	}
+	switch {
+	case n >= 50:
+		return LevelError
+	case n >= 40:
+		return LevelWarn
+	case n >= 30:
+		return LevelInfo
+	default:
+		return LevelDebug
 	}
 }
 
@@ -245,8 +283,12 @@ func pad(s string, n int) string {
 }
 
 // quote wraps a value in quotes when it would otherwise run into the next
-// field.
+// field. A nested object or array is left as it is: escaping the quotes it
+// is made of turns it into a thicket.
 func quote(v string) string {
+	if strings.HasPrefix(v, "{") || strings.HasPrefix(v, "[") {
+		return v
+	}
 	if v == "" || strings.ContainsAny(v, " \t\"") {
 		return strconv.Quote(v)
 	}

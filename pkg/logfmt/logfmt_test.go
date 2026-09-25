@@ -210,3 +210,37 @@ func TestParseDuplicateWellKnownKeys(t *testing.T) {
 		t.Errorf("Fields = %v, want %v", e.Fields, want)
 	}
 }
+
+// pino and the syslog severities report the level as a number. Showing "30"
+// tells the reader nothing, so a numeric level is named by its bucket.
+func TestParseNumericLevels(t *testing.T) {
+	for _, tc := range []struct {
+		level string
+		want  logfmt.Level
+		text  string
+	}{
+		{"10", logfmt.LevelDebug, "debug"}, // pino trace
+		{"20", logfmt.LevelDebug, "debug"}, // pino debug
+		{"30", logfmt.LevelInfo, "info"},   // pino info
+		{"40", logfmt.LevelWarn, "warn"},   // pino warn
+		{"50", logfmt.LevelError, "error"}, // pino error
+		{"60", logfmt.LevelError, "error"}, // pino fatal
+		{"3", logfmt.LevelError, "error"},  // syslog err
+		{"4", logfmt.LevelWarn, "warn"},    // syslog warning
+		{"6", logfmt.LevelInfo, "info"},    // syslog info
+		{"7", logfmt.LevelDebug, "debug"},  // syslog debug
+	} {
+		e := logfmt.Parse(`{"level":` + tc.level + `,"msg":"x"}`)
+		if e.Level != tc.want || e.LevelText != tc.text {
+			t.Errorf("level %s = %q/%q, want %q/%q", tc.level, e.Level, e.LevelText, tc.want, tc.text)
+		}
+	}
+}
+
+func TestPrettyDoesNotEscapeNestedValues(t *testing.T) {
+	got := logfmt.Parse(`{"level":"error","msg":"job lost","job":{"id":"j-12","queue":"mail"},"tags":["a b"]}`).Pretty()
+	want := `ERROR job lost job={"id":"j-12","queue":"mail"} tags=["a b"]`
+	if got != want {
+		t.Errorf("Pretty() = %q, want %q", got, want)
+	}
+}
