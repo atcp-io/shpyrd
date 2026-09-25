@@ -31,6 +31,7 @@ locals {
     "in-pods-6443"      = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.pods, min = 6443, max = 6443, desc = "pods to Kubernetes API" }
     "in-pods-12250"     = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.pods, min = 12250, max = 12250, desc = "pods to control plane" }
     "in-bastion-6443"   = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.bastion, min = 6443, max = 6443, desc = "administrators through the Bastion service" }
+    "in-vpn-6443"       = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.vpn, min = 6443, max = 6443, desc = "administrators through the VPN" }
     "out-services"      = { dir = "EGRESS", kind = "svc", desc = "control plane to OKE" }
     "out-workers-10250" = { dir = "EGRESS", kind = "tcp", cidr = local.cidr.workers, min = 10250, max = 10250, desc = "control plane to kubelet" }
     "out-workers-icmp"  = { dir = "EGRESS", kind = "icmp", cidr = local.cidr.workers, desc = "path discovery to workers" }
@@ -47,6 +48,7 @@ locals {
     "in-lb-private-nodeport" = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.lb_private, min = 30000, max = 32767, desc = "private load balancers to node ports" }
     "in-lb-private-health"   = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.lb_private, min = 10256, max = 10256, desc = "private load balancer health checks" }
     "in-bastion-ssh"         = { dir = "INGRESS", kind = "tcp", cidr = local.cidr.bastion, min = 22, max = 22, desc = "ssh through the Bastion service" }
+    "in-vpn-all"             = { dir = "INGRESS", kind = "all", cidr = local.cidr.vpn, desc = "administrators through the VPN (ssh, node ports)" }
     "out-workers-all"        = { dir = "EGRESS", kind = "all", cidr = local.cidr.workers, desc = "worker to worker" }
     "out-pods-all"           = { dir = "EGRESS", kind = "all", cidr = local.cidr.pods, desc = "workers to pods" }
     "out-services"           = { dir = "EGRESS", kind = "svc", desc = "workers to OCI services (OCIR, OKE)" }

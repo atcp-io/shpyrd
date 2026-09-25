@@ -79,6 +79,15 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
   annotation (RFC-0036).
 - Nodes run CRI-O on Oracle Linux 8; the kubelet's short-name enforcement surfaced every
   unqualified image reference (Valkey, probes) and they are qualified now.
+- **Access path (2026-09-25).** A WireGuard instance in a public `vpn` subnet
+  (`VM.Standard.E5.Flex`, 1 OCPU / 2 GB; the Always Free micro shows 500 MB to the guest
+  and cannot install packages on Oracle Linux 9), keys and the client profile generated
+  by Terraform, NAT to the VCN through firewalld, a reserved address so the profile
+  survives an instance rebuild. NSG rules admit the VPN subnet to the API endpoint and the
+  workers; the private LB already admits the VCN. `kubeconfig.sh` then points at the
+  private endpoint directly; the Bastion tunnel remains for `vpn = false`. With it, the
+  dev cluster runs the same posture as AWS: API private, dashboard and sign-in on the
+  private load balancer (`--platform-exposure internal`), apps public.
 
 ### AWS (`aws`)
 

@@ -112,10 +112,20 @@ output "vars_file" {
   value       = abspath(local_file.shpyrd_vars.filename)
 }
 
+output "vpn_profile" {
+  description = "WireGuard profile for this machine (import in the WireGuard app)."
+  value       = var.vpn ? abspath(local_sensitive_file.vpn_profile[0].filename) : null
+}
+
+output "vpn_enabled" {
+  value = var.vpn
+}
+
 output "next_steps" {
   value = <<-EOT
-    ../kubeconfig.sh                       # kubeconfig context oke-${var.name} pointed at the tunnel
-    ../tunnel.sh                           # Bastion session + ssh tunnel 127.0.0.1:6443 (3 hours; run again)
+    ${var.vpn ? "WireGuard app > Import tunnel(s) from file: ${abspath(local_sensitive_file.vpn_profile[0].filename)}; activate it" : "# vpn = true for an access path without the Bastion tunnel"}
+    ../kubeconfig.sh                       # kubeconfig context oke-${var.name}${var.vpn ? " (private endpoint over the VPN)" : " pointed at the tunnel"}
+    ${var.vpn ? "" : "../tunnel.sh                           # Bastion session + ssh tunnel 127.0.0.1:6443 (3 hours; run again)"}
     kubectl --context oke-${var.name} get nodes
     shpyrd cluster init --context oke-${var.name} --profile oci --vars-file ${abspath(local_file.shpyrd_vars.filename)} \
       --set SHPYRD_ACME_EMAIL=<email>${local.dns_key ? " --dns-key-file ${abspath(local_sensitive_file.dns_key[0].filename)}" : ""} --enable auth-local

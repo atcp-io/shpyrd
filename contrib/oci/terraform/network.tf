@@ -184,6 +184,17 @@ resource "oci_core_security_list" "bastion" {
       max = 22
     }
   }
+
+  egress_security_rules {
+    protocol         = "6"
+    destination      = local.cidr.vpn
+    destination_type = "CIDR_BLOCK"
+    description      = "bastion sessions to the VPN instance's ssh"
+    tcp_options {
+      min = 22
+      max = 22
+    }
+  }
 }
 
 # Subnets (regional)
@@ -196,6 +207,7 @@ locals {
     lb_public  = { cidr = local.cidr.lb_public, label = "lbpublic", rt = oci_core_route_table.public.id, sl = oci_core_security_list.lb_public.id, private = false }
     lb_private = { cidr = local.cidr.lb_private, label = "lbprivate", rt = oci_core_route_table.private.id, sl = oci_core_security_list.lb_private.id, private = true }
     bastion    = { cidr = local.cidr.bastion, label = "bastion", rt = oci_core_route_table.private.id, sl = oci_core_security_list.bastion.id, private = true }
+    vpn        = { cidr = local.cidr.vpn, label = "vpn", rt = oci_core_route_table.public.id, sl = oci_core_security_list.nsg_only.id, private = false }
   }
 }
 

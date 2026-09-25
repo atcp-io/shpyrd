@@ -116,12 +116,13 @@ variable "vcn_cidr" {
 variable "subnet_cidrs" {
   description = "Subnets inside vcn_cidr."
   type = object({
-    api        = string # Kubernetes API endpoint (private)
-    workers    = string # worker nodes (private)
-    pods       = string # pods, VCN-native networking (private)
-    lb_public  = string # internet-facing load balancers
-    lb_private = string # internal load balancers (RFC-0036)
-    bastion    = string # OCI Bastion service
+    api        = string                           # Kubernetes API endpoint (private)
+    workers    = string                           # worker nodes (private)
+    pods       = string                           # pods, VCN-native networking (private)
+    lb_public  = string                           # internet-facing load balancers
+    lb_private = string                           # internal load balancers (RFC-0036)
+    bastion    = string                           # OCI Bastion service
+    vpn        = optional(string, "10.0.30.0/24") # the WireGuard instance (public)
   })
   default = {
     api        = "10.0.0.0/24"
@@ -130,6 +131,7 @@ variable "subnet_cidrs" {
     lb_public  = "10.0.10.0/24"
     lb_private = "10.0.11.0/24"
     bastion    = "10.0.20.0/24"
+    vpn        = "10.0.30.0/24"
   }
 }
 
