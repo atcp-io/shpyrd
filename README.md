@@ -146,6 +146,19 @@ to the provider's minimum and say so (Oracle Cloud block volumes start at
 restore data --from <snapshot> [--to <new-volume>]` restores into a new volume
 or in place (the mounting process stops while the disk is swapped).
 
+## Platform backups
+
+On cloud profiles the platform backs itself up every night: an archive of every
+project (config vars, apps, resources, the sources they build from), sign-in
+users, teams and members, encrypted with a passphrase and written to a bucket in
+the provider's object storage that outlives the cluster (`contrib/*/terraform/backups`
+creates it; `cluster init --backup-target … [--backup-credentials-file …]` points
+the platform at it). `shpyrd cluster backup` runs one now, `shpyrd cluster backups`
+lists them, `shpyrd cluster backup key` prints the passphrase to keep elsewhere,
+and `shpyrd cluster restore --from s3://… --passphrase-file …` brings the state
+back into a new cluster (or one project into the same cluster with `--project`).
+Volume and database contents are not in the archive (RFC-0037).
+
 ## Dashboard
 
 `shpyrd cluster dashboard` opens the web UI signed in with the admin token

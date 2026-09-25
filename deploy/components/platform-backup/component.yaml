@@ -1,0 +1,7 @@
+name: platform-backup
+description: Scheduled, encrypted backups of the platform's state to the provider's object storage, and the way back (shpyrd cluster restore; RFC-0037)
+namespace: shpyrd-system
+hooks: [backup-target]
+kustomize:
+  path: base
+timeout: 2m

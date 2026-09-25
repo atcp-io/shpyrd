@@ -1,0 +1,3 @@
+name    = "shpyrd-dev"
+region  = "us-east-1"
+profile = "default"

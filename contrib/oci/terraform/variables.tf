@@ -148,3 +148,11 @@ variable "dns_zone" {
   type        = string
   default     = ""
 }
+
+# Platform backups (RFC-0037)
+
+variable "backup_bucket" {
+  description = "Object Storage bucket for the platform's encrypted backups, created by contrib/oci/terraform/backups so it outlives the cluster; empty means no backups. Its credentials file goes to `shpyrd cluster init --backup-credentials-file`."
+  type        = string
+  default     = ""
+}

@@ -107,3 +107,45 @@ resource "aws_eks_pod_identity_association" "lb_controller" {
   role_arn        = aws_iam_role.lb_controller.arn
   depends_on      = [aws_eks_addon.pod_identity]
 }
+
+# --- Platform backups (RFC-0037) ---------------------------------------------
+# The server's service account (the backup CronJob runs under it) reads,
+# writes and prunes archives in the backup bucket, nothing else.
+
+data "aws_iam_policy_document" "backup" {
+  count = var.backup_bucket != "" ? 1 : 0
+
+  statement {
+    actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
+    resources = ["arn:aws:s3:::${var.backup_bucket}"]
+  }
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${var.backup_bucket}/*"]
+  }
+}
+
+resource "aws_iam_role" "backup" {
+  count = var.backup_bucket != "" ? 1 : 0
+
+  name               = "${var.name}-platform-backup"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_assume.json
+}
+
+resource "aws_iam_role_policy" "backup" {
+  count = var.backup_bucket != "" ? 1 : 0
+
+  name   = "s3-${var.backup_bucket}"
+  role   = aws_iam_role.backup[0].name
+  policy = data.aws_iam_policy_document.backup[0].json
+}
+
+resource "aws_eks_pod_identity_association" "backup" {
+  count = var.backup_bucket != "" ? 1 : 0
+
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "shpyrd-system"
+  service_account = "shpyrd-server"
+  role_arn        = aws_iam_role.backup[0].arn
+  depends_on      = [aws_eks_addon.pod_identity]
+}

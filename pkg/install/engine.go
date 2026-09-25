@@ -48,7 +48,11 @@ type Options struct {
 	RegistryPassword string
 	// DNS automation credential (RFC-0061): an OCI API signing key of the
 	// user in SHPYRD_DNS_USER, written to Secrets by the dns-credentials hook.
-	DNSKeyPEM         string
+	DNSKeyPEM string
+	// BackupCredentials are the KEY=value pairs of --backup-credentials-file
+	// (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the backup target; nil
+	// keeps what an earlier run stored or relies on the pod's identity.
+	BackupCredentials map[string]string
 	DNSKeyFingerprint string
 	// Tree overrides the embedded manifests (tests, development).
 	Tree fs.FS

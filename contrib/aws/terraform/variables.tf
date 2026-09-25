@@ -98,3 +98,11 @@ variable "shared_storage" {
   type        = bool
   default     = true
 }
+
+# Platform backups (RFC-0037)
+
+variable "backup_bucket" {
+  description = "S3 bucket for the platform's encrypted backups, created by contrib/aws/terraform/backups so it outlives the cluster; empty means no backups. The platform's service account gets access through Pod Identity."
+  type        = string
+  default     = ""
+}

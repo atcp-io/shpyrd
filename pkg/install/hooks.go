@@ -49,6 +49,7 @@ var hooks = map[string]Hook{
 	"oidc-client":                oidcClientHook,
 	"registry-credentials":       registryCredentialsHook,
 	"object-storage-credentials": objectStorageCredentialsHook,
+	"backup-target":              backupTargetHook,
 	"dns-credentials":            dnsCredentialsHook,
 }
 
@@ -538,5 +539,60 @@ func objectStorageCredentialsHook(ctx context.Context, e *Engine, c *Component) 
 		return err
 	}
 	e.rep.Step(c.Name, "generated the object storage credentials (Secret "+ObjectStorageAdminSecretName+")")
+	return nil
+}
+
+// Platform backups (RFC-0037): the passphrase that encrypts every archive,
+// generated once and printed by `shpyrd cluster backup key`, and the target
+// (bucket, endpoint, region, credentials from --backup-credentials-file or
+// none when the pod's cloud identity signs).
+const (
+	BackupKeySecretName    = "shpyrd-backup-key"
+	BackupTargetSecretName = "platform-backup-target"
+)
+
+func backupTargetHook(ctx context.Context, e *Engine, c *Component) error {
+	target := e.vars[VarBackupTarget]
+	if target == "" {
+		return errors.New("platform backups need a target: --backup-target s3://bucket/prefix (contrib/*/terraform prints it), or skip the component")
+	}
+	secrets := e.kube.Kube.CoreV1().Secrets(c.Namespace)
+	if _, err := secrets.Get(ctx, BackupKeySecretName, metav1.GetOptions{}); err == nil {
+		e.rep.Step(c.Name, "keeping the existing backup passphrase")
+	} else {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return err
+		}
+		if err := e.applyOpaqueSecret(ctx, c.Namespace, BackupKeySecretName, map[string]string{"passphrase": hex.EncodeToString(raw)}); err != nil {
+			return err
+		}
+		e.rep.Step(c.Name, "generated the backup passphrase (Secret "+BackupKeySecretName+"; print it with `shpyrd cluster backup key` and keep it elsewhere)")
+	}
+	data := map[string]string{
+		"SHPYRD_BACKUP_TARGET":   target,
+		"SHPYRD_BACKUP_ENDPOINT": e.vars[VarBackupEndpoint],
+		"SHPYRD_BACKUP_REGION":   e.vars[VarBackupRegion],
+	}
+	if e.opts.BackupCredentials != nil {
+		for k, v := range e.opts.BackupCredentials {
+			data[k] = v
+		}
+	} else if existing, err := secrets.Get(ctx, BackupTargetSecretName, metav1.GetOptions{}); err == nil {
+		// Keep credentials given on an earlier run.
+		for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} {
+			if v, ok := existing.Data[k]; ok {
+				data[k] = string(v)
+			}
+		}
+	}
+	if err := e.applyOpaqueSecret(ctx, c.Namespace, BackupTargetSecretName, data); err != nil {
+		return err
+	}
+	how := "the pod's cloud identity"
+	if data["AWS_ACCESS_KEY_ID"] != "" {
+		how = "an access key"
+	}
+	e.rep.Step(c.Name, "backups go to "+target+" ("+how+")")
 	return nil
 }

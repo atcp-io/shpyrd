@@ -1,0 +1,62 @@
+# The platform's state, exported by the server binary and encrypted with the
+# passphrase in Secret shpyrd-backup-key (print it with `shpyrd cluster
+# backup key` and keep it somewhere else: without it a backup is noise), to
+# the target in Secret platform-backup-target (hook backup-target, from
+# --backup-target and its credentials). `shpyrd cluster backup` runs the
+# same job now.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: platform-backup
+spec:
+  schedule: "${SHPYRD_BACKUP_SCHEDULE}"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: platform-backup
+            app.kubernetes.io/part-of: shpyrd
+        spec:
+          serviceAccountName: shpyrd-server
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: ${SHPYRD_SERVER_IMAGE}
+              args: ["backup"]
+              env:
+                - name: SHPYRD_SYSTEM_NAMESPACE
+                  value: shpyrd-system
+                - name: SHPYRD_INTERNAL_URL
+                  value: http://shpyrd-server.shpyrd-system.svc
+                - name: SHPYRD_BACKUP_KEEP
+                  value: "${SHPYRD_BACKUP_KEEP}"
+                - name: SHPYRD_BACKUP_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: shpyrd-backup-key
+                      key: passphrase
+              envFrom:
+                - secretRef:
+                    name: platform-backup-target
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi

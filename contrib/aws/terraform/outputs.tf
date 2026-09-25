@@ -96,6 +96,8 @@ resource "local_file" "shpyrd_vars" {
     SHPYRD_DNS_PROVIDER=${var.dns_zone != "" ? "aws" : "none"}
     SHPYRD_DNS_ZONE_ID=${var.dns_zone != "" ? aws_route53_zone.platform[0].zone_id : ""}
     SHPYRD_DNS_REGION=${var.region}
+    SHPYRD_BACKUP_TARGET=${var.backup_bucket != "" ? "s3://${var.backup_bucket}/${var.name}" : ""}
+    SHPYRD_BACKUP_REGION=${var.backup_bucket != "" ? var.region : ""}
   EOT
 }
 

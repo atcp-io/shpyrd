@@ -84,6 +84,15 @@ cloud through Kubernetes (projects with their data, load balancers, disks) and w
 the cloud to confirm, so nothing outlives the cluster; then `terraform destroy` removes
 the cluster, the network, the zone and the VPN.
 
+## Platform backups
+
+`backups/` is a Terraform root of its own: an S3 bucket `<name>-backups-<account id>`
+(private, encrypted at rest). It is apart from the cluster's state on purpose: the
+archives outlive `terraform destroy` here and a new cluster restores from them. Set
+`backup_bucket = "<bucket>"` in this root's `terraform.tfvars` and apply: the platform's
+service account gets the bucket through Pod Identity (no keys) and the vars file gains the
+target (RFC-0037).
+
 ## Caveats
 
 - Costs at the defaults (us-east-1, on demand): EKS control plane $0.10/h, two `t3a.large`

@@ -9,6 +9,7 @@ import { GlobalsEditor } from "@/components/globals-editor";
 import { DrainsCard } from "@/components/drains-card";
 import { RegistryCard } from "@/components/registry-card";
 import { ObjectStorageCard } from "@/components/object-storage-card";
+import { BackupsCard } from "@/components/backups-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -213,6 +214,7 @@ export function ClusterPage() {
         config.data?.extensions?.includes("object-storage") && (
           <ObjectStorageCard />
         )}
+      {perms.clusterAdmin && <BackupsCard />}
       <SizesEditor readOnly={!perms.clusterAdmin} />
       {perms.clusterAdmin && <GlobalsEditor />}
       {perms.clusterAdmin && (

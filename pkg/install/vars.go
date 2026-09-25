@@ -69,10 +69,16 @@ const (
 	VarStorageClassShared = "SHPYRD_STORAGE_CLASS_SHARED" // class for shared (ReadWriteMany) volumes
 	VarVolumeMinSize      = "SHPYRD_VOLUME_MIN_SIZE"      // provider minimum a request is rounded up to ("" = none)
 	VarSnapshotClass      = "SHPYRD_SNAPSHOT_CLASS"       // VolumeSnapshotClass for `shpyrd volumes snapshot` ("" = snapshots unavailable)
-	VarObjectStorageSize  = "SHPYRD_OBJECT_STORAGE_SIZE"  // MinIO volume of the object-storage extension (RFC-0046)
-	VarFSSMountTarget     = "SHPYRD_FSS_MOUNT_TARGET"     // OCI File Storage mount target OCID behind shared volumes ("" = no shared volumes)
-	VarFSSAD              = "SHPYRD_FSS_AD"               // availability domain of the shared volumes' file systems (OCI)
-	VarEFSID              = "SHPYRD_EFS_ID"               // EFS file system behind shared volumes ("" = no shared volumes) (AWS)
+	VarObjectStorageSize  = "SHPYRD_OBJECT_STORAGE_SIZE"  // volume of the object-storage extension (RFC-0046)
+	// Platform backups (RFC-0037): where the encrypted archives go.
+	VarBackupTarget   = "SHPYRD_BACKUP_TARGET"   // s3://bucket/prefix ("" = component skipped)
+	VarBackupEndpoint = "SHPYRD_BACKUP_ENDPOINT" // S3 endpoint URL ("" = AWS S3 in the region)
+	VarBackupRegion   = "SHPYRD_BACKUP_REGION"
+	VarBackupSchedule = "SHPYRD_BACKUP_SCHEDULE"  // cron, UTC
+	VarBackupKeep     = "SHPYRD_BACKUP_KEEP"      // archives kept
+	VarFSSMountTarget = "SHPYRD_FSS_MOUNT_TARGET" // OCI File Storage mount target OCID behind shared volumes ("" = no shared volumes)
+	VarFSSAD          = "SHPYRD_FSS_AD"           // availability domain of the shared volumes' file systems (OCI)
+	VarEFSID          = "SHPYRD_EFS_ID"           // EFS file system behind shared volumes ("" = no shared volumes) (AWS)
 	// AWS Load Balancer Controller (RFC-0035): the cluster it manages and the
 	// Elastic IPs of the public front door.
 	VarAWSCluster = "SHPYRD_AWS_CLUSTER"

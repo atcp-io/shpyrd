@@ -348,6 +348,35 @@ export type ClusterMetrics = {
 
 // The image registry (RFC-0059).
 /** The platform's object store (RFC-0046). */
+/** Platform backups (RFC-0037): the target, the schedule, the archives. */
+export type BackupInfo = {
+  enabled: boolean;
+  target?: string;
+  endpoint?: string;
+  schedule?: string;
+  keep?: number;
+  accessKey: boolean;
+  lastScheduled?: string;
+  lastSuccessful?: string;
+  runs: BackupRun[];
+  archives: BackupArchive[];
+  error?: string;
+};
+
+export type BackupRun = {
+  name: string;
+  status: "running" | "succeeded" | "failed";
+  started?: string;
+  finished?: string;
+  message?: string;
+};
+
+export type BackupArchive = {
+  name: string;
+  size: number;
+  modified: string;
+};
+
 export type ObjectStorageSummary = {
   endpoint: string;
   totalBytes: number;
@@ -732,6 +761,11 @@ export const api = {
   registry: () => request<RegistryInfo>("/api/cluster/registry"),
   objectStorage: () =>
     request<ObjectStorageSummary>("/api/cluster/object-storage"),
+  backups: () => request<BackupInfo>("/api/cluster/backups"),
+  runBackup: () =>
+    request<{ job: string; status: string }>("/api/cluster/backups", {
+      method: "POST",
+    }),
   registryGC: () =>
     request<{ status: string }>("/api/cluster/registry/gc", { method: "POST" }),
   helmReleases: () => request<HelmRelease[]>("/api/helm/releases"),

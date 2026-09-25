@@ -24,3 +24,5 @@ dns_zone = "oci.example.com"
 # shared volumes hang off (RFC-0060). Needs the mount-target-count limit above
 # zero in the availability domain.
 # shared_storage = true
+
+# backup_bucket = "shpyrd-dev-backups"   # contrib/oci/terraform/backups creates it (RFC-0037)

@@ -261,6 +261,8 @@ func (s *Server) routes() error {
 	api.GET("/cluster/metrics", s.require(authz.ClusterView), s.clusterMetrics)
 	api.GET("/cluster/registry", s.require(authz.ClusterAdmin), s.registryInfo) // RFC-0059
 	api.POST("/cluster/registry/gc", s.require(authz.ClusterAdmin), s.registryGC)
+	api.GET("/cluster/backups", s.require(authz.ClusterAdmin), s.listBackups) // RFC-0037
+	api.POST("/cluster/backups", s.require(authz.ClusterAdmin), s.runBackup)
 	api.GET("/sizes", s.getSizes) // any signed-in user: the size selector needs it
 	api.PUT("/sizes", s.require(authz.ClusterAdmin), s.putSizes)
 	api.GET("/globals", s.require(authz.ClusterAdmin), s.getGlobals) // RFC-0016

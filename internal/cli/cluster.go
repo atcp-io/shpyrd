@@ -74,6 +74,9 @@ type initFlags struct {
 	// Front doors (RFC-0036).
 	internalLBSubnet string // OCI subnet OCID for the private LB
 	platformExposure string // "" = profile default
+	// Platform backups (RFC-0037): target bucket and its credentials file.
+	backupTarget          string
+	backupCredentialsFile string
 	// varsFile carries what the infrastructure knows (zone, addresses, file
 	// systems) so nobody copies identifiers by hand; domainExplicit says
 	// whether --domain was passed, so the file's domain can apply otherwise.
@@ -101,6 +104,8 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.dnsKeyFile, "dns-key-file", "", "PEM file with the DNS user's API signing key (contrib/oci/terraform writes it)")
 	cmd.Flags().StringVar(&f.dnsFingerprint, "dns-fingerprint", "", "fingerprint of the API key (derived from the key when omitted)")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
+	cmd.Flags().StringVar(&f.backupTarget, "backup-target", "", "s3://bucket/prefix for the platform's encrypted backups (contrib/*/terraform prints it; empty: no backups)")
+	cmd.Flags().StringVar(&f.backupCredentialsFile, "backup-credentials-file", "", "KEY=value file with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY for the backup target (omit on EKS: Pod Identity)")
 	cmd.Flags().StringVar(&f.varsFile, "vars-file", "", "file of SHPYRD_NAME=value lines with the values the infrastructure produced (contrib/*/terraform writes <name>.vars); flags and --set win over it")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
@@ -149,6 +154,9 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 	if f.internalLBSubnet != "" {
 		vars[install.VarInternalLBSubnet] = f.internalLBSubnet
 	}
+	if f.backupTarget != "" {
+		vars[install.VarBackupTarget] = f.backupTarget
+	}
 	if f.dnsAuth != "" {
 		vars[install.VarDNSAuth] = f.dnsAuth
 	} else if f.dnsKeyFile != "" {
@@ -190,6 +198,9 @@ func newClusterCmd(g *globalFlags) *cobra.Command {
 		newClusterTokenCmd(g),
 		newClusterDashboardCmd(g),
 		newClusterRegistryCmd(g),
+		newClusterBackupCmd(g),
+		newClusterBackupsCmd(g),
+		newClusterRestoreCmd(g),
 	)
 	return cmd
 }
@@ -575,6 +586,14 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		}
 		dnsKey = string(raw)
 	}
+	var backupCreds map[string]string
+	if flags.backupCredentialsFile != "" {
+		creds, err := readVarsFileAny(flags.backupCredentialsFile)
+		if err != nil {
+			return fmt.Errorf("--backup-credentials-file: %w", err)
+		}
+		backupCreds = creds
+	}
 	if flags.platformExposure != "" && flags.platformExposure != "external" && flags.platformExposure != "internal" {
 		return fmt.Errorf("--platform-exposure %q: external or internal", flags.platformExposure)
 	}
@@ -618,6 +637,10 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		if effectiveVar(vars, prof, install.VarEFSID) == "" && prof.HasComponent("storage-efs") {
 			skip = append(append([]string{}, skip...), "storage-efs")
 		}
+		// Platform backups need somewhere to go (RFC-0037).
+		if effectiveVar(vars, prof, install.VarBackupTarget) == "" && prof.HasComponent("platform-backup") {
+			skip = append(append([]string{}, skip...), "platform-backup")
+		}
 		// No DNS provider: no records automation, no wildcard certificate.
 		if dns := effectiveVar(vars, prof, install.VarDNSProvider); dns == "" || dns == "none" {
 			for _, c := range []string{"external-dns", "dns01-oci", "dns"} {
@@ -639,6 +662,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		RegistryPassword:  registryPassword,
 		DNSKeyPEM:         dnsKey,
 		DNSKeyFingerprint: flags.dnsFingerprint,
+		BackupCredentials: backupCreds,
 	}
 	eng, err := install.New(k, opts)
 	if err != nil {
@@ -1000,6 +1024,27 @@ func readVarsFile(path string) (map[string]string, error) {
 			return nil, fmt.Errorf("--vars-file %s:%d: expected SHPYRD_NAME=value, got %q", path, i+1, line)
 		}
 		out[k] = strings.Trim(strings.TrimSpace(v), `"`)
+	}
+	return out, nil
+}
+
+// readVarsFileAny parses KEY=value lines of any name (credential files).
+func readVarsFileAny(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			return nil, fmt.Errorf("expected KEY=value, got %q", line)
+		}
+		out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"`)
 	}
 	return out, nil
 }

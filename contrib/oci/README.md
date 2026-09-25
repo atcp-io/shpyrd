@@ -90,6 +90,15 @@ cloud through Kubernetes (projects with their data, load balancers, disks) and w
 the cloud to confirm, so nothing outlives the cluster; then `terraform destroy` removes
 the cluster, the network and the DNS zone.
 
+## Platform backups
+
+`backups/` is a Terraform root of its own: an Object Storage bucket `<name>-backups`
+and an IAM user whose Customer Secret Key opens only that bucket, written to
+`backups/<name>-backups.env`. It is apart from the cluster's state on purpose: the
+archives outlive `terraform destroy` here and a new cluster restores from them. Set
+`backup_bucket = "<name>-backups"` in this root's `terraform.tfvars` and apply: the vars
+file gains the target and `next_steps` adds `--backup-credentials-file` (RFC-0037).
+
 ## Caveats
 
 - OKE does not enforce Kubernetes `NetworkPolicy` with VCN-native pod networking; the

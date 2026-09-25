@@ -36,6 +36,15 @@ import (
 )
 
 func main() {
+	// `shpyrd-server backup`: one platform backup, then exit (RFC-0037).
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		if err := runBackup(logger); err != nil {
+			logger.Error("backup failed", "err", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	// A private FlagSet: controller-runtime registers its own --kubeconfig
 	// on flag.CommandLine at init time.
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)

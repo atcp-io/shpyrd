@@ -22,3 +22,5 @@ vpn = true
 
 # Shared (ReadWriteMany) volumes on EFS (RFC-0060); billed by the space used.
 shared_storage = true
+
+# backup_bucket = "shpyrd-dev-backups-<account-id>"   # contrib/aws/terraform/backups creates it (RFC-0037)

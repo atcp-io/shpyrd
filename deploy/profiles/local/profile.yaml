@@ -30,6 +30,14 @@ vars:
   SHPYRD_VOLUME_MIN_SIZE: ""
   # Object storage (RFC-0046): the MinIO volume of the object-storage extension.
   SHPYRD_OBJECT_STORAGE_SIZE: 20Gi
+  # Platform backups (RFC-0037): nightly encrypted archives of the platform's
+  # state to the provider's object storage (contrib/*/terraform prints the
+  # target); empty means none.
+  SHPYRD_BACKUP_TARGET: ""
+  SHPYRD_BACKUP_ENDPOINT: ""
+  SHPYRD_BACKUP_REGION: ""
+  SHPYRD_BACKUP_SCHEDULE: "0 3 * * *"
+  SHPYRD_BACKUP_KEEP: "14"
   SHPYRD_SNAPSHOT_CLASS: ""
   SHPYRD_FSS_MOUNT_TARGET: ""
   SHPYRD_EFS_ID: ""
@@ -70,4 +78,4 @@ runlevels:
   - name: rc3
     components: [kpack, monitoring]
   - name: rc4
-    components: [shpyrd]
+    components: [shpyrd, platform-backup]

@@ -104,7 +104,16 @@ resource "local_file" "shpyrd_vars" {
     SHPYRD_DNS_TENANCY=${var.dns_zone != "" ? var.tenancy_ocid : ""}
     SHPYRD_DNS_REGION=${var.dns_zone != "" ? var.region : ""}
     SHPYRD_DNS_USER=${local.dns_key ? oci_identity_user.dns[0].id : ""}
+    SHPYRD_BACKUP_TARGET=${var.backup_bucket != "" ? "s3://${var.backup_bucket}/${var.name}" : ""}
+    SHPYRD_BACKUP_ENDPOINT=${var.backup_bucket != "" ? "https://${data.oci_objectstorage_namespace.this.namespace}.compat.objectstorage.${var.region}.oraclecloud.com" : ""}
+    SHPYRD_BACKUP_REGION=${var.backup_bucket != "" ? var.region : ""}
   EOT
+}
+
+# The Object Storage namespace names the S3-compatible endpoint of the
+# backup bucket (contrib/oci/terraform/backups).
+data "oci_objectstorage_namespace" "this" {
+  compartment_id = var.tenancy_ocid
 }
 
 output "vars_file" {
@@ -128,6 +137,6 @@ output "next_steps" {
     ${var.vpn ? "" : "../tunnel.sh                           # Bastion session + ssh tunnel 127.0.0.1:6443 (3 hours; run again)"}
     kubectl --context oke-${var.name} get nodes
     shpyrd cluster init --context oke-${var.name} --profile oci --vars-file ${abspath(local_file.shpyrd_vars.filename)} \
-      --set SHPYRD_ACME_EMAIL=<email>${local.dns_key ? " --dns-key-file ${abspath(local_sensitive_file.dns_key[0].filename)}" : ""} --enable auth-local
+      --set SHPYRD_ACME_EMAIL=<email>${local.dns_key ? " --dns-key-file ${abspath(local_sensitive_file.dns_key[0].filename)}" : ""}${var.backup_bucket != "" ? " --backup-credentials-file ${abspath("${path.module}/backups/${var.name}-backups.env")}" : ""} --enable auth-local
   EOT
 }
