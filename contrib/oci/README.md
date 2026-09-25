@@ -31,8 +31,11 @@ cd ..
 kubectl --context oke-<name> get nodes         # the name variable, default in variables.tf
 ```
 
-`terraform output next_steps` prints the `shpyrd cluster init` command with the reserved
-address filled in. With `dns_zone` set, delegate the zone once from its parent (NS records
+`terraform output next_steps` prints the `shpyrd cluster init` command. Terraform writes
+`<name>.vars` with every value the platform needs from the infrastructure (domain,
+reserved address, private LB subnet, File Storage, DNS zone and user); `cluster init
+--vars-file` reads it and only the DNS key travels as its own file (`--dns-key-file`).
+With `dns_zone` set, delegate the zone once from its parent (NS records
 from `terraform output dns_zone_nameservers`); the wildcard record already points at the
 reserved address, so the platform's hostnames resolve as soon as the delegation does.
 
@@ -54,8 +57,8 @@ reserved address, so the platform's hostnames resolve as soon as the delegation 
 - **Shared volumes on File Storage** (`shared_storage = true`, RFC-0060): one mount target
   in the workers subnet behind a security group that admits NFS from the workers only, and
   an IAM policy letting the cluster's CSI plugin create file systems. Pass the two values
-  `next_steps` prints (`--set SHPYRD_FSS_MOUNT_TARGET=… --set SHPYRD_FSS_AD=…`) to
-  `shpyrd cluster init`. Off by default because it needs the File Storage service limits
+  `next_steps` prints (the vars file carries `SHPYRD_FSS_MOUNT_TARGET` and `SHPYRD_FSS_AD`)
+  to `shpyrd cluster init`. Off by default because it needs the File Storage service limits
   `mount-target-count` and `file-system-count` above zero in the availability domain, which
   some tenancies must request first (Console: Governance > Limits, Quotas and Usage > File
   Storage). The mount target is free; file systems bill by the space used.
