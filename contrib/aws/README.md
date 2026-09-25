@@ -34,8 +34,11 @@ The Kubernetes API is private: kubectl works with the VPN connected (or from ins
 VPC). `api_public_access = true` adds a public endpoint restricted to `admin_cidrs` for
 machines that cannot run the VPN; Terraform refuses to leave a cluster with neither.
 
-`terraform output next_steps` prints the `shpyrd cluster init` command with the zone, the
-EFS file system and the DNS flags filled in. With `dns_zone` set, delegate the zone once
+`terraform output next_steps` prints the `shpyrd cluster init` command. Terraform writes
+`<name>.vars` with every value the platform needs from the infrastructure (domain, Elastic
+IPs, EFS, zone); `cluster init --vars-file` reads it, so no identifier is copied by hand,
+and the cluster name, VPC and region are discovered from the cluster when the file is
+absent. With `dns_zone` set, delegate the zone once
 from its parent (NS records from `terraform output dns_zone_nameservers`); ExternalDNS
 publishes `*.<zone>` as an alias of the external load balancer as soon as the platform is
 up, so no record is written by Terraform.
