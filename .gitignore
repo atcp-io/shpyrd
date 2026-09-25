@@ -35,3 +35,6 @@ hack/oci/.out.env
 terraform.tfvars
 /shpyrd-server
 *-dns.pem
+
+# terraform (contrib/aws): the VPN profile is a credential
+*-vpn.ovpn

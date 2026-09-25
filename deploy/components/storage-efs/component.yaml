@@ -1,0 +1,6 @@
+name: storage-efs
+description: Storage class for shared (ReadWriteMany) volumes on EFS, behind the file system contrib/aws/terraform creates (RFC-0060)
+namespace: kube-system
+kustomize:
+  path: base
+timeout: 2m

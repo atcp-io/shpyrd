@@ -1,0 +1,17 @@
+# AWS profile: an internet-facing Network Load Balancer from the in-tree
+# cloud provider in the public subnets (kubernetes.io/role/elb). It has a
+# hostname rather than an address; ExternalDNS publishes *.<domain> as an
+# alias of it when a DNS provider is configured (RFC-0061).
+controller:
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+      external-dns.kubernetes.io/hostname: "*.${SHPYRD_DOMAIN}"
+  publishService:
+    enabled: true
+  extraArgs:
+    default-ssl-certificate: ${SHPYRD_DEFAULT_TLS_SECRET}
+  replicaCount: 1

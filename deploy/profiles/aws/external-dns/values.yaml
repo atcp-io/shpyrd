@@ -1,0 +1,10 @@
+# Route 53 through EKS Pod Identity: contrib/aws/terraform associates the
+# shpyrd-system/external-dns service account with a role allowed to change
+# the platform's zone; no key anywhere. Load balancer hostnames become alias
+# records.
+env:
+  - name: AWS_DEFAULT_REGION
+    value: ${SHPYRD_DNS_REGION}
+extraArgs:
+  aws-zone-type: public
+zoneIdFilters: [${SHPYRD_DNS_ZONE_ID}]

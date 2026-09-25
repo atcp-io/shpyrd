@@ -1,0 +1,6 @@
+name: storage-gp3
+description: Storage class for single-instance volumes on EBS gp3 (encrypted, expandable), the cluster default (RFC-0060)
+namespace: kube-system
+kustomize:
+  path: base
+timeout: 2m

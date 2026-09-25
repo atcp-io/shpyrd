@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars (ignored by git) and fill in.
+
+profile = "default"        # aws CLI profile; empty for the environment
+region  = "us-east-1"
+
+# name = "shpyrd-prod"     # prefixes every resource and names the cluster; default in variables.tf
+kubernetes_version = "1.36"
+
+node_instance_type = "t3a.large"
+node_count         = 2
+# admin_cidrs = ["203.0.113.4/32"]   # public API endpoint allow list; default: this machine's address
+
+# Public zone in Route 53 for the platform (delegate from the parent zone); empty for none.
+dns_zone = "aws.example.com"
+
+# Access path: AWS Client VPN endpoint + profile for the AWS VPN Client (billed per hour).
+vpn = true
+
+# Shared (ReadWriteMany) volumes on EFS (RFC-0060); billed by the space used.
+shared_storage = true

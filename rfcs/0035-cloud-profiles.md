@@ -1,14 +1,14 @@
 # RFC-0035 Cloud profiles: Oracle Cloud (OKE) and AWS (EKS)
 
-**Status:** implemented (`oci` profile, `network-policy` component); AWS provisional
+**Status:** implemented (`oci` profile, `network-policy` component); `aws` profile in progress
 
-**Owner:** unassigned (AWS)
+**Owner:** unassigned
 
 **Depends on:** RFC-0045 (implemented); RFC-0034 for custom domains
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-24 (retitled from "AWS profile": the first cloud target became OKE)
+**Last update:** 2026-09-25 (AWS design: EKS with Pod Identity, NLBs, Route 53, Client VPN)
 
 ## Summary
 
@@ -80,14 +80,64 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 - Nodes run CRI-O on Oracle Linux 8; the kubelet's short-name enforcement surfaced every
   unqualified image reference (Valkey, probes) and they are qualified now.
 
-### AWS (`aws`) — provisional
+### AWS (`aws`)
 
-- EKS with the AWS Load Balancer Controller (NLB for ingress-nginx), `gp3` and `efs`
-  storage classes, ECR through an IRSA role for builds or the in-cluster registry
-  (RFC-0059), Route 53 through RFC-0061; the EKS OIDC link so the RBAC mirror applies to
-  `kubectl` users. Prerequisites checked by `cluster init`: IAM roles, the cluster's OIDC
-  provider. Documentation: an eksctl example, IAM policies, costs. Blocked on a test
-  account.
+Reference infrastructure in `contrib/aws/terraform` (mirrors `contrib/oci`), the platform
+from `shpyrd cluster init --profile aws`.
+
+- **Network and cluster.** A VPC with two public subnets (load balancers, one NAT gateway)
+  and two private /19 subnets (nodes; the VPC CNI gives pods VPC addresses, so they are
+  large), tagged for the in-tree load balancer discovery (`kubernetes.io/role/elb`,
+  `internal-elb`). EKS with the API authentication mode (the Terraform caller is the
+  first administrator through an access entry), a private endpoint for nodes and VPN
+  clients plus a public one restricted to `admin_cidrs` (this machine's address by
+  default), standard support only (no extended-support fee), service range
+  `10.100.0.0/16`. One managed node group on AL2023 (`t3a.large`, 2 nodes) with containerd.
+- **Add-ons instead of components** where EKS ships them: `vpc-cni` with
+  `enableNetworkPolicy` (the VPC CNI's own agent enforces `NetworkPolicy`, so
+  `SHPYRD_NETWORK_POLICY=none` and `cluster init` recognises `aws-node` as a policy
+  engine), `coredns`, `kube-proxy`, `eks-pod-identity-agent`, `aws-ebs-csi-driver` and
+  `aws-efs-csi-driver` with Pod Identity roles.
+- **Credentials without secrets.** EKS Pod Identity associations give IAM roles to the
+  service accounts that need AWS: the two CSI drivers, `shpyrd-system/external-dns` and
+  `cert-manager/cert-manager` (Route 53 on the platform's zone only). No access keys are
+  created or stored; the OCI API-key flow stays OCI's.
+- **Load balancers.** The in-tree cloud provider creates Network Load Balancers for the two
+  ingress-nginx Services (`aws-load-balancer-type: nlb`; `aws-load-balancer-internal` for
+  the internal front door, RFC-0036), `externalTrafficPolicy: Local` so client addresses
+  survive. An NLB has a hostname, not an address: `SHPYRD_LB_IP` stays empty, ExternalDNS
+  publishes `*.<domain>` as an alias of the external NLB from the Service annotation and
+  internal hostnames as aliases of the internal NLB, and everything that showed an address
+  (cluster page, `cluster init`, the ExternalDNS target of internal Ingresses) shows the
+  hostname. Custom domains (RFC-0034) point at the project hostname with a CNAME (or an
+  alias at an apex); the A-record option only exists where the front door has an address.
+- **DNS (RFC-0061).** `--dns aws --dns-zone-id <id> --dns-region <region>`: ExternalDNS
+  with the `aws` provider, the wildcard certificate through cert-manager's built-in Route
+  53 DNS-01 solver with ambient (Pod Identity) credentials; the zone is created by
+  Terraform when `dns_zone` is set and delegated once from its parent.
+- **Storage (RFC-0060).** `gp3` (EBS CSI, encrypted, expansion allowed, the cluster's
+  default class since EKS 1.30 marks none), `1Gi` minimum, snapshots with the vendored
+  `snapshot-controller` and class `ebs-snapshot`; shared volumes on EFS through access
+  points (`shpyrd-efs`: one access point per volume, owned by uid/gid 1000, so the same
+  group the platform hands block volumes to writes there without any squash). Terraform
+  creates the file system and its mount targets (`shared_storage`, on by default: EFS has
+  no service limit to request and bills by use).
+- **Registry (RFC-0059).** In-cluster on `10.100.0.50`, 20Gi (`gp3` has no minimum worth
+  reserving for); node trust through `registry-nodes` (containerd `certs.d`).
+- **Access path.** AWS Client VPN with certificate authentication: Terraform generates
+  the CA, server and one client certificate (`tls` provider), imports the server
+  certificate to ACM, creates the endpoint (split tunnel to the VPC, the VPC resolver as
+  DNS so the private API endpoint resolves), associates one private subnet and writes
+  `<name>-vpn.ovpn` next to the state for the AWS VPN Client. With it connected, the
+  private front door, the private API endpoint and internal projects are reachable from
+  this machine; without it the public endpoint (restricted to `admin_cidrs`) serves
+  kubectl. Costs: the association is billed per hour while it exists (`vpn = false`
+  removes it), connections per hour while connected.
+- **Costs at the defaults** (us-east-1, on demand): EKS control plane $0.10/h, two
+  `t3a.large` $0.15/h, NAT gateway $0.045/h plus data, two NLBs $0.045/h, Client VPN
+  association $0.10/h plus $0.05/h per connection; about $0.45/h all in, so a cluster is
+  created for a working session and destroyed after it (`shpyrd cluster destroy
+  --context eks-<name>`, then `terraform destroy`).
 
 ### Alternatives
 
@@ -95,6 +145,16 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
   scripts document the layout for now and keep the CLI free of cloud SDKs.
 - **Cloud-agnostic ingress through a hosted edge** (Cloudflare Tunnel and the like).
   Interesting for hobby clusters; production platforms want their own load balancer.
+- **AWS Load Balancer Controller** instead of the in-tree provider. It adds Elastic IPs,
+  IP targets and ALB Ingresses at the price of another controller with its own IAM role
+  and webhook; nothing in the platform needs those yet. It can be added later without
+  changing what users see (hostnames stay hostnames).
+- **IRSA** instead of Pod Identity. Works on any EKS version but needs the OIDC provider
+  and a trust policy per role; Pod Identity is the newer, simpler association and the
+  add-ons support it directly.
+- **Reaching the private front door through a bastion.** A bastion or SSH port forward
+  serves one target and one person; a web platform has many hostnames and many users. The
+  VPN gives the machine a route into the VPC, which is what private front doors need.
 
 ## Design Details
 
@@ -129,7 +189,8 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 ## Open questions
 
 1. AWS: existing EKS cluster only (default: yes); a test account is needed before work
-   starts.
+   starts. Decided: reference Terraform like OCI's (`contrib/aws`), and the profile works
+   on any EKS cluster with the same add-ons and Pod Identity associations.
 
 Decided: Calico policy-only is installed by default on `oci` (`SHPYRD_NETWORK_POLICY=none`
 skips it), and project policies deny egress to the link-local range on every profile.
@@ -157,3 +218,6 @@ skips it), and project policies deny egress to the link-local range on every pro
   `contrib/oci/terraform` (plain resources, OpenTofu-compatible), with a reserved public
   address for the load balancer (`SHPYRD_LB_IP`) and an optional OCI DNS zone with the
   wildcard record; the proof of concept was rebuilt from it in one apply.
+- 2026-09-25: AWS design written after the OCI phase: EKS with Pod Identity, in-tree
+  NLBs, Route 53 through ExternalDNS and cert-manager's solver, gp3/EFS/snapshots, Client
+  VPN as the access path. Implementation starts.

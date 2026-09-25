@@ -70,6 +70,7 @@ type initFlags struct {
 	dnsUser        string
 	dnsKeyFile     string
 	dnsFingerprint string
+	dnsZoneID      string // Route 53 hosted zone (aws)
 	// Front doors (RFC-0036).
 	internalLBSubnet string // OCI subnet OCID for the private LB
 	platformExposure string // "" = profile default
@@ -85,11 +86,12 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.registryTokenFile, "registry-token-file", "", "file holding the external registry's password or auth token")
 	cmd.Flags().StringVar(&f.internalLBSubnet, "internal-lb-subnet", "", "subnet OCID for the internal load balancer (OCI, RFC-0036); an empty value with SHPYRD_INTERNAL_LB=auto skips the internal controller")
 	cmd.Flags().StringVar(&f.platformExposure, "platform-exposure", "", "whether the platform dashboard uses the external or internal front door (external|internal)")
-	cmd.Flags().StringVar(&f.dns, "dns", "", "DNS provider that hosts the platform's zone: oci (records and the wildcard certificate are then automatic) or none")
+	cmd.Flags().StringVar(&f.dns, "dns", "", "DNS provider that hosts the platform's zone: oci, aws (records and the wildcard certificate are then automatic) or none")
 	cmd.Flags().StringVar(&f.dnsAuth, "dns-auth", "", "how the cluster authenticates to the DNS provider: key (default with --dns-key-file) or workload (OKE workload identity, enhanced clusters)")
 	cmd.Flags().StringVar(&f.dnsCompartment, "dns-compartment", "", "OCI compartment OCID holding the zone")
 	cmd.Flags().StringVar(&f.dnsTenancy, "dns-tenancy", "", "OCI tenancy OCID (with --dns-key-file)")
-	cmd.Flags().StringVar(&f.dnsRegion, "dns-region", "", "OCI region of the zone, e.g. sa-saopaulo-1")
+	cmd.Flags().StringVar(&f.dnsRegion, "dns-region", "", "region of the zone (oci: e.g. sa-saopaulo-1; aws: the cluster's region, e.g. us-east-1)")
+	cmd.Flags().StringVar(&f.dnsZoneID, "dns-zone-id", "", "Route 53 hosted zone id of the platform's zone (with --dns aws; contrib/aws/terraform prints it)")
 	cmd.Flags().StringVar(&f.dnsUser, "dns-user", "", "OCI user OCID owning the API key (with --dns-key-file)")
 	cmd.Flags().StringVar(&f.dnsKeyFile, "dns-key-file", "", "PEM file with the DNS user's API signing key (contrib/oci/terraform writes it)")
 	cmd.Flags().StringVar(&f.dnsFingerprint, "dns-fingerprint", "", "fingerprint of the API key (derived from the key when omitted)")
@@ -135,6 +137,7 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 		install.VarDNSTenancy:     f.dnsTenancy,
 		install.VarDNSRegion:      f.dnsRegion,
 		install.VarDNSUser:        f.dnsUser,
+		install.VarDNSZoneID:      f.dnsZoneID,
 	} {
 		if v != "" {
 			vars[k] = v
@@ -550,8 +553,11 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		}
 		dnsKey = string(raw)
 	}
-	if flags.dns != "" && flags.dns != "none" && flags.dns != "oci" {
-		return fmt.Errorf("--dns %q: oci or none", flags.dns)
+	if flags.dns != "" && flags.dns != "none" && flags.dns != "oci" && flags.dns != "aws" {
+		return fmt.Errorf("--dns %q: oci, aws or none", flags.dns)
+	}
+	if flags.dns == "aws" && (flags.dnsZoneID == "" || flags.dnsRegion == "") {
+		return errors.New("--dns aws needs --dns-zone-id and --dns-region (contrib/aws/terraform prints them)")
 	}
 
 	k, err := kube.Connect(kopts)
@@ -582,6 +588,9 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		// class makes no sense without it and the Volume controller explains.
 		if effectiveVar(vars, prof, install.VarFSSMountTarget) == "" && prof.HasComponent("storage-fss") {
 			skip = append(append([]string{}, skip...), "storage-fss")
+		}
+		if effectiveVar(vars, prof, install.VarEFSID) == "" && prof.HasComponent("storage-efs") {
+			skip = append(append([]string{}, skip...), "storage-efs")
 		}
 		// No DNS provider: no records automation, no wildcard certificate.
 		if dns := effectiveVar(vars, prof, install.VarDNSProvider); dns == "" || dns == "none" {
@@ -724,8 +733,14 @@ func networkPolicyEngine(ctx context.Context, k *kube.Client) string {
 			if name, ok := known[ds.Name]; ok && name != "" {
 				return name
 			}
-			if ds.Name == "aws-network-policy-agent" {
-				return "Amazon VPC CNI network policy agent"
+			// The VPC CNI's agent is a container of aws-node, enforcing only
+			// when the add-on runs it with network policy on.
+			if ds.Name == "aws-node" {
+				for _, c := range ds.Spec.Template.Spec.Containers {
+					if c.Name == "aws-eks-nodeagent" && contains(c.Args, "--enable-network-policy=true") {
+						return "Amazon VPC CNI network policy agent"
+					}
+				}
 			}
 		}
 	}

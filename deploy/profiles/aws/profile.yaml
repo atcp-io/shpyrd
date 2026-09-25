@@ -1,0 +1,74 @@
+name: aws
+description: AWS (EKS) with Network Load Balancers, Let's Encrypt certificates, Route 53 and the in-cluster registry
+vars:
+  # Pass --domain (the Route 53 zone) and the ACME e-mail; contrib/aws/terraform
+  # creates the cluster and prints the command:
+  #   --set SHPYRD_ACME_EMAIL=you@example.com --dns aws --dns-zone-id <id> --dns-region <region>
+  SHPYRD_DOMAIN: apps.example.com
+  # In-cluster registry on a fixed ClusterIP in the cluster's Service range
+  # (10.100.0.0/16 in contrib/aws/terraform), TLS from the platform CA.
+  SHPYRD_REGISTRY_IP: 10.100.0.50
+  SHPYRD_REGISTRY_HOST: 10.100.0.50:5000
+  SHPYRD_REGISTRY_INSECURE: "false"
+  SHPYRD_REGISTRY_SECRET: shpyrd-registry
+  SHPYRD_REGISTRY_SIZE: 20Gi
+  SHPYRD_REGISTRY_GC: "0 4 * * 0"    # weekly garbage collection (cron, UTC; "off" disables)
+  # Public certificates from Let's Encrypt; the platform CA (generated once
+  # in the cluster) signs the registry and the admission webhook.
+  SHPYRD_CLUSTER_ISSUER: letsencrypt
+  SHPYRD_ACME_EMAIL: ""
+  SHPYRD_CA_SOURCE: cluster
+  # The VPC CNI enforces NetworkPolicy with its own agent (enableNetworkPolicy
+  # in contrib/aws/terraform): no policy engine to install.
+  SHPYRD_NETWORK_POLICY: none
+  # DNS automation (RFC-0061): --dns aws with the hosted zone and region;
+  # the credential is the IAM role EKS Pod Identity gives ExternalDNS and
+  # cert-manager (contrib/aws/terraform). Records for the platform's
+  # hostnames are then published by ExternalDNS and one wildcard certificate
+  # (DNS-01) serves every project.
+  # Front doors (RFC-0036): an internet-facing NLB for the platform (default;
+  # move to internal when the VPN is your way in) and an internal NLB for
+  # exposure:internal, both in the subnets Terraform tagged for them.
+  SHPYRD_PLATFORM_EXPOSURE: external
+  SHPYRD_INTERNAL_LB: "auto"
+  SHPYRD_INTERNAL_LB_SUBNET: ""
+  SHPYRD_INGRESS_CLASS_EXTERNAL: nginx
+  SHPYRD_INGRESS_CLASS_INTERNAL: nginx-internal
+  # Volumes (RFC-0060): EBS gp3 (encrypted, expansion allowed, 1 GiB
+  # minimum); snapshots are EBS snapshots; shared volumes are EFS access
+  # points in the file system contrib/aws/terraform creates:
+  #   --set SHPYRD_EFS_ID=fs-...
+  SHPYRD_STORAGE_CLASS: gp3
+  SHPYRD_STORAGE_CLASS_SHARED: shpyrd-efs
+  SHPYRD_VOLUME_MIN_SIZE: 1Gi
+  SHPYRD_SNAPSHOT_CLASS: ebs-snapshot
+  SHPYRD_EFS_ID: ""
+  SHPYRD_FSS_MOUNT_TARGET: ""
+  SHPYRD_FSS_AD: ""
+  SHPYRD_DNS_PROVIDER: none
+  SHPYRD_DNS_AUTH: key
+  SHPYRD_DNS_ZONE_ID: ""
+  SHPYRD_DNS_COMPARTMENT: ""
+  SHPYRD_DNS_TENANCY: ""
+  SHPYRD_DNS_REGION: ""
+  SHPYRD_DNS_USER: ""
+  # A cloud load balancer terminates nothing and listens on 80/443: URLs carry no port.
+  SHPYRD_FRONT_DOOR: lb
+  # Network Load Balancers have hostnames, not addresses: stays empty.
+  SHPYRD_LB_IP: ""
+  SHPYRD_LOCAL_DNS: "false"
+  SHPYRD_HTTP_PORT: "80"
+  SHPYRD_HTTPS_PORT: "443"
+  # VPC CNI: pods take addresses from the VPC.
+  SHPYRD_POD_CIDR: 10.0.0.0/16
+runlevels:
+  - name: rc0
+    components: [monitoring-crds]
+  - name: rc1
+    components: [cert-manager, registry-credentials, snapshot-controller, storage-gp3, storage-efs]
+  - name: rc2
+    components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, ingress-nginx-internal, registry, registry-nodes, external-dns]
+  - name: rc3
+    components: [kpack, monitoring, dns]
+  - name: rc4
+    components: [shpyrd]

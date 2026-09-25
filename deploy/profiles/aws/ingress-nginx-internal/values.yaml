@@ -1,0 +1,9 @@
+# AWS: an internal Network Load Balancer from the in-tree cloud provider, in
+# the private subnets (kubernetes.io/role/internal-elb). Reachable from the
+# VPC and VPN clients only.
+controller:
+  service:
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"

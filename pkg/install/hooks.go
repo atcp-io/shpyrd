@@ -375,8 +375,17 @@ func dnsCredentialsHook(ctx context.Context, e *Engine, c *Component) error {
 	if provider == "" || provider == "none" {
 		return nil
 	}
+	if provider == "aws" {
+		// Route 53 through EKS Pod Identity: the role is attached to the
+		// service accounts by the infrastructure; nothing to write.
+		if e.vars[VarDNSZoneID] == "" || e.vars[VarDNSRegion] == "" {
+			return errors.New("--dns aws needs --dns-zone-id and --dns-region (contrib/aws/terraform prints them)")
+		}
+		e.rep.Step(c.Name, "DNS automation through EKS Pod Identity (no key)")
+		return nil
+	}
 	if provider != "oci" {
-		return fmt.Errorf("DNS provider %q is not supported yet (oci is)", provider)
+		return fmt.Errorf("DNS provider %q is not supported yet (oci and aws are)", provider)
 	}
 	compartment, tenancy, region := e.vars[VarDNSCompartment], e.vars[VarDNSTenancy], e.vars[VarDNSRegion]
 	if compartment == "" || region == "" {

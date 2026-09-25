@@ -47,7 +47,8 @@ const (
 	VarDNSCompartment = "SHPYRD_DNS_COMPARTMENT" // compartment holding the zone
 	VarDNSTenancy     = "SHPYRD_DNS_TENANCY"
 	VarDNSRegion      = "SHPYRD_DNS_REGION"
-	VarDNSUser        = "SHPYRD_DNS_USER" // IAM user of the API key
+	VarDNSUser        = "SHPYRD_DNS_USER"    // IAM user of the API key
+	VarDNSZoneID      = "SHPYRD_DNS_ZONE_ID" // Route 53 hosted zone id (aws)
 	// Derived from the DNS settings (see derivedVars).
 	VarDNSProfileSecret  = "SHPYRD_DNS_PROFILE_SECRET"  // the webhook's credential Secret name ("" with workload identity)
 	VarDNSProfileSecrets = "SHPYRD_DNS_PROFILE_SECRETS" // the same as a YAML list body
@@ -66,6 +67,7 @@ const (
 	VarSnapshotClass      = "SHPYRD_SNAPSHOT_CLASS"       // VolumeSnapshotClass for `shpyrd volumes snapshot` ("" = snapshots unavailable)
 	VarFSSMountTarget     = "SHPYRD_FSS_MOUNT_TARGET"     // OCI File Storage mount target OCID behind shared volumes ("" = no shared volumes)
 	VarFSSAD              = "SHPYRD_FSS_AD"               // availability domain of the shared volumes' file systems (OCI)
+	VarEFSID              = "SHPYRD_EFS_ID"               // EFS file system behind shared volumes ("" = no shared volumes) (AWS)
 	// Local names and front door (RFC-0057).
 	VarFrontDoor        = "SHPYRD_FRONT_DOOR"        // "kind" (kind maps the ports) or "caddy" (an existing Caddy on 443 proxies to kind)
 	VarLocalDNS         = "SHPYRD_LOCAL_DNS"         // "true" when *.<domain> resolves through dnsmasq on this machine

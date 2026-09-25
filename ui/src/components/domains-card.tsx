@@ -71,9 +71,9 @@ export function DomainsCard({
           {r?.address && (
             <>
               {" "}
-              (or an A record to{" "}
-              <code className="font-mono text-xs">{r.address}</code> for a zone
-              apex)
+              (or an {/^[0-9a-f.:]+$/i.test(r.address) ? "A" : "ALIAS"} record
+              to <code className="font-mono text-xs">{r.address}</code> for a
+              zone apex)
             </>
           )}
           ; the certificate is issued as soon as DNS resolves here.

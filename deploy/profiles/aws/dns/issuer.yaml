@@ -1,0 +1,20 @@
+# Let's Encrypt through DNS-01 in Route 53: the only challenge that can issue
+# a wildcard and the one that works for hostnames the internet cannot reach.
+# The credential is the IAM role EKS Pod Identity hands cert-manager
+# (contrib/aws/terraform); cert-manager runs with --issuer-ambient-credentials
+# so a ClusterIssuer may use it.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${SHPYRD_ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-dns01-account
+    solvers:
+      - dns01:
+          route53:
+            region: ${SHPYRD_DNS_REGION}
+            hostedZoneID: ${SHPYRD_DNS_ZONE_ID}

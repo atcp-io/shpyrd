@@ -4,6 +4,7 @@
 package kexec
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -68,6 +69,33 @@ func Exec(ctx context.Context, k *kube.Client, namespace, pod, container string,
 			Container: container, Command: command, Stdin: true, Stdout: true, Stderr: !tty, TTY: tty,
 		}, scheme.ParameterCodec)
 	return Stream(ctx, k, req.URL().String(), tty, os.Stdout)
+}
+
+// Run executes command in the container without a terminal and returns
+// what it printed; for short, non-interactive commands issued by the
+// server (a `sync` before a snapshot).
+func Run(ctx context.Context, k *kube.Client, namespace, pod, container string, command []string) (string, error) {
+	req := k.Kube.CoreV1().RESTClient().Post().
+		Resource("pods").Namespace(namespace).Name(pod).SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container, Command: command, Stdout: true, Stderr: true,
+		}, scheme.ParameterCodec)
+	u := req.URL()
+	spdy, err := remotecommand.NewSPDYExecutor(k.Config, "POST", u)
+	if err != nil {
+		return "", err
+	}
+	ws, err := remotecommand.NewWebSocketExecutor(k.Config, "GET", u.String())
+	if err != nil {
+		return "", err
+	}
+	executor, err := remotecommand.NewFallbackExecutor(ws, spdy, func(err error) bool { return httpstream.IsUpgradeFailure(err) })
+	if err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &out})
+	return out.String(), err
 }
 
 // Attach streams a pod's main process.

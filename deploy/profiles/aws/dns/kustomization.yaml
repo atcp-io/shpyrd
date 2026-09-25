@@ -1,0 +1,10 @@
+# Route 53: cert-manager's built-in DNS-01 solver with ambient credentials
+# (EKS Pod Identity on the cert-manager service account).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shpyrd
+resources:
+  - ../../../components/dns/base
+  - issuer.yaml

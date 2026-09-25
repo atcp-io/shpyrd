@@ -1,0 +1,13 @@
+# OCI DNS: the credential (or the workload-identity choice) is the oci.yaml
+# the dns-credentials hook writes as Secret external-dns-config.
+extraArgs:
+  oci-zone-scope: GLOBAL
+  oci-zones-cache-duration: 5m
+extraVolumes:
+  - name: config
+    secret:
+      secretName: external-dns-config
+extraVolumeMounts:
+  - name: config
+    mountPath: /etc/kubernetes
+    readOnly: true

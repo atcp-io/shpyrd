@@ -1,0 +1,12 @@
+# OCI: a private flexible load balancer in the private LB subnet
+# (--internal-lb-subnet); Terraform owns the security lists.
+controller:
+  service:
+    annotations:
+      oci.oraclecloud.com/load-balancer-type: "lb"
+      service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+      service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+      service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "10"
+      service.beta.kubernetes.io/oci-load-balancer-internal: "true"
+      service.beta.kubernetes.io/oci-load-balancer-subnet1: "${SHPYRD_INTERNAL_LB_SUBNET}"
+      service.beta.kubernetes.io/oci-load-balancer-security-list-management-mode: "None"

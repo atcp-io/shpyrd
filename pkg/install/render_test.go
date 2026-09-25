@@ -30,6 +30,50 @@ func TestOCIProfileRenders(t *testing.T) {
 	}
 }
 
+func TestAWSProfileRenders(t *testing.T) {
+	eng := testProfileRenders(t, "aws", map[string]string{VarDomain: "aws.example.com", VarACMEEmail: "ops@example.com", VarDNSProvider: "aws", VarDNSZoneID: "Z123", VarDNSRegion: "us-east-1", VarEFSID: "fs-0123"}, "https://auth.aws.example.com")
+	if eng.vars[VarClusterIssuer] != "letsencrypt" || eng.vars[VarNetworkPolicy] != "none" || eng.vars[VarStorageClass] != "gp3" || eng.vars[VarWildcardTLS] != "true" {
+		t.Errorf("aws vars: issuer=%s policy=%s class=%s wildcard=%s", eng.vars[VarClusterIssuer], eng.vars[VarNetworkPolicy], eng.vars[VarStorageClass], eng.vars[VarWildcardTLS])
+	}
+	for _, present := range []string{"letsencrypt-issuers", "registry", "registry-nodes", "ingress-nginx", "ingress-nginx-internal", "external-dns", "dns", "snapshot-controller", "storage-gp3", "storage-efs", "kpack", "shpyrd"} {
+		if eng.components[present] == nil {
+			t.Errorf("aws profile must install %s", present)
+		}
+	}
+	for _, absent := range []string{"network-policy", "dns01-oci", "storage-fss"} {
+		if eng.components[absent] != nil {
+			t.Errorf("aws profile must not install %s", absent)
+		}
+	}
+	// The issuer comes from the profile overlay: Route 53, not the OCI webhook.
+	objs, err := eng.renderComponent(eng.components["dns"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issuer string
+	for _, o := range objs {
+		if o.GetKind() == "ClusterIssuer" {
+			issuer = mustYAML(t, o)
+		}
+	}
+	if !strings.Contains(issuer, "route53") || !strings.Contains(issuer, `"hostedZoneID":"Z123"`) || strings.Contains(issuer, "webhook") {
+		t.Errorf("aws issuer:\n%s", issuer)
+	}
+	// The NLB has a hostname: no loadBalancerIP, the wildcard from the Service.
+	vals, err := loadValues(deploy.FS, valuesFiles(deploy.FS, eng.components["ingress-nginx"], "aws"), eng.vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := vals["controller"].(map[string]interface{})["service"].(map[string]interface{})
+	ann := svc["annotations"].(map[string]interface{})
+	if _, has := svc["loadBalancerIP"]; has || ann["service.beta.kubernetes.io/aws-load-balancer-type"] != "nlb" || ann["external-dns.kubernetes.io/hostname"] != "*.aws.example.com" {
+		t.Errorf("aws ingress-nginx service values: %v", svc)
+	}
+	if _, oci := ann["oci.oraclecloud.com/load-balancer-type"]; oci {
+		t.Errorf("OCI annotations leaked into the aws profile: %v", ann)
+	}
+}
+
 // Every profile links the registry credential to the builder ServiceAccount
 // and gives the kpack controller the trust bundle (RFC-0059).
 func TestKpackRendersRegistryTrust(t *testing.T) {

@@ -115,20 +115,10 @@ func (s *Server) clusterSummary(c *gin.Context) {
 	}
 	// Load balancer addresses for the cluster page's front-door summary.
 	if svc, err := s.kube.Kube.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller", metav1.GetOptions{}); err == nil {
-		for _, in := range svc.Status.LoadBalancer.Ingress {
-			if in.IP != "" {
-				out.ExternalLBAddress = in.IP
-				break
-			}
-		}
+		out.ExternalLBAddress = lbAddress(svc)
 	}
 	if svc, err := s.kube.Kube.CoreV1().Services("ingress-nginx-internal").Get(ctx, "ingress-nginx-internal-controller", metav1.GetOptions{}); err == nil {
-		for _, in := range svc.Status.LoadBalancer.Ingress {
-			if in.IP != "" {
-				out.InternalLBAddress = in.IP
-				break
-			}
-		}
+		out.InternalLBAddress = lbAddress(svc)
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -176,6 +166,22 @@ func firstLabel(labels map[string]string, keys ...string) string {
 	for _, k := range keys {
 		if v := labels[k]; v != "" {
 			return v
+		}
+	}
+	return ""
+}
+
+// lbAddress is a load balancer Service's address: an IP where the cloud
+// gives one, else its hostname (an NLB on AWS).
+func lbAddress(svc *corev1.Service) string {
+	for _, in := range svc.Status.LoadBalancer.Ingress {
+		if in.IP != "" {
+			return in.IP
+		}
+	}
+	for _, in := range svc.Status.LoadBalancer.Ingress {
+		if in.Hostname != "" {
+			return in.Hostname
 		}
 	}
 	return ""

@@ -1,6 +1,6 @@
 # Second ingress-nginx controller for the internal front door (RFC-0036).
-# On OCI a private flexible load balancer sits in the private LB subnet;
-# other providers use a similar internal-LB annotation. Projects marked
+# The profile overlay adds the provider's internal load balancer annotations
+# (a private flexible LB on OCI, an internal NLB on AWS). Projects marked
 # exposure:internal and platform endpoints with SHPYRD_PLATFORM_EXPOSURE=internal
 # use ingress class "nginx-internal".
 controller:
@@ -33,14 +33,6 @@ controller:
 
   service:
     type: LoadBalancer
-    annotations:
-      oci.oraclecloud.com/load-balancer-type: "lb"
-      service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
-      service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
-      service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "10"
-      service.beta.kubernetes.io/oci-load-balancer-internal: "true"
-      service.beta.kubernetes.io/oci-load-balancer-subnet1: "${SHPYRD_INTERNAL_LB_SUBNET}"
-      service.beta.kubernetes.io/oci-load-balancer-security-list-management-mode: "None"
     externalTrafficPolicy: Local
 
   publishService:

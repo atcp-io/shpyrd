@@ -1,0 +1,11 @@
+# AWS: the Route 53 solver uses the pod's own AWS credentials (EKS Pod
+# Identity), which a ClusterIssuer may only do with ambient credentials on.
+# The identity token is a projected file owned by root; the group lets the
+# non-root controller read it.
+extraArgs:
+  - --issuer-ambient-credentials
+securityContext:
+  runAsNonRoot: true
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault

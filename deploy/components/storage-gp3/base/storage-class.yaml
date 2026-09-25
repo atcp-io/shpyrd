@@ -1,0 +1,19 @@
+# Block volumes on EBS gp3 through the EBS CSI driver (an EKS add-on). The
+# cluster's default class: EKS marks none since 1.30, and the platform's own
+# claims (registry, server data, monitoring) rely on a default.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ${SHPYRD_STORAGE_CLASS}
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"
+  csi.storage.k8s.io/fstype: ext4

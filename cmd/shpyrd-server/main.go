@@ -282,16 +282,25 @@ func externalLBAddress(k *kube.Client) string {
 	return ""
 }
 
-// internalLBAddress reads the IP of the internal ingress-nginx Service at
-// startup; the controller uses it as the ExternalDNS target for Ingresses
-// with exposure:internal so host A records point at the private LB.
+// internalLBAddress reads the address (or hostname) of the internal
+// ingress-nginx Service at startup; the controller uses it as the
+// ExternalDNS target for Ingresses with exposure:internal so their records
+// point at the private LB.
 func internalLBAddress(k *kube.Client) string {
 	svc, err := k.Kube.CoreV1().Services("ingress-nginx-internal").Get(
 		context.Background(), "ingress-nginx-internal-controller", metav1.GetOptions{})
-	if err != nil || len(svc.Status.LoadBalancer.Ingress) == 0 {
+	if err != nil {
 		return ""
 	}
-	return svc.Status.LoadBalancer.Ingress[0].IP
+	for _, in := range svc.Status.LoadBalancer.Ingress {
+		if in.IP != "" {
+			return in.IP
+		}
+		if in.Hostname != "" {
+			return in.Hostname // an NLB on AWS: ExternalDNS makes an alias of it
+		}
+	}
+	return ""
 }
 
 // gcOrNil keeps a nil *RegistryGC from becoming a non-nil interface.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -159,7 +160,11 @@ The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 			}
 
 			specChanged := app.Generation != before.Generation
-			if app.HasSource() && app.Spec.Image == "" && specChanged {
+			// A build happens only when what is built changed: the same
+			// archive with new processes or mounts is released as it is.
+			sourceChanged := before.Status.LatestBuild == "" || !sameSource(before.Spec.Source, app.Spec.Source) || before.Spec.Build == nil != (app.Spec.Build == nil) || (before.Spec.Build != nil && app.Spec.Build != nil && !reflect.DeepEqual(*before.Spec.Build, *app.Spec.Build))
+			switch {
+			case app.HasSource() && app.Spec.Image == "" && sourceChanged:
 				fmt.Fprintln(out, "==> Building")
 				build, err := ac.waitForBuild(ctx, name, before.Status.LatestBuild, 3*time.Minute)
 				if err != nil {
@@ -168,7 +173,9 @@ The project is taken from --project or from shpyrd.yaml (project: <name>).`,
 				if err := ac.followBuild(ctx, app.Namespace, build); err != nil {
 					return fmt.Errorf("build failed: %w", err)
 				}
-			} else if !specChanged {
+			case specChanged:
+				fmt.Fprintln(out, "    source unchanged since the last build; releasing the configuration change")
+			default:
 				fmt.Fprintln(out, "    no changes since the last deploy")
 			}
 
@@ -339,4 +346,26 @@ func humanBytes(n int) string {
 		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// sameSource reports whether two sources build the same thing: the same
+// archive (by digest, else URL), the same Git URL and revision, the same
+// directory.
+func sameSource(a, b *shpyrdv1.Source) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.SubPath != b.SubPath {
+		return false
+	}
+	switch {
+	case a.Blob != nil && b.Blob != nil:
+		if a.Blob.SHA256 != "" && b.Blob.SHA256 != "" {
+			return a.Blob.SHA256 == b.Blob.SHA256
+		}
+		return a.Blob.URL == b.Blob.URL
+	case a.Git != nil && b.Git != nil:
+		return a.Git.URL == b.Git.URL && a.Git.Revision == b.Git.Revision
+	}
+	return false
 }

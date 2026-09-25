@@ -1,0 +1,6 @@
+# AWS: snapshots are EBS snapshots.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../components/snapshot-controller/base
+  - snapshot-class.yaml

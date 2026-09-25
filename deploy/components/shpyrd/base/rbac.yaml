@@ -37,6 +37,11 @@ rules:
     resources: [pods]
     # patch: write shpyrd.io/instance annotation for the log agent (RFC-0022a)
     verbs: [delete, patch]
+  # `sync` in the instances mounting a volume before its snapshot (RFC-0060);
+  # get for the WebSocket form of exec, create for SPDY.
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
   - apiGroups: [""]
     resources: [services, configmaps, secrets, serviceaccounts]
     verbs: [get, list, watch, create, update, patch, delete]

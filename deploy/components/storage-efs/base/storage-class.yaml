@@ -1,0 +1,21 @@
+# Shared volumes on EFS: one access point per volume in the platform's file
+# system, owned by uid/gid 1000, the group the platform hands block volumes
+# to (RFC-0060), so app processes write without any squash. EFS ignores the
+# size (billing follows use) and the volume grows as needed.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ${SHPYRD_STORAGE_CLASS_SHARED}
+  labels:
+    app.kubernetes.io/part-of: shpyrd
+provisioner: efs.csi.aws.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: ${SHPYRD_EFS_ID}
+  directoryPerms: "775"
+  uid: "1000"
+  gid: "1000"
+  basePath: /shpyrd
+  ensureUniqueDirectory: "true"

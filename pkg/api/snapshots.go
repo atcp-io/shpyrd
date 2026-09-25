@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -21,6 +22,7 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/internal/controller"
 	"shpyrd/pkg/install"
+	"shpyrd/pkg/kexec"
 )
 
 // SnapshotView is a volume snapshot as shown to users (RFC-0060).
@@ -156,6 +158,11 @@ func (s *Server) createSnapshot(c *gin.Context) {
 		abort(c, http.StatusBadRequest, errors.New("snapshot name must be lowercase letters, digits and dashes"))
 		return
 	}
+	// Block snapshots are crash-consistent: they hold what reached the
+	// disk. Ask the instances mounting the volume to flush first, so what
+	// the application wrote a moment ago is in the copy (best effort: an
+	// image without `sync` is skipped).
+	s.syncClaim(c.Request.Context(), vol.Namespace, vol.PVCName())
 	snap := &unstructured.Unstructured{}
 	snap.SetGroupVersionKind(controller.VolumeSnapshotGVK)
 	snap.SetName(name)
@@ -176,6 +183,33 @@ func (s *Server) createSnapshot(c *gin.Context) {
 	}
 	s.audit(c, c.Param("slug"), "volume.snapshot", vol.Name, name)
 	c.JSON(http.StatusCreated, snapshotView(*snap))
+}
+
+// syncClaim runs `sync` in every running pod that mounts the claim.
+func (s *Server) syncClaim(ctx context.Context, namespace, claim string) {
+	if s.kube == nil || s.kube.Kube == nil || s.kube.Config == nil {
+		return
+	}
+	pods, err := s.kube.Kube.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return
+	}
+	for _, p := range pods.Items {
+		if p.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		for _, v := range p.Spec.Volumes {
+			if v.PersistentVolumeClaim == nil || v.PersistentVolumeClaim.ClaimName != claim {
+				continue
+			}
+			sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			if _, err := kexec.Run(sctx, s.kube, namespace, p.Name, "", []string{"sync"}); err != nil {
+				s.log.Info("snapshot: sync in instance skipped", "pod", p.Name, "err", err.Error())
+			}
+			cancel()
+			break
+		}
+	}
 }
 
 // deleteSnapshot removes a snapshot (and the provider's copy).

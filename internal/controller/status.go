@@ -59,6 +59,21 @@ func configHash(app *shpyrdv1.App, secret *corev1.Secret, sizes map[string]strin
 		h.Write(b)
 		h.Write([]byte{0})
 	}
+	// Volume mounts (RFC-0006): mounting or unmounting a disk changes what
+	// runs as much as a config var does, and is released the same way.
+	procNames := make([]string, 0, len(app.Spec.Processes))
+	for k := range app.Spec.Processes {
+		procNames = append(procNames, k)
+	}
+	sort.Strings(procNames)
+	for _, p := range procNames {
+		mounts := append([]shpyrdv1.VolumeMount(nil), app.Spec.Processes[p].Volumes...)
+		sort.Slice(mounts, func(i, j int) bool { return mounts[i].Name < mounts[j].Name })
+		for _, m := range mounts {
+			h.Write([]byte("mount:" + p + ":" + m.Name + "=" + m.Path))
+			h.Write([]byte{0})
+		}
+	}
 	if secret != nil {
 		keys := make([]string, 0, len(secret.Data))
 		for k := range secret.Data {

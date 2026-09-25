@@ -1,0 +1,9 @@
+# OCI DNS: DNS-01 through the OCI webhook solver (component dns01-oci).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shpyrd
+resources:
+  - ../../../components/dns/base
+  - issuer.yaml

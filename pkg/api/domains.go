@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -156,11 +157,21 @@ func (s *Server) domainsResult(ctx context.Context, app *shpyrdv1.App, host stri
 			res.Domains = append(res.Domains, shpyrdv1.DomainStatus{
 				Host: host, DNS: controller.DNSUnknown, Certificate: controller.CertIssuing,
 				Target: res.Target, Address: res.Address,
-				Message: fmt.Sprintf("create a DNS record: CNAME %s -> %s (or A -> %s at a zone apex)", host, res.Target, res.Address),
+				Message: fmt.Sprintf("create a DNS record: CNAME %s -> %s (or %s -> %s at a zone apex)", host, res.Target, ApexRecordType(res.Address), res.Address),
 			})
 		}
 	}
 	return res
+}
+
+// ApexRecordType is the record a zone apex (which cannot carry a CNAME)
+// points at the front door with: A where the load balancer has an address,
+// ALIAS where it has a hostname (an NLB on AWS).
+func ApexRecordType(address string) string {
+	if net.ParseIP(address) != nil {
+		return "A"
+	}
+	return "ALIAS"
 }
 
 // frontDoorAddress is the load balancer a project's hosts resolve to.

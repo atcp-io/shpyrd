@@ -1,8 +1,10 @@
+# The wildcard certificate; the DNS-01 ClusterIssuer that solves it comes
+# from the profile overlay (profiles/<profile>/dns), since every provider
+# has its own solver.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 labels:
   - pairs:
       app.kubernetes.io/part-of: shpyrd
 resources:
-  - issuer.yaml
   - wildcard.yaml
