@@ -150,7 +150,6 @@ export function lineMatches(
   if (line.message.toLowerCase().includes(f)) return true;
   if (instance.toLowerCase().includes(f)) return true;
   return line.fields.some(
-    (x) =>
-      x.key.toLowerCase().includes(f) || x.value.toLowerCase().includes(f),
+    (x) => x.key.toLowerCase().includes(f) || x.value.toLowerCase().includes(f),
   );
 }

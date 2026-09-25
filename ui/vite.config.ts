@@ -25,6 +25,6 @@ export default defineConfig({
   test: {
     // Pure-logic unit tests (parsers, formatters); no DOM needed.
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 })

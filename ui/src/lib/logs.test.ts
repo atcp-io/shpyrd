@@ -124,7 +124,9 @@ describe("parseLogLine on lines that only look structured", () => {
 
   it("leaves ANSI escapes in the message for the renderer to strip", () => {
     const esc = String.fromCharCode(27);
-    const l = parseLogLine(JSON.stringify({ msg: esc + "[31mred" + esc + "[0m" }));
+    const l = parseLogLine(
+      JSON.stringify({ msg: esc + "[31mred" + esc + "[0m" }),
+    );
     expect(l.message).toBe(esc + "[31mred" + esc + "[0m");
   });
 });
