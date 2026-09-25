@@ -1,14 +1,14 @@
 # RFC-0021 Structured logs in the viewer and the CLI
 
-**Status:** implementable
+**Status:** in progress
 
-**Owner:** unassigned
+**Owner:** Marcelo Paez Sequeira (shpyrd-io/shpyrd rfc-0021-structured-logs)
 
 **Depends on:** none
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-22
+**Last update:** 2026-09-25
 
 ## Summary
 
@@ -50,3 +50,4 @@ read and the viewer's level highlighting misses it.
 ## Implementation History
 
 - 2026-09-22: RFC written.
+- 2026-09-25: implementation started.
