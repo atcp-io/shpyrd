@@ -134,3 +134,11 @@ exists. Both should be a setting, not an infrastructure project.
   shows both front doors. Verified on OKE: switching shop to internal moves the Ingress to
   the `nginx-internal` class and the target annotation to `10.0.10.179`; the A record
   follows on the provider's next sync.
+- 2026-09-25: platform exposure finished on AWS. `--platform-exposure internal` had a
+  flag and a variable but nothing read them: the dashboard, sign-in and Grafana ingresses
+  carried a hard-coded class and HTTP-01 certificates through the public front door,
+  which cannot renew behind the internal one. Derived variables
+  `SHPYRD_PLATFORM_INGRESS_CLASS` and `SHPYRD_PLATFORM_ISSUER` (DNS-01 whenever a DNS
+  provider exists) now drive the three, `cluster init` accepts the platform hostname
+  resolving to either front door, and the dev cluster on EKS runs with a private API, an
+  internal dashboard and public apps.

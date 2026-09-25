@@ -8,7 +8,7 @@ spec:
     - auth.${SHPYRD_DOMAIN}
   issuerRef:
     kind: ClusterIssuer
-    name: ${SHPYRD_CLUSTER_ISSUER}
+    name: ${SHPYRD_PLATFORM_ISSUER}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -17,7 +17,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  ingressClassName: nginx
+  ingressClassName: ${SHPYRD_PLATFORM_INGRESS_CLASS}
   tls:
     - hosts:
         - auth.${SHPYRD_DOMAIN}

@@ -55,9 +55,9 @@ grafana:
       reporting_enabled: false
   ingress:
     enabled: true
-    ingressClassName: nginx
+    ingressClassName: ${SHPYRD_PLATFORM_INGRESS_CLASS}
     annotations:
-      cert-manager.io/cluster-issuer: ${SHPYRD_CLUSTER_ISSUER}
+      cert-manager.io/cluster-issuer: ${SHPYRD_PLATFORM_ISSUER}
     hosts:
       - grafana.${SHPYRD_DOMAIN}
     tls:

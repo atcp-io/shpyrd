@@ -127,6 +127,9 @@ func (f *initFlags) vars(clusterName string) (map[string]string, error) {
 	if f.dns != "" {
 		vars[install.VarDNSProvider] = f.dns
 	}
+	if f.platformExposure != "" {
+		vars[install.VarPlatformExposure] = f.platformExposure
+	}
 	if f.dnsAuth != "" {
 		vars[install.VarDNSAuth] = f.dnsAuth
 	} else if f.dnsKeyFile != "" {
@@ -553,6 +556,9 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		}
 		dnsKey = string(raw)
 	}
+	if flags.platformExposure != "" && flags.platformExposure != "external" && flags.platformExposure != "internal" {
+		return fmt.Errorf("--platform-exposure %q: external or internal", flags.platformExposure)
+	}
 	if flags.dns != "" && flags.dns != "none" && flags.dns != "oci" && flags.dns != "aws" {
 		return fmt.Errorf("--dns %q: oci, aws or none", flags.dns)
 	}
@@ -652,7 +658,16 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		if dns := eng.Vars()[install.VarDNSProvider]; dns != "" && dns != "none" {
 			fmt.Fprintf(out, "DNS: ExternalDNS publishes *.%s -> %s in the %s zone.\n", eng.Vars()[install.VarDomain], lbAddress, dns)
 		}
-		if err := waitForDNS(ctx, cmd, eng.Vars()[install.VarDomain], lbAddress); err != nil {
+		// The platform hostname resolves to the external front door (the
+		// wildcard) or, once its own record exists, to the internal one
+		// when the platform is internal: either is right.
+		accept := []string{lbAddress}
+		if eng.Vars()[install.VarPlatformExposure] == "internal" {
+			if intl := internalLBAddress(ctx, k); intl != "" {
+				accept = append(accept, intl)
+			}
+		}
+		if err := waitForDNS(ctx, cmd, eng.Vars()[install.VarDomain], accept); err != nil {
 			return err
 		}
 	}
@@ -828,17 +843,26 @@ func waitForLoadBalancer(ctx context.Context, cmd *cobra.Command, k *kube.Client
 // waitForDNS tells the operator the record to create and waits until the
 // platform hostname resolves to the load balancer, which Let's Encrypt
 // needs before it can issue the first certificate.
-func waitForDNS(ctx context.Context, cmd *cobra.Command, domain, addr string) error {
+func waitForDNS(ctx context.Context, cmd *cobra.Command, domain string, addrs []string) error {
+	addr := addrs[0]
+	resolvesToAny := func(host string) bool {
+		for _, a := range addrs {
+			if resolvesTo(host, a) {
+				return true
+			}
+		}
+		return false
+	}
 	out := cmd.OutOrStdout()
 	host := "shpyrd." + domain
-	if resolvesTo(host, addr) {
+	if resolvesToAny(host) {
 		fmt.Fprintf(out, "DNS: %s resolves to the load balancer.\n", host)
 		return nil
 	}
 	fmt.Fprintf(out, "\nCreate this DNS record now (certificates are issued once it resolves):\n\n  *.%s   A   %s   (TTL 300)\n\nWaiting for %s to resolve to %s...", domain, addr, host, addr)
 	deadline := time.Now().Add(30 * time.Minute)
 	for {
-		if resolvesTo(host, addr) {
+		if resolvesToAny(host) {
 			fmt.Fprintln(out, " resolved.")
 			return nil
 		}

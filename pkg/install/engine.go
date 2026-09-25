@@ -643,6 +643,9 @@ func (e *Engine) overrides() map[string]string {
 		case VarServerImage:
 			continue // follows the CLI version; a development image is for one run
 		}
+		if _, known := e.profile.Vars[k]; !known {
+			continue // derived at render time, not a setting
+		}
 		if e.profile.Vars[k] == v {
 			continue
 		}

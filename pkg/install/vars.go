@@ -60,6 +60,8 @@ const (
 	VarInternalLBSubnet     = "SHPYRD_INTERNAL_LB_SUBNET"     // subnet OCID for the private LB (OCI)
 	VarIngressClassInternal = "SHPYRD_INGRESS_CLASS_INTERNAL" // ingress class of the internal controller
 	VarIngressClassExternal = "SHPYRD_INGRESS_CLASS_EXTERNAL" // ingress class of the external controller
+	VarPlatformIngressClass = "SHPYRD_PLATFORM_INGRESS_CLASS" // derived: the class the dashboard, sign-in and Grafana use
+	VarPlatformIssuer       = "SHPYRD_PLATFORM_ISSUER"        // derived: the issuer of their certificates (DNS-01 when a DNS provider exists, so they work on either front door)
 	// Volumes on cloud profiles (RFC-0060).
 	VarStorageClass       = "SHPYRD_STORAGE_CLASS"        // class for single-instance volumes ("" = the cluster default)
 	VarStorageClassShared = "SHPYRD_STORAGE_CLASS_SHARED" // class for shared (ReadWriteMany) volumes
@@ -157,9 +159,20 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 	}
 	out[VarDefaultTLSSecret] = DefaultSystemNamespace + "/shpyrd-tls"
 	out[VarWildcardTLS] = "false"
+	// The platform's own certificates follow the cluster issuer, except
+	// that with a DNS provider they are solved through DNS-01: HTTP-01
+	// needs the public front door, and the platform may sit behind the
+	// internal one (RFC-0036).
+	out[VarPlatformIssuer] = vars[VarClusterIssuer]
 	if vars[VarDNSProvider] != "" && vars[VarDNSProvider] != "none" {
 		out[VarDefaultTLSSecret] = DefaultSystemNamespace + "/" + WildcardTLSSecretName
 		out[VarWildcardTLS] = "true"
+		out[VarPlatformIssuer] = "letsencrypt-dns01"
+	}
+	// Front door of the dashboard, sign-in and Grafana (RFC-0036).
+	out[VarPlatformIngressClass] = vars[VarIngressClassExternal]
+	if vars[VarPlatformExposure] == "internal" {
+		out[VarPlatformIngressClass] = vars[VarIngressClassInternal]
 	}
 	return out
 }
