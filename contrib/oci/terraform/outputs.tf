@@ -85,12 +85,39 @@ output "availability_domain" {
   value       = local.ad
 }
 
+# Everything the platform needs from the infrastructure, in the file
+# `shpyrd cluster init --vars-file` reads, so nobody copies OCIDs by hand.
+# The DNS key stays a separate file (--dns-key-file): it is a secret.
+resource "local_file" "shpyrd_vars" {
+  filename        = "${path.module}/${var.name}.vars"
+  file_permission = "0644"
+  content         = <<-EOT
+    # Written by contrib/oci/terraform for shpyrd cluster init --vars-file (flags and --set win over it).
+    SHPYRD_DOMAIN=${var.dns_zone != "" ? var.dns_zone : "apps.example.com"}
+    SHPYRD_LB_IP=${var.reserved_public_ip ? oci_core_public_ip.lb[0].ip_address : ""}
+    SHPYRD_INTERNAL_LB_SUBNET=${oci_core_subnet.this["lb_private"].id}
+    SHPYRD_FSS_MOUNT_TARGET=${var.shared_storage ? oci_file_storage_mount_target.shared[0].id : ""}
+    SHPYRD_FSS_AD=${var.shared_storage ? local.ad : ""}
+    SHPYRD_DNS_PROVIDER=${var.dns_zone != "" ? "oci" : "none"}
+    SHPYRD_DNS_AUTH=${var.dns_zone != "" ? var.dns_auth : "key"}
+    SHPYRD_DNS_COMPARTMENT=${var.dns_zone != "" ? local.compartment_id : ""}
+    SHPYRD_DNS_TENANCY=${var.dns_zone != "" ? var.tenancy_ocid : ""}
+    SHPYRD_DNS_REGION=${var.dns_zone != "" ? var.region : ""}
+    SHPYRD_DNS_USER=${local.dns_key ? oci_identity_user.dns[0].id : ""}
+  EOT
+}
+
+output "vars_file" {
+  description = "Values for shpyrd cluster init --vars-file."
+  value       = abspath(local_file.shpyrd_vars.filename)
+}
+
 output "next_steps" {
   value = <<-EOT
     ../kubeconfig.sh                       # kubeconfig context oke-${var.name} pointed at the tunnel
     ../tunnel.sh                           # Bastion session + ssh tunnel 127.0.0.1:6443 (3 hours; run again)
     kubectl --context oke-${var.name} get nodes
-    shpyrd cluster init --context oke-${var.name} --profile oci --domain ${var.dns_zone != "" ? var.dns_zone : "<domain>"} \
-      --set SHPYRD_ACME_EMAIL=<email>${var.reserved_public_ip ? " --set SHPYRD_LB_IP=${oci_core_public_ip.lb[0].ip_address}" : ""}${var.shared_storage ? " \\\n      --set SHPYRD_FSS_MOUNT_TARGET=${oci_file_storage_mount_target.shared[0].id} --set SHPYRD_FSS_AD=${local.ad}" : ""}${local.dns_key ? " \\\n      --dns oci --dns-compartment ${local.compartment_id} --dns-tenancy ${var.tenancy_ocid} --dns-region ${var.region} \\\n      --dns-user ${oci_identity_user.dns[0].id} --dns-key-file ${abspath(local_sensitive_file.dns_key[0].filename)}" : ""}${local.dns_wi ? " \\\n      --dns oci --dns-compartment ${local.compartment_id} --dns-tenancy ${var.tenancy_ocid} --dns-region ${var.region} --dns-auth workload" : ""}
+    shpyrd cluster init --context oke-${var.name} --profile oci --vars-file ${abspath(local_file.shpyrd_vars.filename)} \
+      --set SHPYRD_ACME_EMAIL=<email>${local.dns_key ? " --dns-key-file ${abspath(local_sensitive_file.dns_key[0].filename)}" : ""} --enable auth-local
   EOT
 }

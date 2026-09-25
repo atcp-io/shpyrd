@@ -73,9 +73,33 @@ output "next_steps" {
     ${var.vpn ? "AWS VPN Client > File > Manage Profiles > Add Profile: ${abspath(local_sensitive_file.vpn_profile[0].filename)}${var.api_public_access ? "" : "   # connect: the API is private"}" : "# vpn = true for an access path to the private front door"}
     ../kubeconfig.sh                       # kubectl context eks-${var.name}${var.api_public_access ? " (public endpoint allowed from ${join(", ", local.admin_cidrs)})" : " (private endpoint: VPN connected)"}
     kubectl --context eks-${var.name} get nodes
-    shpyrd cluster init --context eks-${var.name} --profile aws --domain ${var.dns_zone != "" ? var.dns_zone : "<domain>"} \
-      --set SHPYRD_ACME_EMAIL=<email> \
-      --set SHPYRD_AWS_CLUSTER=${aws_eks_cluster.this.name} --set SHPYRD_AWS_REGION=${var.region} --set SHPYRD_AWS_VPC_ID=${aws_vpc.this.id} \
-      --set SHPYRD_AWS_LB_EIPS=${join(",", aws_eip.lb[*].id)} --set SHPYRD_LB_IP=${join(",", aws_eip.lb[*].public_ip)}${var.shared_storage ? " --set SHPYRD_EFS_ID=${aws_efs_file_system.shared[0].id}" : ""}${var.dns_zone != "" ? " \\\n      --dns aws --dns-zone-id ${aws_route53_zone.platform[0].zone_id} --dns-region ${var.region}" : ""}
+    shpyrd cluster init --context eks-${var.name} --profile aws --vars-file ${abspath(local_file.shpyrd_vars.filename)} \
+      --set SHPYRD_ACME_EMAIL=<email> --enable auth-local
   EOT
+}
+
+# Everything the platform needs from the infrastructure, in the file
+# `shpyrd cluster init --vars-file` reads, so nobody copies identifiers by
+# hand. Not a secret (the VPN profile is the only one, and it stays out).
+resource "local_file" "shpyrd_vars" {
+  filename        = "${path.module}/${var.name}.vars"
+  file_permission = "0644"
+  content         = <<-EOT
+    # Written by contrib/aws/terraform for shpyrd cluster init --vars-file (flags and --set win over it).
+    SHPYRD_DOMAIN=${var.dns_zone != "" ? var.dns_zone : "apps.example.com"}
+    SHPYRD_AWS_CLUSTER=${aws_eks_cluster.this.name}
+    SHPYRD_AWS_REGION=${var.region}
+    SHPYRD_AWS_VPC_ID=${aws_vpc.this.id}
+    SHPYRD_AWS_LB_EIPS=${join(",", aws_eip.lb[*].id)}
+    SHPYRD_LB_IP=${join(",", aws_eip.lb[*].public_ip)}
+    SHPYRD_EFS_ID=${var.shared_storage ? aws_efs_file_system.shared[0].id : ""}
+    SHPYRD_DNS_PROVIDER=${var.dns_zone != "" ? "aws" : "none"}
+    SHPYRD_DNS_ZONE_ID=${var.dns_zone != "" ? aws_route53_zone.platform[0].zone_id : ""}
+    SHPYRD_DNS_REGION=${var.region}
+  EOT
+}
+
+output "vars_file" {
+  description = "Values for shpyrd cluster init --vars-file."
+  value       = abspath(local_file.shpyrd_vars.filename)
 }

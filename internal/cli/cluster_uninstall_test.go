@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -99,5 +100,34 @@ func TestDestroyCloudOrderAndOutput(t *testing.T) {
 func TestIsKindContext(t *testing.T) {
 	if !isKindContext("kind-shpyrd") || isKindContext("oke-shpyrd-dev") || isKindContext("") {
 		t.Error("kind contexts start with kind-")
+	}
+}
+
+// --vars-file: the infrastructure's values load first; --domain and --set
+// win over them.
+func TestVarsFilePrecedence(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/x.vars"
+	if err := os.WriteFile(path, []byte("# from terraform\nSHPYRD_DOMAIN=aws.example.com\nSHPYRD_EFS_ID=\"fs-1\"\nSHPYRD_LB_IP=1.2.3.4,5.6.7.8\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &initFlags{domain: defaultDomain, varsFile: path, set: []string{"SHPYRD_EFS_ID=fs-2"}}
+	vars, err := f.vars("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vars[install.VarDomain] != "aws.example.com" || vars[install.VarEFSID] != "fs-2" || vars[install.VarLBIP] != "1.2.3.4,5.6.7.8" {
+		t.Errorf("vars = %v", vars)
+	}
+	f.domainExplicit, f.domain = true, "other.example.com"
+	vars, _ = f.vars("dev")
+	if vars[install.VarDomain] != "other.example.com" {
+		t.Errorf("explicit --domain must win: %v", vars[install.VarDomain])
+	}
+	if err := os.WriteFile(path, []byte("DOMAIN=x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.vars("dev"); err == nil || !strings.Contains(err.Error(), "SHPYRD_NAME=value") {
+		t.Errorf("bad line must be refused: %v", err)
 	}
 }

@@ -74,6 +74,11 @@ type initFlags struct {
 	// Front doors (RFC-0036).
 	internalLBSubnet string // OCI subnet OCID for the private LB
 	platformExposure string // "" = profile default
+	// varsFile carries what the infrastructure knows (zone, addresses, file
+	// systems) so nobody copies identifiers by hand; domainExplicit says
+	// whether --domain was passed, so the file's domain can apply otherwise.
+	varsFile       string
+	domainExplicit bool
 }
 
 func (f *initFlags) bind(cmd *cobra.Command) {
@@ -96,6 +101,7 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.dnsKeyFile, "dns-key-file", "", "PEM file with the DNS user's API signing key (contrib/oci/terraform writes it)")
 	cmd.Flags().StringVar(&f.dnsFingerprint, "dns-fingerprint", "", "fingerprint of the API key (derived from the key when omitted)")
 	cmd.Flags().StringArrayVar(&f.set, "set", nil, "override a variable, e.g. --set SHPYRD_REGISTRY_HOST=...")
+	cmd.Flags().StringVar(&f.varsFile, "vars-file", "", "file of SHPYRD_NAME=value lines with the values the infrastructure produced (contrib/*/terraform writes <name>.vars); flags and --set win over it")
 	cmd.Flags().StringSliceVar(&f.skip, "skip", nil, "components to skip, e.g. --skip monitoring")
 	cmd.Flags().StringSliceVar(&f.only, "only", nil, "apply only these components")
 	cmd.Flags().StringSliceVar(&f.enable, "enable", nil, "extensions to enable, e.g. --enable auth-local (see `shpyrd extensions list`)")
@@ -104,10 +110,20 @@ func (f *initFlags) bind(cmd *cobra.Command) {
 }
 
 func (f *initFlags) vars(clusterName string) (map[string]string, error) {
-	vars := map[string]string{
-		install.VarDomain:  f.domain,
-		install.VarCluster: clusterName,
+	vars := map[string]string{}
+	if f.varsFile != "" {
+		fromFile, err := readVarsFile(f.varsFile)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range fromFile {
+			vars[k] = v
+		}
 	}
+	if f.domainExplicit || vars[install.VarDomain] == "" {
+		vars[install.VarDomain] = f.domain
+	}
+	vars[install.VarCluster] = clusterName
 	if f.httpPort != 0 {
 		vars[install.VarHTTPPort] = strconv.Itoa(f.httpPort)
 	}
@@ -565,14 +581,12 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 	if flags.dns != "" && flags.dns != "none" && flags.dns != "oci" && flags.dns != "aws" {
 		return fmt.Errorf("--dns %q: oci, aws or none", flags.dns)
 	}
-	if flags.dns == "aws" && (flags.dnsZoneID == "" || flags.dnsRegion == "") {
-		return errors.New("--dns aws needs --dns-zone-id and --dns-region (contrib/aws/terraform prints them)")
-	}
 
 	k, err := kube.Connect(kopts)
 	if err != nil {
 		return err
 	}
+	flags.domainExplicit = cmd.Flags().Changed("domain")
 	vars, err := flags.vars(clusterName)
 	if err != nil {
 		return err
@@ -590,6 +604,9 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		skip = append(append([]string{}, skip...), "registry", "registry-nodes")
 	}
 	if prof, err := install.LoadProfile(deploy.FS, flags.profile); err == nil {
+		if prof.Name == "aws" {
+			discoverAWS(ctx, out, k, vars, prof)
+		}
 		if vars[install.VarNetworkPolicy] == "none" && prof.HasComponent("network-policy") {
 			skip = append(append([]string{}, skip...), "network-policy")
 		}
@@ -964,6 +981,29 @@ func seedFromRecord(ctx context.Context, cmd *cobra.Command, kopts kube.Options,
 	return nil
 }
 
+// readVarsFile parses SHPYRD_NAME=value lines (blank lines and # comments
+// skipped), the file contrib/*/terraform writes from its outputs.
+func readVarsFile(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--vars-file: %w", err)
+	}
+	out := map[string]string{}
+	for i, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		k = strings.TrimSpace(k)
+		if !ok || !strings.HasPrefix(k, "SHPYRD_") {
+			return nil, fmt.Errorf("--vars-file %s:%d: expected SHPYRD_NAME=value, got %q", path, i+1, line)
+		}
+		out[k] = strings.Trim(strings.TrimSpace(v), `"`)
+	}
+	return out, nil
+}
+
 // hasSet says --set already names the variable.
 func hasSet(set []string, key string) bool {
 	for _, kv := range set {
@@ -1194,6 +1234,7 @@ func newClusterExportCmd() *cobra.Command {
 		Short: "Render the base stack manifests to a directory (for GitOps tooling)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
+			flags.domainExplicit = cmd.Flags().Changed("domain")
 			vars, err := flags.vars(name)
 			if err != nil {
 				return err
