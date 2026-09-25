@@ -1,4 +1,4 @@
-# CI (RFC-0045): Go tests and vet, the dashboard build and lint, the
+# CI (RFC-0045): Go tests and vet, the dashboard tests, build and lint, the
 # manifests render test, and an end-to-end run on a kind cluster that
 # deploys the sample projects with buildpacks and a Dockerfile.
 name: ci
@@ -60,6 +60,7 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
+      - run: npm run test
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:

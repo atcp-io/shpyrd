@@ -41,8 +41,11 @@ generate:
 	go tool controller-gen object paths=./api/...
 	go tool controller-gen crd paths=./api/... output:crd:dir=./deploy/components/shpyrd/base/crds
 
+## Go tests and the dashboard's unit tests (needs `npm ci` in ui/ once,
+## which `make ui` does)
 test:
 	go test ./...
+	cd ui && npm run test
 
 vet:
 	go vet ./...
