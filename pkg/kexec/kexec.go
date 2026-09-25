@@ -42,6 +42,10 @@ func ExitCode(err error) int {
 // StdinIsTerminal reports whether the CLI runs interactively.
 func StdinIsTerminal() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
 
+// StdoutIsTerminal reports whether output goes to a terminal rather than
+// into a pipe or a file.
+func StdoutIsTerminal() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
+
 // IsNotFound reports exec failures caused by a missing executable.
 func IsNotFound(err error) bool {
 	if err == nil {

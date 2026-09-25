@@ -23,6 +23,7 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/api"
 	"shpyrd/pkg/configvars"
+	"shpyrd/pkg/kexec"
 )
 
 // appFlag adds the shared --project flag (--app kept as a hidden alias).
@@ -251,12 +252,23 @@ func newLogsCmd(g *globalFlags) *cobra.Command {
 		follow  bool
 		tail    int64
 		build   bool
+		pretty  bool
+		asJSON  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Print the project's logs",
+		Long: `Print the project's logs, one line per container line.
+
+JSON log lines are rendered as "LEVEL message key=value..." when the output
+is a terminal; --json prints them as the application wrote them, which is
+what a tool reading the output wants.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
+			renderPretty, err := prettyLogs(pretty, asJSON, kexec.StdoutIsTerminal())
+			if err != nil {
+				return err
+			}
 			name, err := resolveAppName(appName)
 			if err != nil {
 				return err
@@ -281,7 +293,7 @@ func newLogsCmd(g *globalFlags) *cobra.Command {
 			if process != "" {
 				selector = shpyrdv1.LabelApp + "=" + name + "," + shpyrdv1.LabelProcess + "=" + process
 			}
-			return ac.streamPodLogs(ctx, app.Namespace, selector, follow, tail)
+			return ac.streamPodLogs(ctx, app.Namespace, selector, follow, tail, renderPretty)
 		},
 	}
 	appFlag(cmd, &appName)
@@ -289,6 +301,8 @@ func newLogsCmd(g *globalFlags) *cobra.Command {
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "stream new log lines")
 	cmd.Flags().Int64VarP(&tail, "tail", "n", 100, "number of recent lines per instance (-1 for all)")
 	cmd.Flags().BoolVar(&build, "build", false, "show the latest build's logs instead")
+	cmd.Flags().BoolVar(&pretty, "pretty", false, "render JSON log lines readably (default when the output is a terminal)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON log lines as the application wrote them")
 	return cmd
 }
 

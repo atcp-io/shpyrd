@@ -552,8 +552,9 @@ func (a *appClient) waitRunning(ctx context.Context, name string, generation int
 // streamPodLogs tails (and optionally follows) logs of every pod matching
 // the selector. Lines are printed Heroku style, "<time> <instance> | msg",
 // where instances are named <process>.<n> by creation order. New pods are
-// picked up while following.
-func (a *appClient) streamPodLogs(ctx context.Context, namespace, selector string, follow bool, tail int64) error {
+// picked up while following. With pretty set, JSON lines are rendered
+// readably; the time and instance columns are the container's either way.
+func (a *appClient) streamPodLogs(ctx context.Context, namespace, selector string, follow bool, tail int64, pretty bool) error {
 	pods := a.k.Kube.CoreV1().Pods(namespace)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -592,7 +593,7 @@ func (a *appClient) streamPodLogs(ctx context.Context, namespace, selector strin
 					}
 				}
 				mu.Lock()
-				fmt.Fprintf(a.out, "%s %s | %s\n", ts, instance, line)
+				fmt.Fprintf(a.out, "%s %s | %s\n", ts, instance, renderLogLine(line, pretty))
 				mu.Unlock()
 			}
 		}()
