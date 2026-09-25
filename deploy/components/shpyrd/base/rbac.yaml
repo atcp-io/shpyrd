@@ -124,7 +124,7 @@ metadata:
     rbac.shpyrd.io/aggregate-to-admin: "true"
 rules:
   - apiGroups: [shpyrd.io]
-    resources: [apps, volumes]
+    resources: [apps, volumes, objectbuckets]
     verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [pods, pods/log, pods/status, services, events, configmaps, persistentvolumeclaims]

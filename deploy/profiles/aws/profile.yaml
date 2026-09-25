@@ -50,6 +50,8 @@ vars:
   SHPYRD_STORAGE_CLASS: gp3
   SHPYRD_STORAGE_CLASS_SHARED: shpyrd-efs
   SHPYRD_VOLUME_MIN_SIZE: 1Gi
+  # Object storage (RFC-0046): the MinIO volume of the object-storage extension.
+  SHPYRD_OBJECT_STORAGE_SIZE: 20Gi
   SHPYRD_SNAPSHOT_CLASS: ebs-snapshot
   SHPYRD_EFS_ID: ""
   SHPYRD_FSS_MOUNT_TARGET: ""

@@ -347,6 +347,25 @@ export type ClusterMetrics = {
 };
 
 // The image registry (RFC-0059).
+/** The platform's object store (RFC-0046). */
+export type ObjectStorageSummary = {
+  endpoint: string;
+  totalBytes: number;
+  usedBytes: number;
+  measuredAt?: string;
+  message?: string;
+  buckets: {
+    namespace: string;
+    name: string;
+    bucket: string;
+    phase: string;
+    message?: string;
+    usedBytes: number;
+    objects: number;
+    retentionDays?: number;
+  }[];
+};
+
 export type RegistryInfo = {
   mode: "in-cluster" | "external";
   host: string;
@@ -711,6 +730,8 @@ export const api = {
   clusterMetrics: (range: string) =>
     request<ClusterMetrics>(`/api/cluster/metrics?range=${range}`),
   registry: () => request<RegistryInfo>("/api/cluster/registry"),
+  objectStorage: () =>
+    request<ObjectStorageSummary>("/api/cluster/object-storage"),
   registryGC: () =>
     request<{ status: string }>("/api/cluster/registry/gc", { method: "POST" }),
   helmReleases: () => request<HelmRelease[]>("/api/helm/releases"),

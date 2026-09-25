@@ -43,12 +43,13 @@ const (
 const AdminTokenSecretName = "shpyrd-admin-token"
 
 var hooks = map[string]Hook{
-	"local-ca":             localCAHook,
-	"admin-token":          adminTokenHook,
-	"default-sizes":        defaultSizesHook,
-	"oidc-client":          oidcClientHook,
-	"registry-credentials": registryCredentialsHook,
-	"dns-credentials":      dnsCredentialsHook,
+	"local-ca":                   localCAHook,
+	"admin-token":                adminTokenHook,
+	"default-sizes":              defaultSizesHook,
+	"oidc-client":                oidcClientHook,
+	"registry-credentials":       registryCredentialsHook,
+	"object-storage-credentials": objectStorageCredentialsHook,
+	"dns-credentials":            dnsCredentialsHook,
 }
 
 // RegisterHook lets extensions add hooks their components reference.
@@ -498,4 +499,44 @@ func indent(s, prefix string) string {
 		lines[i] = prefix + l
 	}
 	return strings.Join(lines, "\n")
+}
+
+// Object storage (RFC-0046): the store's secrets, generated once and read
+// only by the platform: the RPC secret Garage's nodes share, the admin
+// token the controller uses, the metrics token.
+const (
+	ObjectStorageAdminSecretName = "object-storage-admin"
+	ObjectStorageService         = "object-storage"
+)
+
+func objectStorageCredentialsHook(ctx context.Context, e *Engine, c *Component) error {
+	secrets := e.kube.Kube.CoreV1().Secrets(c.Namespace)
+	if _, err := secrets.Get(ctx, ObjectStorageAdminSecretName, metav1.GetOptions{}); err == nil {
+		e.rep.Step(c.Name, "keeping existing object storage credentials")
+		return nil
+	}
+	gen := func(n int) (string, error) {
+		raw := make([]byte, n)
+		if _, err := rand.Read(raw); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(raw), nil
+	}
+	rpc, err := gen(32) // Garage wants exactly 32 bytes, hex encoded
+	if err != nil {
+		return err
+	}
+	admin, err := gen(24)
+	if err != nil {
+		return err
+	}
+	metrics, err := gen(24)
+	if err != nil {
+		return err
+	}
+	if err := e.applyOpaqueSecret(ctx, c.Namespace, ObjectStorageAdminSecretName, map[string]string{"rpcSecret": rpc, "adminToken": admin, "metricsToken": metrics}); err != nil {
+		return err
+	}
+	e.rep.Step(c.Name, "generated the object storage credentials (Secret "+ObjectStorageAdminSecretName+")")
+	return nil
 }

@@ -1,0 +1,9 @@
+name: object-storage
+description: "Garage: the platform's S3-compatible object store with a key per consumer (extension object-storage, RFC-0046)"
+namespace: shpyrd-system
+hooks: [object-storage-credentials]
+kustomize:
+  path: base
+wait:
+  - deployment: shpyrd-system/object-storage
+timeout: 10m

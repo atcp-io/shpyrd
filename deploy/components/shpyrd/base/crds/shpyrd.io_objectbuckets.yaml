@@ -1,0 +1,124 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: objectbuckets.shpyrd.io
+spec:
+  group: shpyrd.io
+  names:
+    kind: ObjectBucket
+    listKind: ObjectBucketList
+    plural: objectbuckets
+    shortNames:
+    - bucket
+    singular: objectbucket
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.bucket
+      name: Bucket
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.usedBytes
+      name: Used
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ObjectBucket is a bucket in the platform's object store with its own
+          credential (RFC-0046).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              ObjectBucketSpec asks the platform's object store (RFC-0046) for a bucket
+              with a credential that opens it and nothing else. The bucket is named
+              after the resource and its namespace; the credential lands in a Secret
+              next to the resource.
+            properties:
+              deletionPolicy:
+                description: |-
+                  DeletionPolicy says what happens to the bucket's contents when the
+                  resource is deleted: Delete (default) removes the bucket and its
+                  objects, Retain leaves them for an operator to remove.
+                enum:
+                - Delete
+                - Retain
+                type: string
+              retentionDays:
+                description: 'RetentionDays expires objects older than this (0: keep
+                  everything).'
+                format: int32
+                minimum: 0
+                type: integer
+              secretName:
+                description: |-
+                  SecretName of the credential Secret written in the resource's
+                  namespace (default: <name>-object-storage).
+                type: string
+              versioning:
+                description: Versioning keeps previous versions of overwritten objects.
+                type: boolean
+            type: object
+          status:
+            description: ObjectBucketStatus reports the bucket and its usage.
+            properties:
+              bucket:
+                description: Bucket is the bucket's name in the store.
+                type: string
+              endpoint:
+                description: Endpoint is the S3 endpoint URL consumers use.
+                type: string
+              measuredAt:
+                format: date-time
+                type: string
+              message:
+                type: string
+              objects:
+                format: int64
+                type: integer
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: Phase is Pending, Ready or Failed.
+                type: string
+              secretName:
+                description: |-
+                  SecretName holds the credential (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+                  AWS_ENDPOINT_URL, BUCKET, AWS_REGION; accessKeyId and secretAccessKey).
+                type: string
+              usedBytes:
+                description: UsedBytes and Objects are the last measured usage.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

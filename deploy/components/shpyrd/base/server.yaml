@@ -102,6 +102,10 @@ spec:
               value: "${SHPYRD_INGRESS_CLASS_INTERNAL}"
             - name: SHPYRD_PLATFORM_EXPOSURE
               value: "${SHPYRD_PLATFORM_EXPOSURE}"
+            # The controller behind the platform's own hostnames (RFC-0036):
+            # the server dials it for sign-in discovery instead of the LB.
+            - name: SHPYRD_INGRESS_SERVICE
+              value: "${SHPYRD_PLATFORM_INGRESS_SERVICE}"
             - name: SHPYRD_LB_IP
               value: "${SHPYRD_LB_IP}"
             - name: SHPYRD_INTERNAL_LB_ADDRESS

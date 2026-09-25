@@ -55,19 +55,21 @@ const (
 	VarDefaultTLSSecret  = "SHPYRD_DEFAULT_TLS_SECRET"  // namespace/name of ingress-nginx's default certificate
 	VarWildcardTLS       = "SHPYRD_WILDCARD_TLS"        // "true" when the wildcard certificate serves every project host
 	// Front doors (RFC-0036).
-	VarLBIP                 = "SHPYRD_LB_IP"                  // static address(es) of the public front door: OCI's reserved IP, AWS's Elastic IPs (comma-separated)
-	VarPlatformExposure     = "SHPYRD_PLATFORM_EXPOSURE"      // "external" or "internal"
-	VarInternalLB           = "SHPYRD_INTERNAL_LB"            // "auto" (create lazily), "true", "false"
-	VarInternalLBSubnet     = "SHPYRD_INTERNAL_LB_SUBNET"     // subnet OCID for the private LB (OCI)
-	VarIngressClassInternal = "SHPYRD_INGRESS_CLASS_INTERNAL" // ingress class of the internal controller
-	VarIngressClassExternal = "SHPYRD_INGRESS_CLASS_EXTERNAL" // ingress class of the external controller
-	VarPlatformIngressClass = "SHPYRD_PLATFORM_INGRESS_CLASS" // derived: the class the dashboard, sign-in and Grafana use
-	VarPlatformIssuer       = "SHPYRD_PLATFORM_ISSUER"        // derived: the issuer of their certificates (DNS-01 when a DNS provider exists, so they work on either front door)
+	VarLBIP                 = "SHPYRD_LB_IP"                    // static address(es) of the public front door: OCI's reserved IP, AWS's Elastic IPs (comma-separated)
+	VarPlatformExposure     = "SHPYRD_PLATFORM_EXPOSURE"        // "external" or "internal"
+	VarInternalLB           = "SHPYRD_INTERNAL_LB"              // "auto" (create lazily), "true", "false"
+	VarInternalLBSubnet     = "SHPYRD_INTERNAL_LB_SUBNET"       // subnet OCID for the private LB (OCI)
+	VarIngressClassInternal = "SHPYRD_INGRESS_CLASS_INTERNAL"   // ingress class of the internal controller
+	VarIngressClassExternal = "SHPYRD_INGRESS_CLASS_EXTERNAL"   // ingress class of the external controller
+	VarPlatformIngressClass = "SHPYRD_PLATFORM_INGRESS_CLASS"   // derived: the class the dashboard, sign-in and Grafana use
+	VarPlatformIssuer       = "SHPYRD_PLATFORM_ISSUER"          // derived: the issuer of their certificates (DNS-01 when a DNS provider exists, so they work on either front door)
+	VarPlatformIngressSvc   = "SHPYRD_PLATFORM_INGRESS_SERVICE" // derived: the controller Service the server dials for platform hostnames (sign-in discovery)
 	// Volumes on cloud profiles (RFC-0060).
 	VarStorageClass       = "SHPYRD_STORAGE_CLASS"        // class for single-instance volumes ("" = the cluster default)
 	VarStorageClassShared = "SHPYRD_STORAGE_CLASS_SHARED" // class for shared (ReadWriteMany) volumes
 	VarVolumeMinSize      = "SHPYRD_VOLUME_MIN_SIZE"      // provider minimum a request is rounded up to ("" = none)
 	VarSnapshotClass      = "SHPYRD_SNAPSHOT_CLASS"       // VolumeSnapshotClass for `shpyrd volumes snapshot` ("" = snapshots unavailable)
+	VarObjectStorageSize  = "SHPYRD_OBJECT_STORAGE_SIZE"  // MinIO volume of the object-storage extension (RFC-0046)
 	VarFSSMountTarget     = "SHPYRD_FSS_MOUNT_TARGET"     // OCI File Storage mount target OCID behind shared volumes ("" = no shared volumes)
 	VarFSSAD              = "SHPYRD_FSS_AD"               // availability domain of the shared volumes' file systems (OCI)
 	VarEFSID              = "SHPYRD_EFS_ID"               // EFS file system behind shared volumes ("" = no shared volumes) (AWS)
@@ -176,10 +178,14 @@ func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]s
 		out[VarWildcardTLS] = "true"
 		out[VarPlatformIssuer] = "letsencrypt-dns01"
 	}
-	// Front door of the dashboard, sign-in and Grafana (RFC-0036).
+	// Front door of the dashboard, sign-in and Grafana (RFC-0036), and the
+	// controller Service behind it, which the server dials for those
+	// hostnames instead of hairpinning through the load balancer.
 	out[VarPlatformIngressClass] = vars[VarIngressClassExternal]
+	out[VarPlatformIngressSvc] = "ingress-nginx-controller.ingress-nginx.svc:443"
 	if vars[VarPlatformExposure] == "internal" {
 		out[VarPlatformIngressClass] = vars[VarIngressClassInternal]
+		out[VarPlatformIngressSvc] = "ingress-nginx-internal-controller.ingress-nginx-internal.svc:443"
 	}
 	return out
 }

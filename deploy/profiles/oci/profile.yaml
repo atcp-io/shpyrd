@@ -46,6 +46,8 @@ vars:
   SHPYRD_STORAGE_CLASS: oci-bv
   SHPYRD_STORAGE_CLASS_SHARED: shpyrd-fss
   SHPYRD_VOLUME_MIN_SIZE: 50Gi
+  # Object storage (RFC-0046): the MinIO volume of the object-storage extension.
+  SHPYRD_OBJECT_STORAGE_SIZE: 50Gi
   SHPYRD_SNAPSHOT_CLASS: oci-bv-backup
   SHPYRD_FSS_MOUNT_TARGET: ""
   SHPYRD_EFS_ID: ""

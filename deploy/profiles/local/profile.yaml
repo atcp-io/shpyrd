@@ -28,6 +28,8 @@ vars:
   SHPYRD_STORAGE_CLASS: ""
   SHPYRD_STORAGE_CLASS_SHARED: ""
   SHPYRD_VOLUME_MIN_SIZE: ""
+  # Object storage (RFC-0046): the MinIO volume of the object-storage extension.
+  SHPYRD_OBJECT_STORAGE_SIZE: 20Gi
   SHPYRD_SNAPSHOT_CLASS: ""
   SHPYRD_FSS_MOUNT_TARGET: ""
   SHPYRD_EFS_ID: ""
