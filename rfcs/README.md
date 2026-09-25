@@ -74,7 +74,7 @@ declare what they depend on.
 | [0043](0043-builds-namespace-and-pod-security.md) | Builds namespace and enforce-mode Pod Security | implementable | 0004, 0008 |
 | [0044](0044-supply-chain.md) | Supply chain and encryption at rest | implementable | 0045 |
 | [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implemented (signing/SBOM deferred), gaps | |
-| [0046](0046-object-storage.md) | Object storage extension | in progress | 0002, 0059, 0060 |
+| [0046](0046-object-storage.md) | Object storage extension | implemented | 0002, 0059, 0060 |
 | [0047](0047-autoscaling.md) | Autoscaling (min/max mode, HPA, KEDA) | implementable | 0019, 0042 |
 | [0048](0048-cost-visibility.md) | Cost visibility | implementable | 0042 |
 | [0049](0049-gitops-export.md) | GitOps export | rejected | |
@@ -102,7 +102,7 @@ declare what they depend on.
 | C | 0002, 0007 | done |
 | D | 0008 | done |
 | E | 0009, 0010 | done |
-| F | 0045, 0057, 0011, 0012, 0058, 0016, 0019 (done), 0046 (in progress) | polish, sign-in, globals, health checks; object storage |
+| F | 0045, 0057, 0011, 0012, 0058, 0016, 0019, 0046 | done |
 | G | 0022a, 0021, 0017, 0018, 0023, 0024, 0025 | delivery and logs: agent, structured viewer, git creds, auto-deploy, drains, run history, durable audit |
 | G (old) | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | superseded by new G above |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
