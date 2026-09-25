@@ -7,8 +7,9 @@ itself is installed afterwards with `shpyrd cluster init`.
 ```
 terraform/       VPC 10.0.0.0/16 with two public subnets (load balancers, one NAT gateway)
                  and two private /19 subnets (nodes and pods); EKS with the API
-                 authentication mode, a private endpoint and a public one restricted to
-                 admin_cidrs; one managed node group (AL2023); the add-ons vpc-cni (network
+                 authentication mode and a private API endpoint (a public one restricted
+                 to admin_cidrs with api_public_access); one managed node group (AL2023);
+                 the add-ons vpc-cni (network
                  policy on), coredns, kube-proxy, eks-pod-identity-agent, aws-ebs-csi-driver
                  and aws-efs-csi-driver; Pod Identity roles for the CSI drivers, ExternalDNS
                  and cert-manager; optionally the platform's zone in Route 53, an EFS file
@@ -24,9 +25,14 @@ cp terraform.tfvars.example terraform.tfvars   # profile, region, dns_zone, vpn,
 terraform init
 terraform apply                                # about 15 minutes
 cd ..
+# AWS VPN Client > File > Manage Profiles > Add Profile > terraform/<name>-vpn.ovpn, connect
 ./kubeconfig.sh
 kubectl --context eks-<name> get nodes         # the name variable, default in variables.tf
 ```
+
+The Kubernetes API is private: kubectl works with the VPN connected (or from inside the
+VPC). `api_public_access = true` adds a public endpoint restricted to `admin_cidrs` for
+machines that cannot run the VPN; Terraform refuses to leave a cluster with neither.
 
 `terraform output next_steps` prints the `shpyrd cluster init` command with the zone, the
 EFS file system and the DNS flags filled in. With `dns_zone` set, delegate the zone once
@@ -60,6 +66,10 @@ tainting `tls_private_key.vpn_client` and applying.
   `NetworkPolicy` when the add-on runs with `enableNetworkPolicy`.
 - **API authentication mode** with the Terraform caller as the first administrator; add
   more with `aws_eks_access_entry`.
+- **Private API endpoint by default.** The VPN is the way to kubectl; a public endpoint
+  is opt-in and restricted to `admin_cidrs`. Locked out (profile lost, VPN down)?
+  `api_public_access = true` and `terraform apply` restores access in two minutes:
+  Terraform talks to the AWS control plane, not to Kubernetes.
 - **One NAT gateway**: a second doubles a fixed cost for a development cluster.
 - **Standard support only**: no extended-support fee; upgrade before the version leaves
   standard support.
@@ -78,7 +88,7 @@ the cluster, the network, the zone and the VPN.
   $0.10/h plus $0.05/h per connection; about $0.45/h all in, so create a cluster for a
   working session and destroy it after. EBS gp3 $0.08/GB-month, EFS by use, the zone
   $0.50/month.
-- The public API endpoint admits `admin_cidrs` only (this machine's address at apply
-  time by default); when your address changes, `terraform apply` again or connect the VPN.
+- With `api_public_access`, the public endpoint admits `admin_cidrs` only (this machine's
+  address at apply time by default); when your address changes, `terraform apply` again.
 - Managed nodes need a few minutes after creation before add-ons that schedule on them
   (CoreDNS, the CSI controllers) settle; `cluster init` waits for what it needs.

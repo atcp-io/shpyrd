@@ -62,11 +62,14 @@ resource "aws_eks_cluster" "this" {
     bootstrap_cluster_creator_admin_permissions = true
   }
 
+  # The API is private by default: nodes, pods and VPN clients reach it
+  # inside the VPC and nothing else can. api_public_access adds a public
+  # endpoint restricted to admin_cidrs for machines without the VPN.
   vpc_config {
     subnet_ids              = aws_subnet.private[*].id
     endpoint_private_access = true
-    endpoint_public_access  = true
-    public_access_cidrs     = local.admin_cidrs
+    endpoint_public_access  = var.api_public_access
+    public_access_cidrs     = var.api_public_access ? local.admin_cidrs : null
   }
 
   kubernetes_network_config {
@@ -79,6 +82,13 @@ resource "aws_eks_cluster" "this" {
   }
 
   depends_on = [aws_iam_role_policy_attachment.cluster]
+
+  lifecycle {
+    precondition {
+      condition     = var.api_public_access || var.vpn
+      error_message = "With the API private only (api_public_access = false) the VPN is the way to kubectl: set vpn = true, or api_public_access = true, unless another route into the VPC exists."
+    }
+  }
 }
 
 # Nodes, internal load balancers and VPN clients (whose traffic leaves the

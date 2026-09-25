@@ -57,8 +57,14 @@ variable "node_disk_gb" {
   default     = 60
 }
 
+variable "api_public_access" {
+  description = "Also expose the Kubernetes API on a public endpoint (restricted to admin_cidrs). Off by default: the API is reachable from inside the VPC only, through the VPN."
+  type        = bool
+  default     = false
+}
+
 variable "admin_cidrs" {
-  description = "Addresses allowed to reach the public Kubernetes API endpoint; empty means this machine's address."
+  description = "Addresses allowed to reach the public Kubernetes API endpoint when api_public_access is on; empty means this machine's address."
   type        = list(string)
   default     = []
 }

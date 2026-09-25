@@ -8,16 +8,16 @@ data "aws_availability_zones" "available" {
 
 data "aws_caller_identity" "current" {}
 
-# This machine's public address, for the API endpoint allow list when
-# admin_cidrs is empty.
+# This machine's public address, for the public API endpoint allow list
+# when that endpoint is on and admin_cidrs is empty.
 data "http" "my_ip" {
-  count = length(var.admin_cidrs) == 0 ? 1 : 0
+  count = var.api_public_access && length(var.admin_cidrs) == 0 ? 1 : 0
   url   = "https://api.ipify.org"
 }
 
 locals {
   azs         = slice(data.aws_availability_zones.available.names, 0, 2)
-  admin_cidrs = length(var.admin_cidrs) > 0 ? var.admin_cidrs : ["${trimspace(data.http.my_ip[0].response_body)}/32"]
+  admin_cidrs = !var.api_public_access ? [] : length(var.admin_cidrs) > 0 ? var.admin_cidrs : ["${trimspace(data.http.my_ip[0].response_body)}/32"]
 
   # Two public /20 (load balancers, NAT) and two private /19 (nodes and
   # pods) subnets, one pair per availability zone.

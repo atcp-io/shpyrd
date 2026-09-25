@@ -89,10 +89,11 @@ from `shpyrd cluster init --profile aws`.
   and two private /19 subnets (nodes; the VPC CNI gives pods VPC addresses, so they are
   large), tagged for the in-tree load balancer discovery (`kubernetes.io/role/elb`,
   `internal-elb`). EKS with the API authentication mode (the Terraform caller is the
-  first administrator through an access entry), a private endpoint for nodes and VPN
-  clients plus a public one restricted to `admin_cidrs` (this machine's address by
-  default), standard support only (no extended-support fee), service range
-  `10.100.0.0/16`. One managed node group on AL2023 (`t3a.large`, 2 nodes) with containerd.
+  first administrator through an access entry), a **private API endpoint only** by
+  default: nodes, pods and VPN clients reach it, nothing else does
+  (`api_public_access = true` adds a public endpoint restricted to `admin_cidrs` for
+  machines without the VPN); standard support only (no extended-support fee), service
+  range `10.100.0.0/16`. One managed node group on AL2023 (`t3a.large`, 2 nodes) with containerd.
 - **Add-ons instead of components** where EKS ships them: `vpc-cni` with
   `enableNetworkPolicy` (the VPC CNI's own agent enforces `NetworkPolicy`, so
   `SHPYRD_NETWORK_POLICY=none` and `cluster init` recognises `aws-node` as a policy
@@ -130,9 +131,10 @@ from `shpyrd cluster init --profile aws`.
   DNS so the private API endpoint resolves), associates one private subnet and writes
   `<name>-vpn.ovpn` next to the state for the AWS VPN Client. With it connected, the
   private front door, the private API endpoint and internal projects are reachable from
-  this machine; without it the public endpoint (restricted to `admin_cidrs`) serves
-  kubectl. Costs: the association is billed per hour while it exists (`vpn = false`
-  removes it), connections per hour while connected.
+  this machine, and so is the API endpoint, which is what makes the private-only API the
+  default (Terraform refuses `api_public_access = false` without `vpn = true`). Costs:
+  the association is billed per hour while it exists (`vpn = false` removes it),
+  connections per hour while connected.
 - **Costs at the defaults** (us-east-1, on demand): EKS control plane $0.10/h, two
   `t3a.large` $0.15/h, NAT gateway $0.045/h plus data, two NLBs $0.045/h, Client VPN
   association $0.10/h plus $0.05/h per connection; about $0.45/h all in, so a cluster is

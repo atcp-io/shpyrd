@@ -20,6 +20,11 @@ output "kubernetes_api_endpoint" {
   value = aws_eks_cluster.this.endpoint
 }
 
+output "kubernetes_api_public" {
+  description = "Whether the API has a public endpoint (restricted to admin_cidrs); false means VPN only."
+  value       = var.api_public_access
+}
+
 output "dns_zone_id" {
   description = "Route 53 hosted zone of the platform (--dns-zone-id)."
   value       = var.dns_zone != "" ? aws_route53_zone.platform[0].zone_id : null
@@ -51,8 +56,8 @@ output "registry_ip" {
 
 output "next_steps" {
   value = <<-EOT
-    ../kubeconfig.sh                       # kubectl context eks-${var.name} (public endpoint, allowed from ${join(", ", local.admin_cidrs)})
-    ${var.vpn ? "AWS VPN Client > File > Manage Profiles > Add Profile: ${abspath(local_sensitive_file.vpn_profile[0].filename)}" : "# vpn = true for an access path to the private front door"}
+    ${var.vpn ? "AWS VPN Client > File > Manage Profiles > Add Profile: ${abspath(local_sensitive_file.vpn_profile[0].filename)}${var.api_public_access ? "" : "   # connect: the API is private"}" : "# vpn = true for an access path to the private front door"}
+    ../kubeconfig.sh                       # kubectl context eks-${var.name}${var.api_public_access ? " (public endpoint allowed from ${join(", ", local.admin_cidrs)})" : " (private endpoint: VPN connected)"}
     kubectl --context eks-${var.name} get nodes
     shpyrd cluster init --context eks-${var.name} --profile aws --domain ${var.dns_zone != "" ? var.dns_zone : "<domain>"} \
       --set SHPYRD_ACME_EMAIL=<email>${var.shared_storage ? " --set SHPYRD_EFS_ID=${aws_efs_file_system.shared[0].id}" : ""}${var.dns_zone != "" ? " \\\n      --dns aws --dns-zone-id ${aws_route53_zone.platform[0].zone_id} --dns-region ${var.region}" : ""}
