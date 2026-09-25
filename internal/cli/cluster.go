@@ -626,29 +626,7 @@ func runInit(ctx context.Context, cmd *cobra.Command, kopts kube.Options, cluste
 		if prof.Name == "aws" {
 			discoverAWS(ctx, out, k, vars, prof)
 		}
-		if vars[install.VarNetworkPolicy] == "none" && prof.HasComponent("network-policy") {
-			skip = append(append([]string{}, skip...), "network-policy")
-		}
-		// Shared volumes need the File Storage mount target (RFC-0060); the
-		// class makes no sense without it and the Volume controller explains.
-		if effectiveVar(vars, prof, install.VarFSSMountTarget) == "" && prof.HasComponent("storage-fss") {
-			skip = append(append([]string{}, skip...), "storage-fss")
-		}
-		if effectiveVar(vars, prof, install.VarEFSID) == "" && prof.HasComponent("storage-efs") {
-			skip = append(append([]string{}, skip...), "storage-efs")
-		}
-		// Platform backups need somewhere to go (RFC-0037).
-		if effectiveVar(vars, prof, install.VarBackupTarget) == "" && prof.HasComponent("platform-backup") {
-			skip = append(append([]string{}, skip...), "platform-backup")
-		}
-		// No DNS provider: no records automation, no wildcard certificate.
-		if dns := effectiveVar(vars, prof, install.VarDNSProvider); dns == "" || dns == "none" {
-			for _, c := range []string{"external-dns", "dns01-oci", "dns"} {
-				if prof.HasComponent(c) {
-					skip = append(append([]string{}, skip...), c)
-				}
-			}
-		}
+		skip = append(append([]string{}, skip...), conditionalComponents(vars, prof)...)
 	}
 	opts := install.Options{
 		Profile:           flags.profile,
@@ -815,6 +793,37 @@ func certificateComponents(extNames []string) []string {
 		out = append(out, "dex")
 	}
 	return out
+}
+
+// conditionalComponents lists the profile's components that make no sense
+// with the given settings: `cluster init` skips them and `cluster status`
+// does not report them missing.
+func conditionalComponents(vars map[string]string, prof *install.Profile) []string {
+	var skip []string
+	if vars[install.VarNetworkPolicy] == "none" && prof.HasComponent("network-policy") {
+		skip = append(skip, "network-policy")
+	}
+	// Shared volumes need the File Storage mount target (RFC-0060); the
+	// class makes no sense without it and the Volume controller explains.
+	if effectiveVar(vars, prof, install.VarFSSMountTarget) == "" && prof.HasComponent("storage-fss") {
+		skip = append(skip, "storage-fss")
+	}
+	if effectiveVar(vars, prof, install.VarEFSID) == "" && prof.HasComponent("storage-efs") {
+		skip = append(skip, "storage-efs")
+	}
+	// Platform backups need somewhere to go (RFC-0037).
+	if effectiveVar(vars, prof, install.VarBackupTarget) == "" && prof.HasComponent("platform-backup") {
+		skip = append(skip, "platform-backup")
+	}
+	// No DNS provider: no records automation, no wildcard certificate.
+	if dns := effectiveVar(vars, prof, install.VarDNSProvider); dns == "" || dns == "none" {
+		for _, c := range []string{"external-dns", "dns01-oci", "dns"} {
+			if prof.HasComponent(c) {
+				skip = append(skip, c)
+			}
+		}
+	}
+	return skip
 }
 
 // effectiveVar is the value a variable will have: the explicit one, else
@@ -1081,7 +1090,14 @@ func newClusterStatusCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			eng, err := install.New(k, install.Options{Profile: profile, Vars: info.Vars, Version: info.Version, Extensions: extComps, Reporter: &quietReporter{}})
+			var skip []string
+			if prof, err := install.LoadProfile(deploy.FS, profile); err == nil {
+				skip = conditionalComponents(info.Vars, prof)
+				if ip, explicit := info.Vars[install.VarRegistryIP]; explicit && ip == "" {
+					skip = append(skip, "registry", "registry-nodes")
+				}
+			}
+			eng, err := install.New(k, install.Options{Profile: profile, Vars: info.Vars, Skip: skip, Version: info.Version, Extensions: extComps, Reporter: &quietReporter{}})
 			if err != nil {
 				return err
 			}
