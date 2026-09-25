@@ -66,7 +66,7 @@ declare what they depend on.
 | [0035](0035-cloud-profiles.md) | Cloud profiles: Oracle Cloud (OKE) and AWS (EKS) | implemented (`oci`, network policy); AWS provisional | 0045 |
 | [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | implemented, gaps | 0035, 0061 |
 | [0037](0037-platform-backup-and-restore.md) | Platform backup and restore | provisional | 0046 |
-| [0038](0038-postgres-backups-and-pitr.md) | Postgres backups and PITR | implementable | 0009, 0046 |
+| [0038](0038-postgres-backups-and-pitr.md) | Postgres backups and PITR | implemented | 0009, 0046 |
 | [0039](0039-postgres-pooling-rotation-resize.md) | Postgres pooling, rotation and resize | implementable | 0009 |
 | [0040](0040-redis-ha-and-exporter.md) | Redis high availability and metrics exporter | provisional | 0010 |
 | [0041](0041-shared-volumes.md) | Shared volumes (`storage-rwx`) | implementable | 0006 |
