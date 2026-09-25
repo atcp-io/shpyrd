@@ -1,6 +1,6 @@
 # RFC-0008 Teams, roles and security
 
-**Status:** implemented (roles, RBAC mirror, isolation, audit); quotas → RFC-0042, enforce-mode PSS → RFC-0043, supply chain → RFC-0044, API tokens → RFC-0031, durable audit → RFC-0025
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -124,3 +124,13 @@ platform-wide roles exist besides.
   LimitRange (they need a plan model; a LimitRange default would starve build pods),
   etcd encryption, cosign, SBOM/CVE reporting, per-user API tokens, and enforce-mode PSS
   (BuildKit build pods need seccomp/AppArmor exemptions).
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Fixed:** 2026-09-25: the Kubernetes RBAC mirror bound developers and admins only to their incremental ClusterRole; the roles are aggregated now (developer includes viewer, admin includes both).
+- **Not implemented:** Domains are gated by `project.config` (developers) rather than the admin role the table names.
+- **Not implemented:** Audit export and a cluster-level audit listing; session-id rotation; a general API rate limit (login and token endpoints are limited).
+- **Not implemented:** etcd encryption at rest by the installer (managed clusters decide this) and the backup-exclusion label on config var Secrets.
+- **Superseded:** Cross-project access "through a declared binding": bindings are project-local; projects never reach each other.

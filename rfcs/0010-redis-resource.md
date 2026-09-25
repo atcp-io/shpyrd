@@ -1,6 +1,6 @@
 # RFC-0010 Redis resource
 
-**Status:** implemented (single instance); HA and exporter → RFC-0040
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -83,3 +83,9 @@ The `Binding` exposes `REDIS_URL` (`redis://:password@host:6379/0`) and `REDIS_H
   `REDIS_URL|HOST|PORT|PASSWORD`; `shpyrd redis create|list|info|cli|delete`. Persistence
   cannot change after creation. Not done: Sentinel/HA through an operator, the exporter
   sidecar and dashboard panel, PodDisruptionBudget.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** A PodDisruptionBudget for the Redis instance.

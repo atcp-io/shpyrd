@@ -1,6 +1,6 @@
 # RFC-0006 Persistent volumes
 
-**Status:** implemented (RWO); shared volumes → RFC-0041
+**Status:** implemented (text partly superseded) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -101,3 +101,10 @@ destroy` deletes them - the one local caveat, documented.
   are accepted when the cluster has a provisioner; the local `storage-rwx` extension is
   not written yet. kind's `standard` class does not allow expansion, so resize fails
   there with the explanation.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Superseded:** Reclaim policy `Retain`: RFC-0060 decided `Delete` on cloud classes with snapshots as the safety net.
+- **Not implemented:** The SQLite-over-NFS warning in the documentation (the CLI says it).

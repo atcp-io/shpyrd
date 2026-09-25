@@ -1,6 +1,6 @@
 # RFC-0002 Extension model
 
-**Status:** implemented (framework); schema-driven forms → RFC-0028
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -120,3 +120,10 @@ message, conditions, endpoint) so the dashboard renders them generically.
   reference instead of a full component (the installer resolves it from the embedded tree),
   extension RBAC ships inside the component manifests (Dex grants the server access to
   `passwords`), and the per-type JSON schema form is not built yet.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** One ServiceAccount and RBAC per extension: extension permissions live in the server's ClusterRole (CNPG, Dex passwords).
+- **Not implemented:** Per-extension health on the cluster page (only enabled/disabled).

@@ -1,6 +1,6 @@
 # RFC-0011 Project identity and product language
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
@@ -80,3 +80,9 @@ are the first things a new user notices.
 
 - 2026-09-22: RFC written.
 - 2026-09-23: open questions settled (break now); implemented in shpyrd-io/shpyrd (API, CLI, dashboard, copy audit).
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** The logs-agent extension description still says "pods" (`shpyrd extensions list`, cluster page).

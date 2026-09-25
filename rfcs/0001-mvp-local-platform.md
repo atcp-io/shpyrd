@@ -1,6 +1,6 @@
 # RFC-0001 MVP: local platform, App CRD and CLI
 
-**Status:** implemented
+**Status:** implemented (text partly superseded) — see Implementation status below
 
 **Creation date:** 2026-09-21
 
@@ -420,3 +420,12 @@ status` reads it and checks component health. Components can be skipped with
   logs, build, config, scale and rollback; cluster page), the API behind it with
   Prometheus-backed metrics, admin token authentication, `shpyrd cluster token` and
   `shpyrd cluster dashboard`. Verified on kind through the ingress.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Superseded:** Admin token in `~/.shpyrd/config.yaml` and the `#token=` dashboard URL: replaced by the cluster Secret, `cluster token` and the one-time ticket of RFC-0007/0012.
+- **Superseded:** Default size 100m/128Mi: sizes come from the catalog (RFC-0013), default `shared-s`.
+- **Superseded:** `cluster init --export <dir>`: is `shpyrd cluster export -o <dir>`.
+- **Not implemented:** A Grafana dashboard for worker processes (only "Web apps" ships).

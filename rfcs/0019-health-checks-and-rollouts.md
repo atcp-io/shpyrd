@@ -1,6 +1,6 @@
 # RFC-0019 Health checks and zero-downtime rollouts
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
@@ -99,3 +99,10 @@ processes:
 
 - 2026-09-22: RFC written.
 - 2026-09-23: probe defaults settled; implemented in shpyrd-io/shpyrd (commit f02265a).
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** The zero-downtime rollout test (`TestRolloutZeroDowntime`).
+- **Not implemented:** The probe's own message ("GET /healthz 503") in failing-instance status; users see "readiness probe failing".

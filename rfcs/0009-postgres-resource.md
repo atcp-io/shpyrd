@@ -1,6 +1,6 @@
 # RFC-0009 Postgres resource
 
-**Status:** implemented (create, attach, psql, HA instances); backups → RFC-0038, pooling/rotation/resize → RFC-0039
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -91,3 +91,9 @@ endpoint, size, storage used, backups, "Attach".
   generic resources API and dashboard forms. The project network policy now admits every
   platform namespace so the operator can reach its instances. Not done: backups to object
   storage, PITR, `Pooler`, `shpyrd pg rotate`, RDS variant.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** Typing the database name to delete it (`--yes` / a confirm dialog today); storage *used* on the dashboard.

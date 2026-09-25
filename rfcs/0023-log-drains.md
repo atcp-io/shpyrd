@@ -1,6 +1,6 @@
 # RFC-0023 Log drains
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
@@ -182,3 +182,9 @@ uses the kubeconfig; the API enforces `cluster.admin`).
     filtered out before the drains (`shpyrd_enrich` is now a filter over `shpyrd_enrich_raw`).
   - Syslog uses Vector's `socket` sink with a VRL remap composing the RFC 5424 line; TLS when
     the URL is `syslog+tls://`.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** The `drain.failing` audit event after ten failing polls (a Kubernetes warning event is emitted on every failure); a docs link on the disabled-agent notice.

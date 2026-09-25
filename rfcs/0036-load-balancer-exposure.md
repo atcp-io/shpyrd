@@ -1,6 +1,6 @@
 # RFC-0036 Load balancer exposure: internal and external front doors
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri
 
@@ -142,3 +142,12 @@ exists. Both should be a setting, not an infrastructure project.
   provider exists) now drive the three, `cluster init` accepts the platform hostname
   resolving to either front door, and the dev cluster on EKS runs with a private API, an
   internal dashboard and public apps.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Fixed:** 2026-09-25: `--platform-exposure internal` reaches the setting and moves the dashboard, sign-in and Grafana with DNS-01 certificates; `--internal-lb-subnet` reaches the setting (it was dead).
+- **Not implemented:** `SHPYRD_INTERNAL_LB=auto|true|false` is declared but not read: the internal controller is always installed on cloud profiles and `false` refuses nothing.
+- **Not implemented:** Internal projects without a DNS-provider wildcard still get HTTP-01 certificates, which cannot validate behind a private load balancer (`SHPYRD_INTERNAL_ISSUER` / platform CA).
+- **Not implemented:** `App.status.exposure`; hosts served and certificate source on the cluster page; configurable OCI flexible-shape bandwidth.

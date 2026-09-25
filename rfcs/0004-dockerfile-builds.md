@@ -1,6 +1,6 @@
 # RFC-0004 Dockerfile builds
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -106,3 +106,10 @@ build:
   (`terminationMessagePolicy: FallbackToLogsOnError`). Git sources rebuild when the
   configured revision or build settings change, not on new commits (kpack polls, the Job
   does not); pass a commit or redeploy to rebuild a branch.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** A "build" size in the catalog (build Jobs use fixed 250m/512Mi requests, no limits) and `ttlSecondsAfterFinished` on build Jobs (they are pruned to the last ten).
+- **Superseded:** `build.args`: Dockerfile build args come from `build.env`; the Build record is the Job, not a CRD.

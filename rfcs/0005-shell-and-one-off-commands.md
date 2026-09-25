@@ -1,6 +1,6 @@
 # RFC-0005 Shell and one-off commands
 
-**Status:** implemented (CLI); browser terminal → RFC-0026
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -84,3 +84,10 @@ output streams into the same terminal.
   attach, exit code passthrough, `--detach`) shipped in the CLI. The controller deletes
   finished one-off pods after 10 minutes. Browser terminal and `pods/exec` through the
   server are not done yet.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** `shpyrd forward <port>[:<port>] [--to <resource>]`.
+- **Not implemented:** `shpyrd run --process <type>`.

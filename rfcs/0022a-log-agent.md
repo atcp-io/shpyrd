@@ -1,6 +1,6 @@
 # RFC-0022a Log agent (Vector, container log limits)
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
@@ -120,3 +120,10 @@ install vars (domain, system namespace) and re-applied on `cluster init`.
   - labelRunningInstances reconciler patches running pods with shpyrd.io/instance annotation after each reconcile; InstanceNames moved to pkg/logs to avoid import cycle.
   - logs-agent extension: Vector 0.58.0-alpine DaemonSet in logs-system; kubernetes_logs source with extra_namespace_label_selector:shpyrd.io/project; VRL remap attaches project/process/instance, parses JSON log lines; console sink; tolerates control-plane to reach build pods.
   - Verified live: shop web.1/web.2/worker.1 correctly labelled; blog JSON lines promoted to level+msg; api JSON parsed; no non-project pods in the stream.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** A NetworkPolicy for `logs-system` (Vector egress limited to drains and the API server).
+- **Not implemented:** The console sink off on cloud profiles (and no blackhole sink).

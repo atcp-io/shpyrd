@@ -1,6 +1,6 @@
 # RFC-0035 Cloud profiles: Oracle Cloud (OKE) and AWS (EKS)
 
-**Status:** implemented (`oci` profile, `network-policy` component); `aws` profile in progress
+**Status:** implemented (`oci` and `aws` profiles)
 
 **Owner:** unassigned
 
@@ -8,7 +8,7 @@
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-25 (AWS design: EKS with Pod Identity, NLBs, Route 53, Client VPN)
+**Last update:** 2026-09-25 (`aws` profile implemented and verified on EKS)
 
 ## Summary
 
@@ -85,8 +85,9 @@ harder path: private API endpoint, private workers, CRI-O nodes, a provider regi
 Reference infrastructure in `contrib/aws/terraform` (mirrors `contrib/oci`), the platform
 from `shpyrd cluster init --profile aws`.
 
-- **Network and cluster.** A VPC with two public subnets (load balancers, one NAT gateway)
-  and two private /19 subnets (nodes; the VPC CNI gives pods VPC addresses, so they are
+- **Network and cluster.** A VPC with two public subnets (load balancers, one NAT gateway
+  per zone by default, `nat_gateway_per_az = false` for a single one) and two private /19
+  subnets (nodes; the VPC CNI gives pods VPC addresses, so they are
   large), tagged for the in-tree load balancer discovery (`kubernetes.io/role/elb`,
   `internal-elb`). EKS with the API authentication mode (the Terraform caller is the
   first administrator through an access entry), a **private API endpoint only** by
@@ -103,15 +104,20 @@ from `shpyrd cluster init --profile aws`.
   service accounts that need AWS: the two CSI drivers, `shpyrd-system/external-dns` and
   `cert-manager/cert-manager` (Route 53 on the platform's zone only). No access keys are
   created or stored; the OCI API-key flow stays OCI's.
-- **Load balancers.** The in-tree cloud provider creates Network Load Balancers for the two
-  ingress-nginx Services (`aws-load-balancer-type: nlb`; `aws-load-balancer-internal` for
-  the internal front door, RFC-0036), `externalTrafficPolicy: Local` so client addresses
-  survive. An NLB has a hostname, not an address: `SHPYRD_LB_IP` stays empty, ExternalDNS
-  publishes `*.<domain>` as an alias of the external NLB from the Service annotation and
-  internal hostnames as aliases of the internal NLB, and everything that showed an address
-  (cluster page, `cluster init`, the ExternalDNS target of internal Ingresses) shows the
-  hostname. Custom domains (RFC-0034) point at the project hostname with a CNAME (or an
-  alias at an apex); the A-record option only exists where the front door has an address.
+- **Load balancers.** The AWS Load Balancer Controller (component
+  `aws-load-balancer-controller`, Pod Identity role from the upstream policy) creates
+  Network Load Balancers with **pod targets** for the two ingress-nginx Services: traffic
+  goes to the nginx pods, health is per pod, client addresses survive. The public one sits
+  on two **Elastic IPs** Terraform reserves (one per zone): the static addresses customers
+  allow-list or point an apex A record at, and DNS need not change when the load balancer
+  is rebuilt (`SHPYRD_AWS_LB_EIPS` for the controller, `SHPYRD_LB_IP` for the platform's
+  A-record hints, both printed by Terraform). The internal one (`aws-load-balancer-scheme:
+  internal`, RFC-0036) serves the VPC and VPN clients. Both have hostnames too, which
+  ExternalDNS publishes as aliases (`*.<domain>` from the Service annotation, internal
+  hostnames per Ingress). An ALB is not offered: it would terminate TLS with ACM
+  certificates, which conflicts with cert-manager's per-domain certificates and RFC-0034's
+  "point a CNAME and it works"; the `alb` Ingress class stays available for a project that
+  needs WAF.
 - **DNS (RFC-0061).** `--dns aws --dns-zone-id <id> --dns-region <region>`: ExternalDNS
   with the `aws` provider, the wildcard certificate through cert-manager's built-in Route
   53 DNS-01 solver with ambient (Pod Identity) credentials; the zone is created by
@@ -147,10 +153,9 @@ from `shpyrd cluster init --profile aws`.
   scripts document the layout for now and keep the CLI free of cloud SDKs.
 - **Cloud-agnostic ingress through a hosted edge** (Cloudflare Tunnel and the like).
   Interesting for hobby clusters; production platforms want their own load balancer.
-- **AWS Load Balancer Controller** instead of the in-tree provider. It adds Elastic IPs,
-  IP targets and ALB Ingresses at the price of another controller with its own IAM role
-  and webhook; nothing in the platform needs those yet. It can be added later without
-  changing what users see (hostnames stay hostnames).
+- **The in-tree cloud provider's NLBs** (the first version). Node targets through a
+  NodePort hop, no static addresses, and a code path AWS has frozen; the controller
+  replaced it before the profile shipped.
 - **IRSA** instead of Pod Identity. Works on any EKS version but needs the OIDC provider
   and a trust policy per role; Pod Identity is the newer, simpler association and the
   add-ons support it directly.
@@ -223,3 +228,7 @@ skips it), and project policies deny egress to the link-local range on every pro
 - 2026-09-25: AWS design written after the OCI phase: EKS with Pod Identity, in-tree
   NLBs, Route 53 through ExternalDNS and cert-manager's solver, gp3/EFS/snapshots, Client
   VPN as the access path. Implementation starts.
+- 2026-09-25: `aws` profile implemented and verified on a dev cluster in us-east-1:
+  private API through the Client VPN, dashboard and sign-in behind the internal NLB, apps
+  on the public NLB's Elastic IPs, Route 53 records and wildcard certificate through Pod
+  Identity, gp3/EFS/snapshots, Postgres and Redis. Released in v0.3.1.

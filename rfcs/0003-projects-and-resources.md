@@ -1,6 +1,6 @@
 # RFC-0003 Projects and resources
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -123,3 +123,11 @@ still bound is refused until detached.
   "Add resource" forms. An app attaching a resource that is still provisioning waits
   (phase Pending, "waiting for an attached resource") instead of failing, and the App
   controller watches bindable kinds to re-render when they become ready.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** `projects info` lists only attached resources; unattached databases and caches are missing. `AppDetail` has no `resources` list (a separate endpoint exists).
+- **Not implemented:** Attach confirmation showing the resulting var names (a tooltip today); resource phase `Deleting`.
+- **Superseded:** Bound resources can be deleted with `--force` / a confirm dialog (the refusal is not absolute); schema-driven forms are RFC-0028.

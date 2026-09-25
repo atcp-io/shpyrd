@@ -1,6 +1,6 @@
 # RFC-0045 Published binaries, images and CI
 
-**Status:** implemented (signing and SBOM deferred, see history)
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
@@ -76,3 +76,9 @@ profile (`:latest`) does not exist as a published artifact.
   - Deferred to a follow-up in the same file: cosign keyless signing and SBOMs (the
     pipeline has `id-token` available; add `sbom` and `signs` sections once the first
     releases have settled), the maintenance image of RFC-0020, and Windows binaries.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** The e2e job deploys `examples/hello` and `examples/api`, not `examples/hello-docker`.

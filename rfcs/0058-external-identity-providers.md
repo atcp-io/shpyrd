@@ -1,6 +1,6 @@
 # RFC-0058 External identity providers (Okta and OIDC, GitHub, Google)
 
-**Status:** implemented (Okta verified end to end; GitHub verified up to GitHub's authorization page)
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri (shpyrd-io/shpyrd main)
 
@@ -133,3 +133,9 @@ evaluator asks for, right after the product looking like itself (RFC-0012).
   - GitHub verified from the button to GitHub's authorization page with a placeholder
     OAuth app (Dex requested `user:email read:org`); the round trip needs a real OAuth app
     and is the remaining manual step. Google is configuration only, as decided.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** `shpyrd auth connector add` without auth-local shows a raw "no matches for kind Connector" error instead of saying the extension is needed.

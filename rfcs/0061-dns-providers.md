@@ -1,6 +1,6 @@
 # RFC-0061 DNS providers: automatic records and wildcard certificates
 
-**Status:** implemented (OCI DNS)
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri
 
@@ -156,3 +156,11 @@ instead of leaving the zone silently empty.
   including a brand-new project is trusted from its first request, records appear on
   ExternalDNS's next sync. The load balancer Service also stopped managing security
   lists (`security-list-management-mode: None`) so Terraform owns them.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** The DNS card on the cluster page (provider, zone, records, certificate expiry, 403 explanation).
+- **Not implemented:** `--dns none` on a later run removing ExternalDNS and its records (today it only skips the components).
+- **Not implemented:** Printing the OCI policy statement with the cluster OCID; detecting the OKE cluster type to pick the credential (`--dns-auth` is manual); the manual-record prompt still appears when a provider is set but the record has not propagated yet.

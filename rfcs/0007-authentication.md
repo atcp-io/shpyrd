@@ -1,6 +1,6 @@
 # RFC-0007 Authentication
 
-**Status:** implemented (3.1 local users); 3.2 → RFC-0014, 3.3 → RFC-0012 + RFC-0058
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Creation date:** 2026-09-22
 
@@ -112,3 +112,11 @@ out by design.
   so the token never reaches localStorage or browser history; wrong tokens are audited and
   throttled per client (20 per minute, the right token included while throttled); login
   and callback endpoints are rate limited; sign-ins and failures are audited.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Not implemented:** `shpyrd login` (device flow) for developers: the CLI still needs an operator kubeconfig (picked up by RFC-0052).
+- **Not implemented:** Stored OIDC access/refresh tokens; sessions are identity-only with a 12 h idle / 7 day limit.
+- **Fixed:** 2026-09-25: the users API (`/api/users`) required only a session; it now requires the cluster.admin action (platform administrators), like every other admin route.

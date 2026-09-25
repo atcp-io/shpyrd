@@ -21,7 +21,7 @@ declare what they depend on.
 | `provisional` | A proposal. The Open questions section lists what must be settled, each with a default that applies when nobody objects. |
 | `implementable` | Decided; anyone can pick it up. |
 | `in progress` | Being implemented; the Owner field names who and where. |
-| `implemented` | Merged. Partial scope, if any, follows the word. |
+| `implemented` | Merged. Partial scope, if any, follows the word; "gaps" points at an Implementation status section in the RFC listing what its text still promises (audit of 2026-09-25, mirrored on the website's roadmap). |
 | `deferred`, `rejected`, `withdrawn`, `replaced` | Not going ahead (as is). |
 
 ## Index
@@ -29,16 +29,16 @@ declare what they depend on.
 | RFC | Title | Status | Depends on |
 | --- | --- | --- | --- |
 | [0001](0001-mvp-local-platform.md) | MVP: local platform, App CRD and CLI | implemented | |
-| [0002](0002-extension-model.md) | Extension model | implemented (framework) | |
-| [0003](0003-projects-and-resources.md) | Projects and resources | implemented | |
-| [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented | |
-| [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI); browser terminal → 0026 | |
+| [0002](0002-extension-model.md) | Extension model | implemented (framework), gaps | |
+| [0003](0003-projects-and-resources.md) | Projects and resources | implemented, gaps | |
+| [0004](0004-dockerfile-builds.md) | Dockerfile builds (BuildKit) | implemented, gaps | |
+| [0005](0005-shell-and-one-off-commands.md) | Shell and one-off commands | implemented (CLI); browser terminal → 0026, gaps | |
 | [0006](0006-persistent-volumes.md) | Persistent volumes | implemented (RWO); shared → 0041 | |
-| [0007](0007-authentication.md) | Authentication (OIDC, Dex) | implemented (3.1 local users); 3.2 → 0014, 3.3 → 0012 + 0058 | |
-| [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented; quotas → 0042, enforce PSS → 0043, supply chain → 0044, tokens → 0031, durable audit → 0025 | |
-| [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented; backups → 0038, pooling/rotation → 0039 | |
-| [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented; HA → 0040 | |
-| [0011](0011-project-identity-and-product-language.md) | Project identity and product language | implemented | |
+| [0007](0007-authentication.md) | Authentication (OIDC, Dex) | implemented (3.1 local users); 3.2 → 0014, 3.3 → 0012 + 0058, gaps | |
+| [0008](0008-teams-roles-and-security.md) | Teams, roles and security | implemented; quotas → 0042, enforce PSS → 0043, supply chain → 0044, tokens → 0031, durable audit → 0025, gaps | |
+| [0009](0009-postgres-resource.md) | Postgres resource (CloudNativePG) | implemented; backups → 0038, pooling/rotation → 0039, gaps | |
+| [0010](0010-redis-resource.md) | Redis resource (Valkey) | implemented; HA → 0040, gaps | |
+| [0011](0011-project-identity-and-product-language.md) | Project identity and product language | implemented, gaps | |
 | [0012](0012-sign-in-experience.md) | Sign-in experience: shpyrd's own sign-in page (local sign-in, sign-out) | implemented | 0007 |
 | [0013](0013-email-delivery.md) | Email delivery (`mail` extension) | provisional | 0002 |
 | [0014](0014-account-lifecycle.md) | Account lifecycle (invites, reset, verification, lockout) | provisional | 0012, 0013 |
@@ -46,12 +46,12 @@ declare what they depend on.
 | [0016](0016-global-config-vars.md) | Global config vars | implemented | 0003 |
 | [0017](0017-git-credentials.md) | Git credentials for private repositories | provisional | 0004 |
 | [0018](0018-repository-monitoring.md) | Repository monitoring and auto-deploy | provisional | 0017 |
-| [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | implemented | 0001 |
+| [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | implemented, gaps | 0001 |
 | [0020](0020-maintenance-mode.md) | Maintenance mode | provisional | 0001 |
 | [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implementable | |
 | [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) — split, see 0022a and 0022b | provisional | 0046 |
-| [0022a](0022a-log-agent.md) | Log agent (Vector DaemonSet, container log limits) | implemented | 0001 |
-| [0023](0023-log-drains.md) | Log drains (project and cluster scope, syslog, HTTPS) | implemented | 0022a |
+| [0022a](0022a-log-agent.md) | Log agent (Vector DaemonSet, container log limits) | implemented, gaps | 0001 |
+| [0023](0023-log-drains.md) | Log drains (project and cluster scope, syslog, HTTPS) | implemented, gaps | 0022a |
 | [0024](0024-runs-and-scheduled-tasks.md) | Run history and scheduled tasks | provisional | 0005, 0022 |
 | [0025](0025-audit-trail-v2.md) | Audit trail v2 (durable, cluster-wide) | provisional | 0008, 0022 |
 | [0026](0026-web-terminal.md) | Web terminal | implementable | 0005, 0008 |
@@ -64,7 +64,7 @@ declare what they depend on.
 | [0033](0033-workspaces.md) | Workspaces | provisional (blocked on definition) | 0008, 0016 |
 | [0034](0034-domains-and-certificates.md) | Custom domains | implemented | 0036, 0061 |
 | [0035](0035-cloud-profiles.md) | Cloud profiles: Oracle Cloud (OKE) and AWS (EKS) | implemented (`oci`, network policy); AWS provisional | 0045 |
-| [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | implemented | 0035, 0061 |
+| [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | implemented, gaps | 0035, 0061 |
 | [0037](0037-platform-backup-and-restore.md) | Platform backup and restore | provisional | 0046 |
 | [0038](0038-postgres-backups-and-pitr.md) | Postgres backups and PITR | implementable | 0009, 0046 |
 | [0039](0039-postgres-pooling-rotation-resize.md) | Postgres pooling, rotation and resize | implementable | 0009 |
@@ -73,7 +73,7 @@ declare what they depend on.
 | [0042](0042-project-quotas.md) | Project quotas | implementable | 0008 |
 | [0043](0043-builds-namespace-and-pod-security.md) | Builds namespace and enforce-mode Pod Security | implementable | 0004, 0008 |
 | [0044](0044-supply-chain.md) | Supply chain and encryption at rest | implementable | 0045 |
-| [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implemented (signing/SBOM deferred) | |
+| [0045](0045-published-binaries-and-ci.md) | Published binaries, images and CI | implemented (signing/SBOM deferred), gaps | |
 | [0046](0046-object-storage.md) | Object storage extension | implementable | 0002 |
 | [0047](0047-autoscaling.md) | Autoscaling (min/max mode, HPA, KEDA) | implementable | 0019, 0042 |
 | [0048](0048-cost-visibility.md) | Cost visibility | implementable | 0042 |
@@ -86,10 +86,12 @@ declare what they depend on.
 | [0055](0055-environments-and-promotion.md) | Environments and promotion | deferred (Git branches per environment) | |
 | [0056](0056-tracing-backend.md) | Tracing backend (Jaeger) | implementable | 0029, 0015 |
 | [0057](0057-local-names-and-front-door.md) | Local names and front door (dnsmasq wildcard, Caddy on 443) | implemented | 0001 |
-| [0058](0058-external-identity-providers.md) | External identity providers (Okta and OIDC, GitHub, Google) | implemented (GitHub round trip pending an OAuth app) | 0012 |
-| [0059](0059-in-cluster-registry-on-cloud.md) | In-cluster registry as the default on every profile | implemented | 0035, 0060 |
+| [0058](0058-external-identity-providers.md) | External identity providers (Okta and OIDC, GitHub, Google) | implemented (GitHub round trip pending an OAuth app), gaps | 0012 |
+| [0059](0059-in-cluster-registry-on-cloud.md) | In-cluster registry as the default on every profile | implemented, gaps | 0035, 0060 |
 | [0060](0060-volumes-on-cloud-profiles.md) | Volumes on cloud profiles: storage classes, provider minimums, snapshots | implemented | 0006, 0035, 0041 |
-| [0061](0061-dns-providers.md) | DNS providers: automatic records and wildcard certificates | implemented (OCI DNS) | 0035, 0036 |
+| [0061](0061-dns-providers.md) | DNS providers: automatic records and wildcard certificates | implemented (OCI DNS), gaps | 0035, 0036 |
+| [0062](0062-kubectl-through-platform-sign-in.md) | kubectl through the platform's sign-in (`shpyrd auth kubectl`) | provisional | 0007, 0008, 0058, 0035 |
+| [0063](0063-dashboard-access-zones.md) | Dashboard access zones: public dashboard, intranet-only areas | provisional | 0036, 0008, 0035 |
 
 ## Phases
 
@@ -105,9 +107,38 @@ declare what they depend on.
 | G (old) | 0017, 0018, 0021, 0022, 0024, 0025, 0023 | superseded by new G above |
 | H | 0027, 0028, 0015, 0029, 0030 | observability and notifications |
 | I | 0031, 0032, 0026, 0020, 0014, 0013 | access, automation, runtime |
-| J | 0035, 0059, 0061, 0036, 0034, 0060 (done), 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
+| J | 0035 (OKE and EKS), 0059, 0061, 0036, 0034, 0060 (done), 0037 | cloud: OKE profile, in-cluster registry, volumes, front doors, DNS, custom domains, backup |
 | K | 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0033 | data stores, security, workspaces |
 | L | 0047, 0048, 0052, 0053, 0054, 0056 | autoscaling, cost, API-first CLI, MFA and passkeys, GitHub App, tracing |
 
 Anyone may pick an `implementable` RFC in any phase; the phases only suggest an order that
 keeps dependencies satisfied.
+
+## Known gaps in implemented RFCs
+
+The 2026-09-25 audit compared every implemented RFC with the code. Each RFC listed carries
+an "Implementation status" section with the details; the short version:
+
+| RFC | Still missing |
+| --- | --- |
+| 0002 | one ServiceAccount per extension; extension health on the cluster page |
+| 0003 | unattached resources in `projects info`; attach confirmation with var names; `Deleting` phase |
+| 0004 | a "build" catalog size; TTL on build Jobs |
+| 0005 | `shpyrd forward`; `shpyrd run --process` |
+| 0007 | `shpyrd login` for developers (→ 0052); stored OIDC tokens |
+| 0008 | admin-only domains; audit export and cluster-level listing; session rotation; API rate limit; backup-exclusion label |
+| 0009 | typed-name delete confirmation; storage used |
+| 0010 | Redis PodDisruptionBudget |
+| 0011 | "pods" in the logs-agent description |
+| 0019 | zero-downtime rollout test; probe message in failing status |
+| 0022a | NetworkPolicy for logs-system; console sink off on cloud |
+| 0023 | `drain.failing` audit event |
+| 0036 | `SHPYRD_INTERNAL_LB` semantics; platform-CA certificates for internal projects without a wildcard; `status.exposure`; cluster page hosts/certificate source |
+| 0045 | e2e for `examples/hello-docker` |
+| 0058 | `auth connector add` message without auth-local |
+| 0059 | registry NetworkPolicy; `SHPYRD_REGISTRY_KEEP`; `--local-build`; ClusterIP allocation |
+| 0061 | DNS card; `--dns none` removal; OCI policy printout; cluster-type detection |
+
+Fixed in the same audit: the users API required no role (0007/0008), the RBAC mirror was
+not cumulative (0008), `--platform-exposure` and `--internal-lb-subnet` did nothing (0036),
+the registry never reloaded a renewed certificate (0059).

@@ -1,6 +1,6 @@
 # RFC-0059 In-cluster registry as the default on every profile
 
-**Status:** implemented
+**Status:** implemented (with gaps) — see Implementation status below
 
 **Owner:** Patrick Negri
 
@@ -183,3 +183,11 @@ laptop and not on a shared cloud network.
   from HTTP) and on OKE (moved off OCIR). Two findings on the way: kind ships
   `/etc/containerd` as 0644, so the node agent keeps `DAC_OVERRIDE`; the ClusterBuilder's
   `UpToDate` condition must be waited for as well as `Ready`.
+
+## Implementation status
+
+Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
+
+- **Fixed:** 2026-09-25: the registry restarts when cert-manager renews its certificate (it read the key pair once, at start).
+- **Not implemented:** A NetworkPolicy admitting only build pods, the server and the nodes to the registry.
+- **Not implemented:** `SHPYRD_REGISTRY_KEEP`; `--local-build` with the CA in Docker's `certs.d`; allocating the ClusterIP on first install (profiles hard-code it).
