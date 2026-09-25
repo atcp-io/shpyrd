@@ -35,8 +35,8 @@ func (extension) Name() string { return Name }
 func (extension) Description() string {
 	return "Sign in with email and password: a bundled Dex issuer stores local accounts (shpyrd users add)"
 }
-func (extension) Component() *ext.ComponentRef {
-	return &ext.ComponentRef{Name: "dex", Runlevel: "rc3"}
+func (extension) Components() []ext.ComponentRef {
+	return []ext.ComponentRef{{Name: "dex", Runlevel: "rc3"}}
 }
 func (extension) Register(ctrl.Manager, ext.Deps) error { return nil }
 func (extension) Types() []ext.ResourceType             { return nil }

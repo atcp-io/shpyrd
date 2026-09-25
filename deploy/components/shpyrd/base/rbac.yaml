@@ -77,9 +77,13 @@ rules:
   - apiGroups: [kpack.io]
     resources: [images, builds, builders, clusterbuilders, clusterstacks, clusterbuildpacks, sourceresolvers]
     verbs: [get, list, watch, create, update, patch, delete]
-  # Postgres resources become CloudNativePG clusters (extension postgres).
+  # Postgres resources become CloudNativePG clusters (extension postgres);
+  # their backups go through the Barman Cloud plugin's ObjectStore (RFC-0038).
   - apiGroups: [postgresql.cnpg.io]
     resources: [clusters, poolers, backups, scheduledbackups]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [barmancloud.cnpg.io]
+    resources: [objectstores]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [monitoring.coreos.com]
     resources: [servicemonitors, podmonitors]

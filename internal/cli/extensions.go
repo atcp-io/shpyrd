@@ -37,11 +37,13 @@ func extensionComponents(names []string) ([]install.ExtensionComponent, error) {
 		if x == nil {
 			return nil, fmt.Errorf("unknown extension %q (available: %s)", name, strings.Join(ext.Names(all.All()), ", "))
 		}
-		ec := install.ExtensionComponent{Extension: name}
-		if c := x.Component(); c != nil {
-			ec.Component, ec.Runlevel = c.Name, c.Runlevel
+		comps := x.Components()
+		if len(comps) == 0 {
+			out = append(out, install.ExtensionComponent{Extension: name})
 		}
-		out = append(out, ec)
+		for _, c := range comps {
+			out = append(out, install.ExtensionComponent{Extension: name, Component: c.Name, Runlevel: c.Runlevel})
+		}
 	}
 	return out, nil
 }
@@ -124,8 +126,8 @@ func newExtensionsListCmd(g *globalFlags) *cobra.Command {
 					status = "enabled"
 				}
 				comp := "-"
-				if c := x.Component(); c != nil {
-					comp = c.Name
+				if names := componentNames(x); len(names) > 0 {
+					comp = strings.Join(names, ", ")
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", x.Name(), status, comp, x.Description())
 			}
@@ -191,10 +193,7 @@ func newExtensionsEnableCmd(g *globalFlags) *cobra.Command {
 			names := mergeExtensions(recordedExtensions(ctx, k), []string{name}, nil)
 			// Apply the extension's component and the server (its
 			// SHPYRD_EXTENSIONS env changes, so it rolls out).
-			only := []string{"shpyrd"}
-			if c := x.Component(); c != nil {
-				only = append([]string{c.Name}, only...)
-			}
+			only := append(componentNames(x), "shpyrd")
 			eng, err := extensionEngine(ctx, cmd, k, names, only, set)
 			if err != nil {
 				return err
@@ -263,9 +262,10 @@ func newExtensionsDisableCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c := x.Component(); c != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "Removing component %s\n", c.Name)
-				if err := eng.Remove(ctx, c.Name); err != nil {
+			names := componentNames(x)
+			for i := len(names) - 1; i >= 0; i-- { // reverse install order
+				fmt.Fprintf(cmd.OutOrStdout(), "Removing component %s\n", names[i])
+				if err := eng.Remove(ctx, names[i]); err != nil {
 					return err
 				}
 			}
@@ -308,4 +308,13 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// componentNames lists an extension's components in install order.
+func componentNames(x ext.Extension) []string {
+	var out []string
+	for _, c := range x.Components() {
+		out = append(out, c.Name)
+	}
+	return out
 }

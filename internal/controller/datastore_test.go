@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -280,5 +282,140 @@ func TestDatastoresFollowStorageProfile(t *testing.T) {
 	plain := &PostgresReconciler{Client: c, Scheme: base.Scheme, Recorder: record.NewFakeRecorder(20), SystemNamespace: "shpyrd-system"}
 	if got, applied := plain.Storage.Size(pgStorage); applied || got.String() != "5Gi" {
 		t.Errorf("no profile: %s %v", got.String(), applied)
+	}
+}
+
+// RFC-0038: backups create the bucket, the plugin's store and the schedule,
+// and the cluster archives through the plugin; recovery bootstraps a new
+// database from the source's backups.
+func TestPostgresBackupsAndRecovery(t *testing.T) {
+	pg := &shpyrdv1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "app-shop", Generation: 1},
+		Spec:       shpyrdv1.PostgresSpec{Backups: &shpyrdv1.PostgresBackups{Schedule: "30 3 * * *", Retention: "7d"}},
+	}
+	base, c := newTestReconciler(t, pg)
+	r := &PostgresReconciler{Client: c, Scheme: base.Scheme, Recorder: record.NewFakeRecorder(50), SystemNamespace: "shpyrd-system"}
+	ctx := context.Background()
+	key := types.NamespacedName{Namespace: "app-shop", Name: "db"}
+	run := func(name string) *shpyrdv1.Postgres {
+		k := types.NamespacedName{Namespace: "app-shop", Name: name}
+		_, _ = r.Reconcile(ctx, ctrl.Request{NamespacedName: k})
+		out := &shpyrdv1.Postgres{}
+		_ = c.Get(ctx, k, out)
+		return out
+	}
+
+	// The bucket is asked for first; nothing else until it is ready.
+	got := run("db")
+	bucket := &shpyrdv1.ObjectBucket{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-shop", Name: "db-backups"}, bucket); err != nil {
+		t.Fatalf("backups bucket: %v (status %s %q)", err, got.Status.Phase, got.Status.Message)
+	}
+	if got.Status.Phase != shpyrdv1.ResourceProvisioning || !strings.Contains(got.Status.Message, "waiting for the backups bucket") {
+		t.Fatalf("before the bucket is ready: %s %q", got.Status.Phase, got.Status.Message)
+	}
+	bucket.Status = shpyrdv1.ObjectBucketStatus{Phase: shpyrdv1.BucketReady, Bucket: "shpyrd-app-shop-db-backups", Endpoint: "http://object-storage.shpyrd-system.svc:3900", SecretName: "db-backups-object-storage"}
+	if err := c.Status().Update(ctx, bucket); err != nil {
+		t.Fatal(err)
+	}
+
+	got = run("db")
+	if got.Status.Phase == shpyrdv1.ResourceFailed {
+		t.Fatalf("with the bucket ready: %q", got.Status.Message)
+	}
+	store := &unstructured.Unstructured{}
+	store.SetGroupVersionKind(BarmanObjectStoreGVK)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-shop", Name: "db-backups"}, store); err != nil {
+		t.Fatalf("object store: %v", err)
+	}
+	dest, _, _ := unstructured.NestedString(store.Object, "spec", "configuration", "destinationPath")
+	endpoint, _, _ := unstructured.NestedString(store.Object, "spec", "configuration", "endpointURL")
+	retention, _, _ := unstructured.NestedString(store.Object, "spec", "retentionPolicy")
+	keyRef, _, _ := unstructured.NestedString(store.Object, "spec", "configuration", "s3Credentials", "accessKeyId", "name")
+	if dest != "s3://shpyrd-app-shop-db-backups/" || endpoint != "http://object-storage.shpyrd-system.svc:3900" || retention != "7d" || keyRef != "db-backups-object-storage" {
+		t.Errorf("object store spec = %v", store.Object["spec"])
+	}
+	sched := &unstructured.Unstructured{}
+	sched.SetGroupVersionKind(CNPGScheduledBackupGVK)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-shop", Name: "db-scheduled"}, sched); err != nil {
+		t.Fatalf("scheduled backup: %v", err)
+	}
+	if cron, _, _ := unstructured.NestedString(sched.Object, "spec", "schedule"); cron != "0 30 3 * * *" {
+		t.Errorf("schedule = %q", cron)
+	}
+	cluster := &unstructured.Unstructured{}
+	cluster.SetGroupVersionKind(CNPGClusterGVK)
+	if err := c.Get(ctx, key, cluster); err != nil {
+		t.Fatal(err)
+	}
+	plugins, _, _ := unstructured.NestedSlice(cluster.Object, "spec", "plugins")
+	if len(plugins) != 1 || plugins[0].(map[string]interface{})["name"] != BarmanPluginName {
+		t.Errorf("cluster plugins = %v", plugins)
+	}
+
+	// The archive's state reaches the status.
+	_ = unstructured.SetNestedField(cluster.Object, "2026-09-25T02:00:00Z", "status", "lastSuccessfulBackup")
+	_ = unstructured.SetNestedField(cluster.Object, "2026-09-20T02:00:00Z", "status", "firstRecoverabilityPoint")
+	if err := c.Update(ctx, cluster); err != nil { // unstructured: no status subresource in the fake
+		t.Fatal(err)
+	}
+	got = run("db")
+	if got.Status.LastBackup == nil || got.Status.RecoverableFrom == nil || got.Status.LastBackup.UTC().Day() != 25 {
+		t.Errorf("backup status = %+v", got.Status)
+	}
+
+	// Recovery: a new database from db's backups, at a point in time.
+	at := metav1.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	restored := &shpyrdv1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "db-restored", Namespace: "app-shop"},
+		Spec:       shpyrdv1.PostgresSpec{Recovery: &shpyrdv1.PostgresRecovery{From: "db", TargetTime: &at}},
+	}
+	if err := c.Create(ctx, restored); err != nil {
+		t.Fatal(err)
+	}
+	got = run("db-restored")
+	if got.Status.Phase == shpyrdv1.ResourceFailed {
+		t.Fatalf("recovery refused: %q", got.Status.Message)
+	}
+	rc := &unstructured.Unstructured{}
+	rc.SetGroupVersionKind(CNPGClusterGVK)
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-shop", Name: "db-restored"}, rc); err != nil {
+		t.Fatal(err)
+	}
+	source, _, _ := unstructured.NestedString(rc.Object, "spec", "bootstrap", "recovery", "source")
+	target, _, _ := unstructured.NestedString(rc.Object, "spec", "bootstrap", "recovery", "recoveryTarget", "targetTime")
+	ext, _, _ := unstructured.NestedSlice(rc.Object, "spec", "externalClusters")
+	if source != "db" || target != "2026-09-24 12:00:00+00" || len(ext) != 1 {
+		t.Errorf("recovery bootstrap = %v / %v", rc.Object["spec"].(map[string]interface{})["bootstrap"], ext)
+	}
+	if _, has, _ := unstructured.NestedMap(rc.Object, "spec", "bootstrap", "initdb"); has {
+		t.Error("recovery must replace initdb")
+	}
+
+	// Refusals: restoring onto itself, before the recoverable point.
+	bad := &shpyrdv1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "db-early", Namespace: "app-shop"}, Spec: shpyrdv1.PostgresSpec{Recovery: &shpyrdv1.PostgresRecovery{From: "db", TargetTime: &metav1.Time{Time: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}}}}
+	if err := c.Create(ctx, bad); err != nil {
+		t.Fatal(err)
+	}
+	if got := run("db-early"); got.Status.Phase != shpyrdv1.ResourceFailed || !strings.Contains(got.Status.Message, "earliest recoverable point") {
+		t.Errorf("early target: %s %q", got.Status.Phase, got.Status.Message)
+	}
+
+	// Backups switched off: the schedule goes, the archive stays.
+	_ = c.Get(ctx, key, pg)
+	pg.Spec.Backups = nil
+	if err := c.Update(ctx, pg); err != nil {
+		t.Fatal(err)
+	}
+	run("db")
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-shop", Name: "db-scheduled"}, sched); !apierrors.IsNotFound(err) {
+		t.Errorf("schedule should be gone: %v", err)
+	}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "app-shop", Name: "db-backups"}, store); err != nil {
+		t.Errorf("object store must stay: %v", err)
+	}
+	_ = c.Get(ctx, key, cluster)
+	if p, _, _ := unstructured.NestedSlice(cluster.Object, "spec", "plugins"); len(p) != 0 {
+		t.Errorf("plugin entry should be removed: %v", p)
 	}
 }

@@ -2051,6 +2051,10 @@ function ResourcesCard({
                               r.details?.persistent === "true" && "persistent",
                               r.details?.instances &&
                                 `${r.details.instances} instance(s)`,
+                              r.details?.backups &&
+                                `backups ${r.details.backups}${r.details.lastBackup ? `, last ${ago(r.details.lastBackup)}` : ", none yet"}`,
+                              r.details?.restoredFrom &&
+                                `restored from ${r.details.restoredFrom}`,
                               r.endpoint,
                             ]
                               .filter(Boolean)
@@ -2642,6 +2646,15 @@ function ResourceDialog({
   const [instances, setInstances] = useState("1");
   const [engine, setEngine] = useState("valkey");
   const [persistent, setPersistent] = useState(false);
+  const [backups, setBackups] = useState(false);
+  const [retention, setRetention] = useState("14");
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: api.config,
+    staleTime: 60_000,
+  });
+  const objectStorage =
+    config.data?.extensions?.includes("object-storage") ?? false;
   const save = useMutation({
     mutationFn: () => {
       const spec: Record<string, unknown> = {};
@@ -2650,6 +2663,7 @@ function ResourceDialog({
         spec.version = version.trim();
         spec.storage = storage.trim();
         spec.instances = Number(instances) || 1;
+        if (backups) spec.backups = { retention: `${Number(retention) || 14}d` };
       } else {
         spec.engine = engine;
         spec.persistent = persistent;
@@ -2761,6 +2775,40 @@ function ResourceDialog({
                     <SelectItem value="3">3 (HA)</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="col-span-2 grid gap-2">
+                <Label htmlFor="res-backups">Backups</Label>
+                <Select
+                  value={backups ? retention : "off"}
+                  onValueChange={(v) => {
+                    if (v === "off") setBackups(false);
+                    else {
+                      setBackups(true);
+                      setRetention(v);
+                    }
+                  }}
+                >
+                  <SelectTrigger id="res-backups">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Off</SelectItem>
+                    <SelectItem value="7" disabled={!objectStorage}>
+                      Daily, kept 7 days
+                    </SelectItem>
+                    <SelectItem value="14" disabled={!objectStorage}>
+                      Daily, kept 14 days
+                    </SelectItem>
+                    <SelectItem value="30" disabled={!objectStorage}>
+                      Daily, kept 30 days
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {objectStorage
+                    ? "Continuous WAL archiving plus a daily base backup to the platform's object store; any point in the window can be restored into a new database."
+                    : "Needs the object-storage extension (shpyrd extensions enable object-storage)."}
+                </p>
               </div>
             </div>
           ) : (

@@ -160,6 +160,21 @@ func resourceViewOf(t ext.ResourceType, u unstructured.Unstructured) ResourceVie
 			}
 		}
 	}
+	// Backups (RFC-0038): on/off with retention, the last one and the window.
+	if b, ok, _ := unstructured.NestedMap(u.Object, "spec", "backups"); ok && b != nil {
+		retention, _ := b["retention"].(string)
+		v.Details["backups"] = "daily, kept " + firstNonEmpty(retention, "14d")
+		if last, _, _ := unstructured.NestedString(u.Object, "status", "lastBackup"); last != "" {
+			v.Details["lastBackup"] = last
+		}
+		if from, _, _ := unstructured.NestedString(u.Object, "status", "recoverableFrom"); from != "" {
+			v.Details["recoverableFrom"] = from
+		}
+	}
+	if rec, ok, _ := unstructured.NestedMap(u.Object, "spec", "recovery"); ok && rec != nil {
+		from, _ := rec["from"].(string)
+		v.Details["restoredFrom"] = from
+	}
 	// The disk is the provider's minimum when the request was below it
 	// (RFC-0060): show what exists, not what was asked.
 	if eff, _, _ := unstructured.NestedString(u.Object, "status", "storage"); eff != "" {

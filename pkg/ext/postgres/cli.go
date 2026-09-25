@@ -40,7 +40,7 @@ func newPgCmd(g ext.CLIGlobals) *cobra.Command {
 Databases run on CloudNativePG; one cluster per database, 1 instance by
 default (2-3 for high availability with --instances).`,
 	}
-	cmd.AddCommand(newCreateCmd(g), newListCmd(g), newInfoCmd(g), newPsqlCmd(g), newDeleteCmd(g))
+	cmd.AddCommand(newCreateCmd(g), newListCmd(g), newInfoCmd(g), newPsqlCmd(g), newDeleteCmd(g), newBackupsCmd(g), newBackupCmd(g), newRestoreCmd(g))
 	return cmd
 }
 
@@ -67,6 +67,9 @@ func newCreateCmd(g ext.CLIGlobals) *cobra.Command {
 		size      string
 		storage   string
 		instances int32
+		backups   bool
+		retention string
+		schedule  string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
@@ -89,6 +92,9 @@ func newCreateCmd(g ext.CLIGlobals) *cobra.Command {
 				ObjectMeta: metav1.ObjectMeta{Name: args[0], Namespace: resources.Namespace(project), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd", shpyrdv1.LabelProject: project}},
 				Spec:       shpyrdv1.PostgresSpec{Version: version, Size: size, Storage: &qty, Instances: ptr.To(instances)},
 			}
+			if backups || retention != "" || schedule != "" {
+				pg.Spec.Backups = &shpyrdv1.PostgresBackups{Retention: retention, Schedule: schedule}
+			}
 			if err := c.Create(ctx, pg); err != nil {
 				if apierrors.IsAlreadyExists(err) {
 					return fmt.Errorf("database %q already exists in project %s", args[0], project)
@@ -104,6 +110,9 @@ func newCreateCmd(g ext.CLIGlobals) *cobra.Command {
 	cmd.Flags().StringVar(&size, "size", "", "instance size from the catalog (default: the catalog default)")
 	cmd.Flags().StringVar(&storage, "storage", "5Gi", "data volume size")
 	cmd.Flags().Int32Var(&instances, "instances", 1, "number of instances (2-3 for high availability)")
+	cmd.Flags().BoolVar(&backups, "backups", false, "back up to the platform's object store: continuous WAL archiving and a daily base backup (needs the object-storage extension)")
+	cmd.Flags().StringVar(&retention, "retention", "", "how long backups are kept, e.g. 14d (default 14d; implies --backups)")
+	cmd.Flags().StringVar(&schedule, "backup-schedule", "", "cron of the base backup in UTC, e.g. \"0 2 * * *\" (default daily at 02:00; implies --backups)")
 	return cmd
 }
 
@@ -207,6 +216,7 @@ func newInfoCmd(g ext.CLIGlobals) *cobra.Command {
 			fmt.Fprintf(out, "Endpoint:   %s\n", firstNonEmpty(pg.Status.Endpoint, "-"))
 			fmt.Fprintf(out, "Version:    PostgreSQL %s\n", firstNonEmpty(pg.Spec.Version, "17"))
 			fmt.Fprintf(out, "Attached:   %s\n", firstNonEmpty(strings.Join(bound, ", "), "- (shpyrd attach "+pg.Name+" --project "+project+")"))
+			fmt.Fprintf(out, "Backups:    %s\n", backupsLine(pg))
 			fmt.Fprintf(out, "Config vars: DATABASE_URL, DATABASE_HOST, DATABASE_PORT, DATABASE_USER, DATABASE_PASSWORD, DATABASE_NAME (values are never shown)\n")
 			return nil
 		},

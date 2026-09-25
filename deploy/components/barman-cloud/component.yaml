@@ -1,0 +1,9 @@
+name: barman-cloud
+description: CloudNativePG Barman Cloud plugin, backs up the PostgreSQL databases of projects to the platform's object store (extension postgres, RFC-0038)
+namespace: cnpg-system
+kustomize:
+  path: base
+wait:
+  - crd: objectstores.barmancloud.cnpg.io
+  - deployment: cnpg-system/barman-cloud
+timeout: 5m

@@ -143,8 +143,14 @@ func DefaultServerImage(version string) string {
 // hand: external URLs and the enabled extensions.
 func derivedVars(vars map[string]string, exts []ExtensionComponent) map[string]string {
 	base := BaseURL(vars)
+	// An extension may bring several components: name it once.
 	names := make([]string, 0, len(exts))
+	seen := map[string]bool{}
 	for _, x := range exts {
+		if seen[x.Extension] {
+			continue
+		}
+		seen[x.Extension] = true
 		names = append(names, x.Extension)
 	}
 	out := map[string]string{

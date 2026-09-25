@@ -34,6 +34,12 @@ type ResourceStatus struct {
 	// request: the provider's minimum applied (RFC-0060).
 	// +optional
 	Storage string `json:"storage,omitempty"`
+	// LastBackup is when the last successful base backup finished; RecoverableFrom
+	// is the earliest point in time the backups can restore to (RFC-0038).
+	// +optional
+	LastBackup *metav1.Time `json:"lastBackup,omitempty"`
+	// +optional
+	RecoverableFrom *metav1.Time `json:"recoverableFrom,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -56,6 +62,38 @@ type PostgresSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=5
 	Instances *int32 `json:"instances,omitempty"`
+	// Backups turns on continuous WAL archiving and scheduled base backups
+	// to the platform's object store (RFC-0038); needs the object-storage
+	// extension.
+	// +optional
+	Backups *PostgresBackups `json:"backups,omitempty"`
+	// Recovery bootstraps this database from another one's backups, at a
+	// point in time (RFC-0038); the source keeps running.
+	// +optional
+	Recovery *PostgresRecovery `json:"recovery,omitempty"`
+}
+
+// PostgresBackups configures backups of a database.
+type PostgresBackups struct {
+	// Schedule of base backups, five-field cron in UTC (default "0 2 * * *",
+	// every day at 02:00).
+	// +optional
+	Schedule string `json:"schedule,omitempty"`
+	// Retention of backups and WAL, as <n>d (default 14d).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9]+d$`
+	Retention string `json:"retention,omitempty"`
+}
+
+// PostgresRecovery names the source and the moment to recover to.
+type PostgresRecovery struct {
+	// From is the Postgres resource in the same project whose backups are
+	// restored.
+	From string `json:"from"`
+	// TargetTime is the point in time to recover to; the latest possible
+	// when unset.
+	// +optional
+	TargetTime *metav1.Time `json:"targetTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true

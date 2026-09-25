@@ -1,0 +1,12 @@
+# The upstream manifest of plugin-barman-cloud v0.15.0, unchanged
+# (https://github.com/cloudnative-pg/plugin-barman-cloud/releases). It brings
+# the ObjectStore CRD, the plugin Deployment and the cert-manager objects for
+# the mTLS between operator and plugin.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cnpg-system
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: shpyrd
+resources:
+  - plugin-barman-cloud.yaml

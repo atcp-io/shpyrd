@@ -188,7 +188,7 @@ type adminOnlyExt struct{}
 
 func (adminOnlyExt) Name() string                          { return "admin-only" }
 func (adminOnlyExt) Description() string                   { return "test" }
-func (adminOnlyExt) Component() *ext.ComponentRef          { return nil }
+func (adminOnlyExt) Components() []ext.ComponentRef        { return nil }
 func (adminOnlyExt) Register(ctrl.Manager, ext.Deps) error { return nil }
 func (adminOnlyExt) Types() []ext.ResourceType             { return nil }
 func (adminOnlyExt) CLI(ext.CLIGlobals) []*cobra.Command   { return nil }

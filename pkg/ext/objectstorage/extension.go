@@ -50,8 +50,8 @@ func (extension) Description() string {
 }
 
 // Component installs MinIO after the platform CA exists.
-func (extension) Component() *ext.ComponentRef {
-	return &ext.ComponentRef{Name: "object-storage", Runlevel: "rc3"}
+func (extension) Components() []ext.ComponentRef {
+	return []ext.ComponentRef{{Name: "object-storage", Runlevel: "rc3"}}
 }
 
 // Register runs the ObjectBucket controller.

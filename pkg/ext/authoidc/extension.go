@@ -22,7 +22,7 @@ func (extension) Description() string {
 }
 
 // Component is nil: the extension is configuration held in Secrets.
-func (extension) Component() *ext.ComponentRef          { return nil }
+func (extension) Components() []ext.ComponentRef        { return nil }
 func (extension) Register(ctrl.Manager, ext.Deps) error { return nil }
 func (extension) Types() []ext.ResourceType             { return nil }
 func (extension) CLI(g ext.CLIGlobals) []*cobra.Command { return []*cobra.Command{newAuthCmd(g)} }

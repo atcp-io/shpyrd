@@ -149,6 +149,12 @@ spec:
               endpoint:
                 description: Endpoint is host:port inside the project.
                 type: string
+              lastBackup:
+                description: |-
+                  LastBackup is when the last successful base backup finished; RecoverableFrom
+                  is the earliest point in time the backups can restore to (RFC-0038).
+                format: date-time
+                type: string
               message:
                 type: string
               observedGeneration:
@@ -156,6 +162,9 @@ spec:
                 type: integer
               phase:
                 description: Phase is Pending, Provisioning, Ready or Failed.
+                type: string
+              recoverableFrom:
+                format: date-time
                 type: string
               storage:
                 description: |-

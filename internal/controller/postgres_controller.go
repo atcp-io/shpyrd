@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,7 +19,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 )
@@ -65,9 +68,24 @@ const (
 func (r *PostgresReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	cluster := &unstructured.Unstructured{}
 	cluster.SetGroupVersionKind(CNPGClusterGVK)
+	backup := &unstructured.Unstructured{}
+	backup.SetGroupVersionKind(CNPGBackupGVK)
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&shpyrdv1.Postgres{}).
 		Owns(cluster).
+		Owns(&shpyrdv1.ObjectBucket{}).
+		// A finished backup updates the database's status (RFC-0038).
+		Watches(backup, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+			u, ok := obj.(*unstructured.Unstructured)
+			if !ok {
+				return nil
+			}
+			name, _, _ := unstructured.NestedString(u.Object, "spec", "cluster", "name")
+			if name == "" {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: u.GetNamespace(), Name: name}}}
+		})).
 		Complete(r)
 }
 
@@ -84,6 +102,14 @@ func (r *PostgresReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	res, err := r.reconcile(ctx, pg)
 	if apierrors.IsConflict(err) {
 		return ctrl.Result{Requeue: true}, nil
+	}
+	var pending *pendingError
+	if errors.As(err, &pending) {
+		// Not a failure: something the database depends on is still coming.
+		pg.Status.Phase = shpyrdv1.ResourceProvisioning
+		pg.Status.Message = pending.Error()
+		setResourceCondition(&pg.Status, pg.Generation, metav1.ConditionFalse, "Waiting", pg.Status.Message)
+		err, res = nil, ctrl.Result{RequeueAfter: 10 * time.Second}
 	}
 	if err != nil {
 		logger.Error(err, "reconcile postgres failed")
@@ -125,6 +151,16 @@ func (r *PostgresReconciler) reconcile(ctx context.Context, pg *shpyrdv1.Postgre
 		pg.Status.Storage = rounded.String()
 	}
 
+	// Backups (RFC-0038): the bucket, the plugin's store and the schedule
+	// exist before the cluster, so WAL archiving starts with it.
+	if err := r.reconcileBackups(ctx, pg); err != nil {
+		return ctrl.Result{}, err
+	}
+	if pg.Spec.Recovery != nil {
+		if err := r.checkRecoverySource(ctx, pg); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	desired := desiredCNPGCluster(pg, storage, resources, r.Storage.Class)
 	if err := controllerutil.SetControllerReference(pg, desired, r.Scheme); err != nil {
 		return ctrl.Result{}, err
@@ -152,6 +188,7 @@ func (r *PostgresReconciler) reconcile(ctx context.Context, pg *shpyrdv1.Postgre
 	}
 
 	// Status from the CNPG cluster and its application Secret.
+	r.backupStatus(ctx, pg, current)
 	pg.Status.Endpoint = fmt.Sprintf("%s-rw.%s.svc:%d", pg.Name, pg.Namespace, PostgresPort)
 	pg.Status.CredentialsSecret = PostgresSecretName(pg.Name)
 	ready, _, _ := unstructured.NestedInt64(current.Object, "status", "readyInstances")
@@ -173,6 +210,9 @@ func (r *PostgresReconciler) reconcile(ctx context.Context, pg *shpyrdv1.Postgre
 		setResourceCondition(&pg.Status, pg.Generation, metav1.ConditionTrue, "Ready", pg.Status.Message)
 		if ready < int64(instances(pg)) {
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
+		if pg.Spec.Backups != nil {
+			return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil // follow the backups
 		}
 		return ctrl.Result{}, nil
 	default:
@@ -198,6 +238,16 @@ func (r *PostgresReconciler) updateCluster(ctx context.Context, pg *shpyrdv1.Pos
 			return fmt.Errorf("storage cannot shrink (currently %s)", curSize)
 		}
 		_ = unstructured.SetNestedField(current.Object, wantSize, "spec", "storage", "size")
+		changed = true
+	}
+	// Backups on or off: the plugin entry follows the spec (RFC-0038).
+	wantPlugins, _, _ := unstructured.NestedSlice(desired.Object, "spec", "plugins")
+	if curPlugins, _, _ := unstructured.NestedSlice(current.Object, "spec", "plugins"); !equalJSON(map[string]interface{}{"p": curPlugins}, map[string]interface{}{"p": wantPlugins}) {
+		if len(wantPlugins) == 0 {
+			unstructured.RemoveNestedField(current.Object, "spec", "plugins")
+		} else {
+			_ = unstructured.SetNestedSlice(current.Object, wantPlugins, "spec", "plugins")
+		}
 		changed = true
 	}
 	wantRes, _, _ := unstructured.NestedMap(desired.Object, "spec", "resources")
@@ -263,7 +313,7 @@ func desiredCNPGCluster(pg *shpyrdv1.Postgres, storage resource.Quantity, res co
 		shpyrdv1.LabelManagedBy: "shpyrd",
 		"shpyrd.io/postgres":    pg.Name,
 	})
-	u.Object["spec"] = map[string]interface{}{
+	spec := map[string]interface{}{
 		"instances":             int64(instances(pg)),
 		"imageName":             "ghcr.io/cloudnative-pg/postgresql:" + version(pg),
 		"storage":               cnpgStorage(storage, storageClass),
@@ -271,6 +321,16 @@ func desiredCNPGCluster(pg *shpyrdv1.Postgres, storage resource.Quantity, res co
 		"bootstrap":             map[string]interface{}{"initdb": map[string]interface{}{"database": PostgresDatabase, "owner": PostgresUser}},
 		"enableSuperuserAccess": false,
 	}
+	// Backups and recovery (RFC-0038).
+	if pg.Spec.Backups != nil {
+		spec["plugins"] = []interface{}{backupPlugin(pg)}
+	}
+	if pg.Spec.Recovery != nil {
+		bootstrap, external := recoveryBootstrap(pg)
+		spec["bootstrap"] = bootstrap
+		spec["externalClusters"] = external
+	}
+	u.Object["spec"] = spec
 	return u
 }
 

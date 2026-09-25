@@ -21,10 +21,10 @@ type Extension interface {
 	// Name is the identifier used to enable it: "auth-local".
 	Name() string
 	Description() string
-	// Component names the installer component the extension adds (a
-	// directory under deploy/components) and the runlevel it joins; nil when
-	// the extension has no cluster component.
-	Component() *ComponentRef
+	// Components names the installer components the extension adds
+	// (directories under deploy/components) with the runlevels they join,
+	// in install order; empty when the extension has no cluster component.
+	Components() []ComponentRef
 	// Register adds reconcilers to the controller manager (may be a no-op).
 	Register(mgr ctrl.Manager, deps Deps) error
 	// Routes mounts API routes. Public routes need no authentication;

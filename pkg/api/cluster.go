@@ -81,9 +81,11 @@ func (s *Server) clusterSummary(c *gin.Context) {
 	out.Extensions = []ExtensionInfo{}
 	for _, x := range all.All() {
 		info := ExtensionInfo{Name: x.Name(), Description: x.Description(), Enabled: ext.Find(s.opts.Extensions, x.Name()) != nil}
-		if c := x.Component(); c != nil {
-			info.Component = c.Name
+		var names []string
+		for _, c := range x.Components() {
+			names = append(names, c.Name)
 		}
+		info.Component = strings.Join(names, ", ")
 		out.Extensions = append(out.Extensions, info)
 	}
 	if recs, err := install.ReadRecords(ctx, s.kube, ""); err == nil {

@@ -25,8 +25,8 @@ func (extension) Description() string {
 	return "Redis-compatible caches and queues for projects (Valkey or Redis), attached to apps as REDIS_URL (shpyrd redis create)"
 }
 
-// Component is nil: the controller runs the engine itself, no operator needed.
-func (extension) Component() *ext.ComponentRef { return nil }
+// Components is empty: the controller runs the engine itself, no operator needed.
+func (extension) Components() []ext.ComponentRef { return nil }
 
 // Register runs the Redis controller and makes the kind attachable.
 func (extension) Register(mgr ctrl.Manager, deps ext.Deps) error {

@@ -21,8 +21,8 @@ func (extension) Name() string { return Name }
 func (extension) Description() string {
 	return "Vector log agent: collects container logs from all project pods, labels them project/process/instance, feeds drains (RFC-0022a)"
 }
-func (extension) Component() *ext.ComponentRef {
-	return &ext.ComponentRef{Name: "logs-agent", Runlevel: "rc3"}
+func (extension) Components() []ext.ComponentRef {
+	return []ext.ComponentRef{{Name: "logs-agent", Runlevel: "rc3"}}
 }
 func (extension) Register(ctrl.Manager, ext.Deps) error { return nil }
 func (extension) Routes(_ ext.Router, _ ext.Deps) error { return nil }

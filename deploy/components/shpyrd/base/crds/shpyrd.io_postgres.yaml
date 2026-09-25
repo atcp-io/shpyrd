@@ -57,6 +57,22 @@ spec:
           spec:
             description: PostgresSpec describes a PostgreSQL database run by CloudNativePG.
             properties:
+              backups:
+                description: |-
+                  Backups turns on continuous WAL archiving and scheduled base backups
+                  to the platform's object store (RFC-0038); needs the object-storage
+                  extension.
+                properties:
+                  retention:
+                    description: Retention of backups and WAL, as <n>d (default 14d).
+                    pattern: ^[0-9]+d$
+                    type: string
+                  schedule:
+                    description: |-
+                      Schedule of base backups, five-field cron in UTC (default "0 2 * * *",
+                      every day at 02:00).
+                    type: string
+                type: object
               instances:
                 description: Instances is the number of PostgreSQL instances (1, or
                   2-3 for HA).
@@ -64,6 +80,25 @@ spec:
                 maximum: 5
                 minimum: 1
                 type: integer
+              recovery:
+                description: |-
+                  Recovery bootstraps this database from another one's backups, at a
+                  point in time (RFC-0038); the source keeps running.
+                properties:
+                  from:
+                    description: |-
+                      From is the Postgres resource in the same project whose backups are
+                      restored.
+                    type: string
+                  targetTime:
+                    description: |-
+                      TargetTime is the point in time to recover to; the latest possible
+                      when unset.
+                    format: date-time
+                    type: string
+                required:
+                - from
+                type: object
               size:
                 description: 'Size is an instance size from the cluster catalog (default:
                   catalog default).'
@@ -148,6 +183,12 @@ spec:
               endpoint:
                 description: Endpoint is host:port inside the project.
                 type: string
+              lastBackup:
+                description: |-
+                  LastBackup is when the last successful base backup finished; RecoverableFrom
+                  is the earliest point in time the backups can restore to (RFC-0038).
+                format: date-time
+                type: string
               message:
                 type: string
               observedGeneration:
@@ -155,6 +196,9 @@ spec:
                 type: integer
               phase:
                 description: Phase is Pending, Provisioning, Ready or Failed.
+                type: string
+              recoverableFrom:
+                format: date-time
                 type: string
               storage:
                 description: |-
