@@ -313,6 +313,7 @@ func newManager(k *kube.Client, o runOptions, memberships *controller.Membership
 			Domain:               os.Getenv("SHPYRD_DOMAIN"),
 			WorkspaceDomain:      workspaceCache.Address,
 			WorkspaceLimits:      workspaceCache.Limits,
+			DashboardURL:         envOr("SHPYRD_DASHBOARD_URL", ""),
 			HTTPSPort:            os.Getenv("SHPYRD_HTTPS_PORT"),
 			RegistryHost:         os.Getenv("SHPYRD_REGISTRY_HOST"),
 			ClusterIssuer:        os.Getenv("SHPYRD_CLUSTER_ISSUER"),

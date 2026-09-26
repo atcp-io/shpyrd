@@ -1,6 +1,6 @@
 // The web process of the hello-world example: an HTML "Hello world" page that
-// shows which instance served the request and a GREETING config var.
-// See ../../README.md.
+// shows who is visiting (verified from the platform's JWT), which instance
+// served the request and a GREETING config var. See ../../README.md.
 package main
 
 import (
@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -23,6 +24,10 @@ func main() {
 	}
 	host, _ := os.Hostname()
 	started := time.Now()
+	jwt := newVerifier()
+	if jwt.configured() {
+		log.Printf("verifying visitors against %s/.well-known/jwks.json (audience %s)", jwt.issuer, jwt.audience)
+	}
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "ok")
@@ -39,19 +44,34 @@ func main() {
 		}
 		log.Printf("%s %s from %s (request #%d)", r.Method, r.URL.Path, r.RemoteAddr, n)
 		// Behind shpyrd's edge the visitor arrives identified: no sign-in
-		// code in the app, just headers (or the Authorization JWT).
-		who := "an anonymous visitor"
-		if u := r.Header.Get("X-Shpyrd-User"); u != "" {
+		// code in the app. The JWT proves it; the headers merely repeat it.
+		who, how := "an anonymous visitor", "no identity: the app is public or the request did not come through the edge"
+		if jwt.configured() {
+			if v, err := jwt.verify(r); err == nil {
+				who = v.Email
+				if who == "" {
+					who = v.Subject
+				}
+				if len(v.Teams) > 0 {
+					who += " (teams: " + strings.Join(v.Teams, ",") + ")"
+				}
+				how = fmt.Sprintf("JWT verified against %s (roles: %s, expires in %s)", jwt.issuer, strings.Join(v.Roles, ","), time.Until(time.Unix(v.ExpiresAt, 0)).Round(time.Second))
+			} else if r.Header.Get("Authorization") != "" {
+				how = "JWT rejected: " + err.Error()
+			}
+		} else if u := r.Header.Get("X-Shpyrd-User"); u != "" {
 			who = u
 			if teams := r.Header.Get("X-Shpyrd-Teams"); teams != "" {
 				who += " (teams: " + teams + ")"
 			}
+			how = "from the X-Shpyrd-* headers (SHPYRD_ISSUER is not set, so the JWT was not checked)"
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, page,
 			html.EscapeString(greeting),
 			html.EscapeString(greeting),
 			html.EscapeString(who),
+			html.EscapeString(how),
 			html.EscapeString(host),
 			n,
 			time.Since(started).Round(time.Second),
@@ -77,6 +97,7 @@ const page = `<!doctype html>
     h1 { font-size: clamp(2.5rem, 8vw, 5rem); margin: 0 0 1rem; letter-spacing: -0.03em; }
     p { color: #94a3b8; margin: 0.25rem 0; }
     code { background: #1e293b; padding: 0.15rem 0.4rem; border-radius: 0.3rem; color: #f8fafc; }
+    .how { font-size: 0.85rem; color: #64748b; max-width: 40rem; }
     .tag { display: inline-block; margin-top: 1.5rem; padding: 0.3rem 0.7rem; border-radius: 999px;
            background: #14532d; color: #bbf7d0; font-size: 0.85rem; }
   </style>
@@ -85,6 +106,7 @@ const page = `<!doctype html>
   <main>
     <h1>%s</h1>
     <p>You are <code>%s</code></p>
+    <p class="how">%s</p>
     <p>Served by instance <code>%s</code></p>
     <p>Request #%d on this instance &middot; up for %s</p>
     <p>%s</p>

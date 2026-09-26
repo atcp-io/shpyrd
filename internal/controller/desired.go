@@ -34,6 +34,10 @@ type Config struct {
 	// WorkspaceLimits answers a workspace's plan, nil when it has none; the
 	// controller backs it with a ResourceQuota per project namespace.
 	WorkspaceLimits func(slug string) *store.Limits
+	// DashboardURL is where the implicit workspace's dashboard answers:
+	// the issuer of its apps' JWTs (RFC-0033). Explicit workspaces issue
+	// from https://<address>.
+	DashboardURL string
 	// HTTPSPort is the port users reach ingress on (443 unless kind maps another).
 	HTTPSPort string
 	// RegistryHost is where built images are pushed (host:port).
@@ -257,6 +261,39 @@ func (c Config) url(app *shpyrdv1.App) string {
 	return u
 }
 
+// issuer is the iss of the JWTs the edge hands the app: its workspace's
+// dashboard URL, where /.well-known/jwks.json publishes the keys.
+func (c Config) issuer(app *shpyrdv1.App) string {
+	if ws := workspaceOf(app); ws != project.DefaultWorkspace && c.WorkspaceDomain != nil {
+		if address := c.WorkspaceDomain(ws); address != "" {
+			u := "https://" + address
+			if c.HTTPSPort != "" && c.HTTPSPort != "443" {
+				u += ":" + c.HTTPSPort
+			}
+			return u
+		}
+	}
+	if c.DashboardURL != "" {
+		return c.DashboardURL
+	}
+	u := "https://shpyrd." + c.Domain
+	if c.HTTPSPort != "" && c.HTTPSPort != "443" {
+		u += ":" + c.HTTPSPort
+	}
+	return u
+}
+
+// platformEnv tells a process where it runs, so it can verify what the
+// edge sends (RFC-0033): the project and workspace slugs and the JWT
+// issuer, whose /.well-known/jwks.json holds the signing keys.
+func (c Config) platformEnv(app *shpyrdv1.App) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{Name: "SHPYRD_PROJECT", Value: app.Name},
+		{Name: "SHPYRD_WORKSPACE", Value: workspaceOf(app)},
+		{Name: "SHPYRD_ISSUER", Value: c.issuer(app)},
+	}
+}
+
 // imageTag is the repository kpack pushes builds of this app to.
 func (c Config) imageTag(app *shpyrdv1.App) string {
 	return c.RegistryHost + "/apps/" + app.Name
@@ -364,6 +401,7 @@ func (c Config) mutateDeployment(app *shpyrdv1.App, p namedProcess, image, confi
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: port, Protocol: corev1.ProtocolTCP}}
 	}
 	applyProbes(&container, p, port)
+	container.Env = append(container.Env, c.platformEnv(app)...)
 	container.Env = append(container.Env, app.Spec.Env...)
 
 	d.Spec.Template.Labels = mergeMaps(d.Spec.Template.Labels, labels)

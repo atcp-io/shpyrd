@@ -3,8 +3,12 @@
 The smallest useful shpyrd app: a Go module with two process types and no
 Dockerfile. The Paketo Go buildpack builds both commands in the cluster.
 
-- `cmd/web` renders an HTML "Hello world" page showing the instance that
-  served the request and the `GREETING` config var.
+- `cmd/web` renders an HTML "Hello world" page showing who is visiting,
+  the instance that served the request and the `GREETING` config var. The
+  visitor comes from the JWT shpyrd's edge sends with every request,
+  verified in `cmd/web/jwt.go` against `$SHPYRD_ISSUER/.well-known/jwks.json`
+  with the standard library alone: the twelve lines every app needs to
+  trust who it is talking to.
 - `cmd/worker` is a background job that logs a line every 10 seconds.
 
 `shpyrd.yaml` declares the app name, the two process types and the
