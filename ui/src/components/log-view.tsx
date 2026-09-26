@@ -90,6 +90,7 @@ function Field({
             path={path}
             open={open}
             onToggle={onToggle}
+            nested
           />
         ) : (
           field.value.replace(ansi, "")
@@ -106,18 +107,22 @@ export function LogFields({
   path,
   open,
   onToggle,
+  nested = false,
 }: {
   fields: LogField[];
+  /** What each field's path is built on, so one expansion state can hold
+   * every line's rows: the caller passes the line's own key. */
   path: string;
   open: Set<string>;
   onToggle: (path: string) => void;
+  nested?: boolean;
 }) {
   return (
     <dl
       className={cn(
         "grid grid-cols-[auto_1fr] gap-x-3 text-zinc-400",
         // Nested rows sit under their key, with a rule to follow back up.
-        path !== "" && "mt-0.5 border-l border-zinc-800 pl-2",
+        nested && "mt-0.5 border-l border-zinc-800 pl-2",
       )}
     >
       {fields.map((f) => (
@@ -282,9 +287,9 @@ export function AppLogView({
                   <div className="mb-1 ml-4.5">
                     <LogFields
                       fields={fields}
-                      path=""
+                      path={key}
                       open={expanded}
-                      onToggle={(p) => toggle(key + "#" + p)}
+                      onToggle={toggle}
                     />
                   </div>
                 )}
