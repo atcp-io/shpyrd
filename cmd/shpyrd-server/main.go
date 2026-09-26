@@ -211,27 +211,45 @@ func run(o runOptions, logger *slog.Logger) error {
 	}
 
 	if o.controller {
-		mgr, err := newManager(k, o, memberships)
-		if err != nil {
-			return err
-		}
-		if registryGC != nil {
-			registryGC.Client = mgr.GetClient()
-			registryGC.Reader = mgr.GetAPIReader()
-			if err := mgr.Add(registryGC); err != nil {
-				return fmt.Errorf("registry garbage collector: %w", err)
+		runControllers := func() error {
+			mgr, err := newManager(k, o, memberships)
+			if err != nil {
+				return err
 			}
-		}
-		if os.Getenv(install.VarRegistryIP) != "" {
-			// The in-cluster registry restarts when its certificate is renewed (RFC-0059).
-			rotation := &controller.RegistryRotation{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Namespace: k.Namespace, Secret: "registry-tls", Deploy: "registry"}
-			if err := mgr.Add(rotation); err != nil {
-				return fmt.Errorf("registry rotation: %w", err)
+			if registryGC != nil {
+				registryGC.Client = mgr.GetClient()
+				registryGC.Reader = mgr.GetAPIReader()
+				if err := mgr.Add(registryGC); err != nil {
+					return fmt.Errorf("registry garbage collector: %w", err)
+				}
 			}
-		}
-		g.Go(func() error {
+			if os.Getenv(install.VarRegistryIP) != "" {
+				// The in-cluster registry restarts when its certificate is renewed (RFC-0059).
+				rotation := &controller.RegistryRotation{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Namespace: k.Namespace, Secret: "registry-tls", Deploy: "registry"}
+				if err := mgr.Add(rotation); err != nil {
+					return fmt.Errorf("registry rotation: %w", err)
+				}
+			}
 			logger.Info("starting controller manager")
 			return mgr.Start(ctx)
+		}
+		// The API keeps answering whatever happens to the controllers: a
+		// lost leader lease (a slow control plane, an upgrade) restarts the
+		// manager here instead of the process, and another replica may hold
+		// the lease meanwhile.
+		g.Go(func() error {
+			for {
+				err := runControllers()
+				if ctx.Err() != nil {
+					return nil
+				}
+				logger.Error("controller manager stopped; restarting in 10s", "err", err)
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(10 * time.Second):
+				}
+			}
 		})
 	}
 	return g.Wait()
@@ -287,13 +305,21 @@ func newManager(k *kube.Client, o runOptions, memberships *controller.Membership
 	if err := shpyrdv1.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
+	// Lease timings roomier than Kubernetes' defaults (15s/10s/2s): a
+	// control plane that answers slowly for half a minute must not cost the
+	// lease, since losing it stops every controller.
+	lease, renew, retry := 60*time.Second, 40*time.Second, 5*time.Second
 	mgr, err := ctrl.NewManager(k.Config, ctrl.Options{
-		Scheme:                  scheme,
-		Metrics:                 metricsserver.Options{BindAddress: o.metricsAddr},
-		HealthProbeBindAddress:  "0",
-		LeaderElection:          o.leaderElect,
-		LeaderElectionID:        "shpyrd-server",
-		LeaderElectionNamespace: k.Namespace,
+		Scheme:                        scheme,
+		Metrics:                       metricsserver.Options{BindAddress: o.metricsAddr},
+		HealthProbeBindAddress:        "0",
+		LeaderElection:                o.leaderElect,
+		LeaderElectionID:              "shpyrd-server",
+		LeaderElectionNamespace:       k.Namespace,
+		LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:                 &lease,
+		RenewDeadline:                 &renew,
+		RetryPeriod:                   &retry,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("controller manager: %w", err)

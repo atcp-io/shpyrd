@@ -19,6 +19,16 @@ controller:
   extraArgs:
     default-backend-service: shpyrd-system/shpyrd-server
 
+  # The identity headers are the edge's to set (RFC-0033): whatever a client
+  # sends in them is blanked on every request to every app, public ones
+  # included; where sign-in is on, auth_request puts the real values back.
+  proxySetHeaders:
+    X-Shpyrd-User: ""
+    X-Shpyrd-Email: ""
+    X-Shpyrd-Name: ""
+    X-Shpyrd-Teams: ""
+    X-Shpyrd-Roles: ""
+
   metrics:
     enabled: true
     serviceMonitor:

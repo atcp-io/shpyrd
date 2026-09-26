@@ -124,6 +124,13 @@ Shipped in v0.9.3 — plan limits:
   namespace. The Workspace page shows the plan and the usage. Self-hosted installs have no
   ceilings unless one is set.
 
+Shipped in v0.9.4:
+
+- The front doors blank any `X-Shpyrd-*` header a client sends, on every request to every
+  app, public ones included; the edge sets the real values where sign-in is on. Every
+  process receives `SHPYRD_ISSUER`, `SHPYRD_PROJECT` and `SHPYRD_WORKSPACE` so it can verify
+  the JWT against `<iss>/.well-known/jwks.json`; `examples/hello` shows how.
+
 The rest of the model (OAuth for agents) follows in later releases; the full text is
 published when it settles.
 
