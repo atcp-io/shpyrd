@@ -5,7 +5,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // Scheme returns a runtime.Scheme with the core Kubernetes types and the

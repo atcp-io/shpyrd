@@ -23,11 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/project"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
 )
 
 // appNamespace is the namespace of a project (app-<slug>).

@@ -21,11 +21,11 @@ import (
 	"golang.org/x/oauth2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/authz"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // The server is an OpenID Connect relying party (RFC-0007): extensions

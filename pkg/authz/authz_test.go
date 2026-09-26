@@ -3,9 +3,9 @@ package authz
 import (
 	"testing"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 func team(name string, members, groups []string, platform string) store.Team {

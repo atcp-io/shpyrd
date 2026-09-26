@@ -18,10 +18,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"shpyrd/pkg/audit"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/audit"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // newAuthCmd returns `shpyrd auth` with the `oidc` subcommand. Other

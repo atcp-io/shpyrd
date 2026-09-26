@@ -12,10 +12,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/all"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // Kubeconfig implements ext.CLIGlobals.

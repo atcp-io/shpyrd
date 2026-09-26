@@ -19,9 +19,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/localca"
-	"shpyrd/pkg/sizes"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/localca"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
 )
 
 // Hook runs before a component is applied. Hooks are referenced by name from

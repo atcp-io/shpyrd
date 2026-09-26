@@ -13,7 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // Extension is one optional capability.

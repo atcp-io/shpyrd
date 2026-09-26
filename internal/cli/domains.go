@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/kube"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // shpyrd domains (RFC-0034): custom hostnames for a project. The project is

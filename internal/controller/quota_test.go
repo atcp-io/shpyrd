@@ -9,9 +9,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/project"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 func TestReconcileQuota(t *testing.T) {

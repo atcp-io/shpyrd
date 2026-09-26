@@ -23,20 +23,20 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/internal/controller"
 
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/buildtrust"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/all"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/store"
-	"shpyrd/pkg/tenancy"
-	"shpyrd/pkg/version"
-	"shpyrd/ui"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/buildtrust"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/tenancy"
+	"github.com/shpyrd-io/shpyrd/pkg/version"
+	"github.com/shpyrd-io/shpyrd/ui"
 )
 
 func main() {

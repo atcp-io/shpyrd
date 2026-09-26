@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // Container waiting reasons that mean an instance will not come up on its

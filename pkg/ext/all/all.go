@@ -6,13 +6,13 @@ package all
 import (
 	"strings"
 
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/authlocal"
-	"shpyrd/pkg/ext/authoidc"
-	"shpyrd/pkg/ext/logsagent"
-	"shpyrd/pkg/ext/objectstorage"
-	"shpyrd/pkg/ext/postgres"
-	"shpyrd/pkg/ext/redis"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/authlocal"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/authoidc"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/logsagent"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/objectstorage"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/postgres"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/redis"
 )
 
 // All lists every extension the binaries know about, in display order.

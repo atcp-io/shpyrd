@@ -11,8 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // QuotaName is the ResourceQuota the platform keeps in project namespaces

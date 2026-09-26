@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/sizes"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
 )
 
 // SizesResponse is the instance size catalog as the dashboard sees it.

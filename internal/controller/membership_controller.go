@@ -24,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/authz"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // MembershipReconciler mirrors the workspace's teams and grants (RFC-0033,

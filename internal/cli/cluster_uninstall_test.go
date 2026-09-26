@@ -18,9 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // destroy on a cloud context: projects first, then load balancers, then the

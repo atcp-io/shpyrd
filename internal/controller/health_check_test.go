@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ptr "k8s.io/utils/ptr"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // RFC-0019: probes, rollout strategy and graceful shutdown.

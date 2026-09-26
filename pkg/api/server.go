@@ -18,13 +18,13 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"shpyrd/pkg/authz"
-	"shpyrd/pkg/edge"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/store"
-	"shpyrd/pkg/tenancy"
+	"github.com/shpyrd-io/shpyrd/pkg/authz"
+	"github.com/shpyrd-io/shpyrd/pkg/edge"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/tenancy"
 )
 
 // Options configures the server.

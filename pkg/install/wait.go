@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 const pollInterval = 2 * time.Second

@@ -24,8 +24,8 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/logs"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/logs"
 )
 
 // LogLine is one log line in the NDJSON stream.

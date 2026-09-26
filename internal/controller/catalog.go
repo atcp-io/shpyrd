@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"shpyrd/pkg/sizes"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
 )
 
 // loadCatalog reads the instance size catalog, falling back to the built-in

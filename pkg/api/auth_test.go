@@ -18,7 +18,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
 )
 
 // fakeIssuer is a minimal OpenID Connect provider: discovery, JWKS, an

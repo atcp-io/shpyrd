@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Sessions (RFC-0007) live in the control-plane store since RFC-0033

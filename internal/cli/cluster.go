@@ -23,15 +23,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/deploy"
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/audit"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kind"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/localca"
-	"shpyrd/pkg/localnet"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/deploy"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/audit"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kind"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/localca"
+	"github.com/shpyrd-io/shpyrd/pkg/localnet"
 )
 
 const (

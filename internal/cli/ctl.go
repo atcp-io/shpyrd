@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"shpyrd/pkg/ext/all"
-	"shpyrd/pkg/version"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
+	"github.com/shpyrd-io/shpyrd/pkg/version"
 )
 
 // NewCtl builds the shpyrd-ctl command tree: cluster operations that need a

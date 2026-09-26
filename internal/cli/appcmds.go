@@ -20,9 +20,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/configvars"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/configvars"
 )
 
 // appFlag adds the shared --project flag (--app kept as a hidden alias).

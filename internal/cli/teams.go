@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/audit"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/audit"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // Teams and project roles (RFC-0008) live in the control-plane store

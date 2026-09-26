@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 func TestHost(t *testing.T) {

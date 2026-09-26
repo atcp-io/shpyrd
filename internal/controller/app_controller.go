@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/logs"
-	"shpyrd/pkg/sizes"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/logs"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
 )
 
 // AppReconciler turns an App into a kpack Image plus one Deployment (and

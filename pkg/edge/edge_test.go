@@ -10,7 +10,7 @@ import (
 
 	kubefake "k8s.io/client-go/kubernetes/fake"
 
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 func TestKeysRoundTrip(t *testing.T) {

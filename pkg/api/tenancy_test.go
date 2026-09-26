@@ -16,13 +16,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/edge"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/project"
-	"shpyrd/pkg/store"
-	"shpyrd/pkg/tenancy"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/edge"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/tenancy"
 )
 
 // newTenantServer is a server with two workspaces resolved by host: the

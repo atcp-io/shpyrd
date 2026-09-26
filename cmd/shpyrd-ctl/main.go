@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	"shpyrd/internal/cli"
-	"shpyrd/pkg/version"
+	"github.com/shpyrd-io/shpyrd/internal/cli"
+	"github.com/shpyrd-io/shpyrd/pkg/version"
 )
 
 func main() {

@@ -14,9 +14,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 func newUsersCmd(g ext.CLIGlobals) *cobra.Command {

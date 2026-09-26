@@ -6,10 +6,10 @@ import (
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/internal/controller"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/install"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
 )
 
 // Name of the extension.

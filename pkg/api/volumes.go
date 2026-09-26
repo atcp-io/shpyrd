@@ -17,8 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/install"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
 )
 
 // VolumeView is a project volume as shown to users.

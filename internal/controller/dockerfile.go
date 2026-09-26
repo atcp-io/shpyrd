@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/buildtrust"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/buildtrust"
 )
 
 // Dockerfile builds run as Kubernetes Jobs: an init container fetches the

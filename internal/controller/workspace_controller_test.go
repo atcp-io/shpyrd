@@ -9,8 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 func TestWorkspaceFrontDoors(t *testing.T) {

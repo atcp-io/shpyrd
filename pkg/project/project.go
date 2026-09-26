@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // MaxSlugLength keeps hostnames (<slug>.<domain>) and namespaces

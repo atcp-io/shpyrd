@@ -12,10 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/authz"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Per-user API tokens (RFC-0031): shp_<id>_<random> bearer credentials

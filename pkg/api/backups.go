@@ -15,8 +15,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"shpyrd/pkg/backup"
-	"shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/backup"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
 )
 
 // Platform backups (RFC-0037): the CronJob of the platform-backup component

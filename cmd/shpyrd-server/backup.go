@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"time"
 
-	"shpyrd/pkg/backup"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/version"
+	"github.com/shpyrd-io/shpyrd/pkg/backup"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/version"
 )
 
 // runBackup is `shpyrd-server backup` (RFC-0037): one export of the

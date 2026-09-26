@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // Custom domains (RFC-0034). A project is always served at

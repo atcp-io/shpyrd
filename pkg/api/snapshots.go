@@ -19,10 +19,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/internal/controller"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kexec"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kexec"
 )
 
 // SnapshotView is a volume snapshot as shown to users (RFC-0060).

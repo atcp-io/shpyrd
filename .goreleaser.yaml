@@ -19,7 +19,7 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X shpyrd/pkg/version.Version={{ .Tag }}
+      - -s -w -X github.com/shpyrd-io/shpyrd/pkg/version.Version={{ .Tag }}
     mod_timestamp: "{{ .CommitTimestamp }}"
   - id: shpyrd-ctl
     main: ./cmd/shpyrd-ctl
@@ -30,7 +30,7 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X shpyrd/pkg/version.Version={{ .Tag }}
+      - -s -w -X github.com/shpyrd-io/shpyrd/pkg/version.Version={{ .Tag }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:

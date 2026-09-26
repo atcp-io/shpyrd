@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kexec"
-	"shpyrd/pkg/localnet"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kexec"
+	"github.com/shpyrd-io/shpyrd/pkg/localnet"
 )
 
 // Local names and front door (RFC-0057): `cluster create` looks at the

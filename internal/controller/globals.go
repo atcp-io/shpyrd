@@ -16,9 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/configvars"
-	"shpyrd/pkg/project"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/configvars"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
 )
 
 // Global config vars (RFC-0016): a platform admin keeps them in Secret

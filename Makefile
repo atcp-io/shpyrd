@@ -1,7 +1,7 @@
 VERSION      ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 CLUSTER      ?= shpyrd
 SERVER_IMAGE ?= shpyrd-server:dev
-LDFLAGS      := -X shpyrd/pkg/version.Version=$(VERSION)
+LDFLAGS      := -X github.com/shpyrd-io/shpyrd/pkg/version.Version=$(VERSION)
 
 .PHONY: all build cli server ui image dev-image generate test vet lint clean \
         dev-cluster dev-load dev-deploy dev-destroy installclint commitlint
@@ -82,4 +82,4 @@ commitlint:
 
 ## Build both CLI binaries
 cli-all: cli
-	go build -ldflags "-X shpyrd/pkg/version.Version=$(VERSION)" -o bin/shpyrd-ctl ./cmd/shpyrd-ctl
+	go build -ldflags "-X github.com/shpyrd-io/shpyrd/pkg/version.Version=$(VERSION)" -o bin/shpyrd-ctl ./cmd/shpyrd-ctl

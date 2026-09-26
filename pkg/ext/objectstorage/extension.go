@@ -18,12 +18,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/internal/controller"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/resources"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/objectstore"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/resources"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/objectstore"
 )
 
 // Name of the extension.

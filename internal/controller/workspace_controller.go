@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // WorkspaceReconciler gives every explicit workspace (RFC-0033 phase 6) a

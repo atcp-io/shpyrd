@@ -18,8 +18,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
-	"shpyrd/deploy"
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/deploy"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // DefaultSystemNamespace hosts shpyrd's own components and the install record.

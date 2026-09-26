@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"shpyrd/pkg/ext/all"
-	"shpyrd/pkg/version"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
+	"github.com/shpyrd-io/shpyrd/pkg/version"
 )
 
 // Version of the CLI (see pkg/version).
@@ -36,6 +36,9 @@ func New() *cobra.Command {
 				level = slog.LevelDebug
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+			// An explicit --context or --kubeconfig names the cluster to
+			// talk to: it wins over a saved login session.
+			preferKubeconfig = cmd.Flags().Changed("context") || cmd.Flags().Changed("kubeconfig")
 		},
 	}
 	root.PersistentFlags().StringVar(&g.kubeconfig, "kubeconfig", os.Getenv("KUBECONFIG"), "path to the kubeconfig file")

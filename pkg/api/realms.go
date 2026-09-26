@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"shpyrd/pkg/edge"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/edge"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Realms decides which login methods a workspace offers (RFC-0033's

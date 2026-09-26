@@ -19,7 +19,7 @@ import (
 	dynfake "k8s.io/client-go/dynamic/fake"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // RFC-0037: the export carries the install record, cluster objects, every

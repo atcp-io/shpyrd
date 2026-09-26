@@ -12,10 +12,10 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/internal/controller"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Custom domains (RFC-0034): POST adds a hostname the owner points at the

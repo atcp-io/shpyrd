@@ -9,10 +9,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/all"
-	"shpyrd/pkg/install"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
 )
 
 // ClusterSummary feeds the dashboard's cluster page.

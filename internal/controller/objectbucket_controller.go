@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/objectstore"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/objectstore"
 )
 
 // ObjectBucketFinalizer guards the store-side cleanup.

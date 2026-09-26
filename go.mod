@@ -1,4 +1,4 @@
-module shpyrd
+module github.com/shpyrd-io/shpyrd
 
 go 1.27.1
 

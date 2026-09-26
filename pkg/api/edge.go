@@ -15,12 +15,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
-	"shpyrd/pkg/edge"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/project"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/authz"
+	"github.com/shpyrd-io/shpyrd/pkg/edge"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // The edge (RFC-0033): ingress-nginx asks /edge/auth about every request to

@@ -13,9 +13,9 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // shpyrd cluster registry [gc] (RFC-0059): the registry card as text.
@@ -170,11 +170,19 @@ func ago(t time.Time) string {
 // serverRequest sends a request to the shpyrd API: directly when the caller
 // has a login session from `shpyrd login`, or through the Kubernetes service
 // proxy when a kubeconfig is available.
+// preferKubeconfig is set when the command line named a cluster
+// (--context, --kubeconfig): then the kubeconfig path is taken even when a
+// login session exists.
+var preferKubeconfig bool
+
 func serverRequest(ctx context.Context, k *kube.Client, method, path string, body []byte, contentType string) ([]byte, error) {
-	// API-first: a login session or SHPYRD_TOKEN bypasses the kubeconfig.
+	// API-first: a login session or SHPYRD_TOKEN bypasses the kubeconfig,
+	// unless the command line named a cluster.
 	tok := os.Getenv("SHPYRD_TOKEN")
 	wsURL := os.Getenv("SHPYRD_URL")
-	if tok == "" || wsURL == "" {
+	if preferKubeconfig && k != nil {
+		tok, wsURL = "", ""
+	} else if tok == "" || wsURL == "" {
 		sessions := loadSessions()
 		for _, sess := range sessions.Sessions {
 			if sess.Token != "" && tok == "" {

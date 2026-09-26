@@ -16,8 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/project"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
 )
 
 // AppSummary is the list view of a project. Image references are reduced

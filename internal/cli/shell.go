@@ -17,12 +17,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/internal/controller"
-	"shpyrd/pkg/api"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kexec"
-	"shpyrd/pkg/sizes"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
+	"github.com/shpyrd-io/shpyrd/pkg/api"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kexec"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
 )
 
 // Buildpack images set up the language runtime (PATH, env) through the CNB

@@ -12,10 +12,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/sizes"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
 )
 
 // ---- catalog ---------------------------------------------------------------

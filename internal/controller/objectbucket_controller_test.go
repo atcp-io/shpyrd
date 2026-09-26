@@ -13,9 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/kube"
-	"shpyrd/pkg/objectstore"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
+	"github.com/shpyrd-io/shpyrd/pkg/objectstore"
 )
 
 // fakeStore records what the controller asked of the object store.

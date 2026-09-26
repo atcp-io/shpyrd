@@ -10,12 +10,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/authz"
-	"shpyrd/pkg/ext"
-	project_ "shpyrd/pkg/project"
-	"shpyrd/pkg/store"
-	"shpyrd/pkg/tenancy"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/authz"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	project_ "github.com/shpyrd-io/shpyrd/pkg/project"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/tenancy"
 )
 
 // Authorization (RFC-0008): every protected route names the action it

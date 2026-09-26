@@ -19,10 +19,10 @@ import (
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"time"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/ext/all"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/kube"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 const testToken = "secret-token"

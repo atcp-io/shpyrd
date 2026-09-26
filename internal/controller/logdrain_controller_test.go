@@ -15,8 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/kube"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/kube"
 )
 
 // RFC-0023: drains render into Vector's config; header values never do.

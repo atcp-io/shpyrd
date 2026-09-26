@@ -18,10 +18,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/resources"
-	"shpyrd/pkg/kexec"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/resources"
+	"github.com/shpyrd-io/shpyrd/pkg/kexec"
 )
 
 func newRedisCmd(g ext.CLIGlobals) *cobra.Command {

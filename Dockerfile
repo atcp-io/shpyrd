@@ -24,7 +24,7 @@ ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath \
-      -ldflags "-s -w -X shpyrd/pkg/version.Version=${VERSION}" \
+      -ldflags "-s -w -X github.com/shpyrd-io/shpyrd/pkg/version.Version=${VERSION}" \
       -o /out/shpyrd-server ./cmd/shpyrd-server
 
 FROM gcr.io/distroless/static-debian12:nonroot

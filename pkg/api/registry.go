@@ -14,9 +14,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"shpyrd/internal/controller"
-	"shpyrd/pkg/install"
-	"shpyrd/pkg/registry"
+	"github.com/shpyrd-io/shpyrd/internal/controller"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/registry"
 )
 
 // RegistryGC is the controller's garbage collector, shared with the API so

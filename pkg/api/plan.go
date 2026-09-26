@@ -7,9 +7,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/sizes"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Plan limits (RFC-0033 phase 6, RFC-0042). A workspace's plan is a set of

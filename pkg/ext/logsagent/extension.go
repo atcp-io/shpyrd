@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
 )
 
 const Name = "logs-agent"

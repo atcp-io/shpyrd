@@ -24,7 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // KeysSecretName holds the signing key pair (RFC-0033).

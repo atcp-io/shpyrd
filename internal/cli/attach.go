@@ -13,9 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/ext/all"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/ext/all"
 )
 
 // Attaching a resource (RFC-0003) adds a binding to the app: the resource's

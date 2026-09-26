@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/install"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/install"
 )
 
 // The login methods of the workspace (RFC-0033 phase 3): the Workspace

@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"shpyrd/pkg/audit"
-	"shpyrd/pkg/ext"
-	projectpkg "shpyrd/pkg/project"
+	"github.com/shpyrd-io/shpyrd/pkg/audit"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	projectpkg "github.com/shpyrd-io/shpyrd/pkg/project"
 )
 
 // audit records a mutation performed through the API. project is "" for

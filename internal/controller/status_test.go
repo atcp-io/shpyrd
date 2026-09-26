@@ -3,7 +3,7 @@ package controller
 import (
 	"testing"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // Releases that leave the history hand their images to StaleImages unless a

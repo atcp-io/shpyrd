@@ -16,7 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 func newDeployCmd(g *globalFlags) *cobra.Command {

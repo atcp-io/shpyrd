@@ -7,7 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"shpyrd/deploy"
+	"github.com/shpyrd-io/shpyrd/deploy"
 )
 
 func TestLocalProfileRenders(t *testing.T) {

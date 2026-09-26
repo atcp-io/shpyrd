@@ -16,10 +16,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/project"
-	"shpyrd/pkg/sizes"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/project"
+	"github.com/shpyrd-io/shpyrd/pkg/sizes"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Config carries cluster-level settings the controller needs.

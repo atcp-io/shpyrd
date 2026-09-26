@@ -13,8 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/configvars"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/configvars"
 )
 
 // Releases carry their configuration, as on Heroku: when a release is

@@ -9,9 +9,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	shpyrdv1 "shpyrd/api/v1alpha1"
 )
 
 // fakeResolver answers CNAME and A lookups from maps.

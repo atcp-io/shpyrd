@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // ErrUnknownHost says no workspace answers at the host.

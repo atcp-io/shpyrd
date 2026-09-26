@@ -13,7 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 // Chart is one panel of the app metrics view.

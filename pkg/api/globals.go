@@ -14,9 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/configvars"
-	"shpyrd/pkg/store"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
+	"github.com/shpyrd-io/shpyrd/pkg/configvars"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // Global config vars (RFC-0016): set once by a platform admin, injected into

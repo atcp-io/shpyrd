@@ -5,7 +5,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	shpyrdv1 "shpyrd/api/v1alpha1"
+	shpyrdv1 "github.com/shpyrd-io/shpyrd/api/v1alpha1"
 )
 
 func TestProjectGlobalsKey(t *testing.T) {

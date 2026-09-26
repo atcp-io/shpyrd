@@ -13,8 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"shpyrd/pkg/ext"
-	"shpyrd/pkg/store"
+	"github.com/shpyrd-io/shpyrd/pkg/ext"
+	"github.com/shpyrd-io/shpyrd/pkg/store"
 )
 
 // The workspace (RFC-0033): the tenant every project belongs to. The
