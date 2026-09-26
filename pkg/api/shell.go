@@ -97,6 +97,33 @@ func podReady(p corev1.Pod) bool {
 	return false
 }
 
+// shellMintsPerMinute is how often one actor may mint a shell ticket. A person
+// opens a terminal a handful of times a minute — picking an instance, a
+// reconnect, a stray double click — never hundreds, so twenty is generous for
+// every real use and still a ceiling. It matters because the ticket is what the
+// socket costs: each mint-then-connect cycle is two pod LISTs, up to four
+// pods/exec calls against a live pod and two audit Events written into the
+// project namespace, and this control plane is one replica over one etcd. The
+// socket itself carries no throttle because it cannot be reached without a
+// ticket, and tickets are rationed here.
+const shellMintsPerMinute = 20
+
+// throttleShellMints refuses a caller minting tickets faster than a human
+// could use them. Keyed by actor rather than by client IP, which is what the
+// sign-in limiter uses: this route is authenticated, so the person behind it is
+// known, and several developers behind one NAT must not share a budget.
+func (s *Server) throttleShellMints() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, _ := ext.IdentityFrom(c)
+		if !s.shellMints.allow(actorKey(id)) {
+			c.Header("Retry-After", "60")
+			abort(c, http.StatusTooManyRequests, errors.New("too many shell sessions opened; wait a minute before opening another"))
+			return
+		}
+		c.Next()
+	}
+}
+
 // mintShellTicket issues the one-time code the WebSocket presents. The
 // instance is checked here so a terminal never opens against something that
 // is not running, and the one-shell limit is refused here so a stale tab
@@ -126,6 +153,13 @@ func (s *Server) mintShellTicket(c *gin.Context) {
 		return
 	}
 	code, err := s.execTickets.mint(execTicket{Identity: id, Project: app.Name, Instance: instance})
+	if errors.Is(err, errTicketsFull) {
+		// Not the caller's fault and not permanent: the store drains itself
+		// within a ticket's 30 seconds, so say so rather than reporting a fault.
+		c.Header("Retry-After", "30")
+		abort(c, http.StatusServiceUnavailable, err)
+		return
+	}
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
 		return

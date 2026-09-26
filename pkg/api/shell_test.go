@@ -209,3 +209,26 @@ func TestListInstancesNeedsExec(t *testing.T) {
 		t.Errorf("viewer instances: %d, want 403", rec.Code)
 	}
 }
+
+func TestMintShellTicketIsThrottled(t *testing.T) {
+	// The ticket is the cheapest way to make this single replica do expensive
+	// work: one holder of project.exec looping mint-then-connect costs two pod
+	// LISTs, up to four pods/exec calls against a live pod and two audit Events
+	// per cycle. A person opens a terminal a handful of times a minute, so the
+	// budget is generous for every real use and still a ceiling.
+	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
+	s, _ := newTestServer(t, nil, []client.Object{blog}, appPod("blog", "web", "blog-web-aaa", corev1.PodRunning, true))
+
+	for i := 0; i < shellMintsPerMinute; i++ {
+		if rec := do(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.1", "", true); rec.Code != http.StatusOK {
+			t.Fatalf("mint %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	rec := do(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.1", "", true)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("mint past the budget: %d %s, want 429", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a 429 should say when to come back")
+	}
+}

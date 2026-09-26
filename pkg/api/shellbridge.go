@@ -19,6 +19,7 @@ import (
 	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/kexec"
+	project_ "shpyrd/pkg/project"
 )
 
 // The WebSocket half of the web terminal (RFC-0026). Binary frames carry
@@ -42,6 +43,25 @@ const shellPingInterval = 30 * time.Second
 // bounds what one client can make this single-replica server allocate.
 const shellReadLimit = 1 << 20
 
+// shellWriteWait bounds every write to the socket. Without it a client that
+// has stopped reading — a suspended laptop, a throttled background tab, a slow
+// link under a chatty process, or someone doing it on purpose — fills its
+// receive window and parks the exec stream's stdout copy inside Write while it
+// holds wsConn.mu. Everything else then queues behind that lock, the idle
+// reaper included, so the session can never be reaped: four goroutines, an
+// io.Pipe and an apiserver exec connection leak, and the user is locked out of
+// their own project's shell until the control plane restarts, told to close a
+// shell they have no way to close. Two seconds is far longer than a terminal
+// frame needs and short enough that a wedged peer is let go promptly.
+const shellWriteWait = 2 * time.Second
+
+// shellProbeTimeout bounds resolving the shell. The probe runs up to four
+// pods/exec calls before the idle timer is armed, so a pod on a NotReady node
+// or an apiserver that accepts and then stalls would otherwise leave the
+// browser at "Connecting to web.1…" forever with the one shell slot claimed
+// and nothing able to reclaim it.
+const shellProbeTimeout = 15 * time.Second
+
 // shellCandidates is the fallback order, the same as `shpyrd shell`
 // (internal/cli/shell.go). The launcher comes first so buildpack images get
 // their environment; the order is the contract between the two, not the code.
@@ -61,6 +81,13 @@ var errNoShell = errors.New("no usable shell in the image")
 type execStreamFunc func(ctx context.Context, namespace, pod, container string, command []string, stdin io.Reader, stdout io.Writer, sizes <-chan remotecommand.TerminalSize) error
 
 type probeShellFunc func(ctx context.Context, namespace, pod, container string) ([]string, error)
+
+// execRunFunc is the one-shot exec resolveShell probes with. It is a seam of
+// its own, below probeShellFunc: tests that replace probeShell skip the
+// candidate walk entirely, and that walk — which candidate wins, and which
+// errors abort rather than continue — is where this branch deliberately departs
+// from `shpyrd shell`.
+type execRunFunc func(ctx context.Context, namespace, pod, container string, command []string) (string, error)
 
 // shellControl is a text frame. Fields not relevant to a type stay unset.
 type shellControl struct {
@@ -82,12 +109,21 @@ func (s *Server) appShell(c *gin.Context) {
 		abort(c, http.StatusForbidden, errors.New("cross-origin WebSocket refused"))
 		return
 	}
+	slug := c.Param("slug")
+	// The same slug hygiene s.require applies everywhere else. This route has no
+	// middleware, so it repeats it: defence in depth, checked before the ticket
+	// is redeemed so a malformed path cannot even burn one. A bad slug cannot
+	// get past the ticket's project binding either, but the one route without a
+	// gate in front of it should not be the one route that trusts its input.
+	if !project_.ValidSlug(slug) || strings.HasPrefix(slug, "app-") {
+		abort(c, http.StatusNotFound, errors.New("project not found (paths take the project slug, not its namespace)"))
+		return
+	}
 	t, err := s.execTickets.redeem(c.Query("ticket"))
 	if err != nil {
 		abort(c, http.StatusForbidden, err)
 		return
 	}
-	slug := c.Param("slug")
 	if t.Project != slug || t.Instance != c.Query("instance") {
 		abort(c, http.StatusForbidden, errors.New("the ticket was issued for another project or instance"))
 		return
@@ -159,7 +195,7 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 
-	command, err := s.probeShell(ctx, namespace, pod, appContainer)
+	command, err := s.probe(ctx, namespace, pod)
 	if err != nil {
 		_ = w.control(shellControl{Type: "error", Message: err.Error()})
 		_ = w.close(websocket.CloseInternalServerErr, err.Error())
@@ -204,7 +240,19 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	// The reader always exits: it parks in either ReadMessage, which the
 	// handler's deferred conn.Close unblocks, or the stdin Write, which the
 	// deferred pr.Close above unblocks.
+	//
+	// closed says the client's side went away (tab closed, network gone), which
+	// cancels the session. Closing stdin is not enough on its own: a foreground
+	// process that ignores stdin and prints nothing — `sleep`, `tail -f`, a
+	// wedged process — would keep the exec stream, the pod's command and the
+	// user's one shell slot alive until the 30-minute reap, though the spec
+	// makes "sessions end cleanly on tab close" a goal.
+	closed := make(chan struct{})
 	go func() {
+		// Ordered so the exit path below can read closed the moment ctx is
+		// cancelled: close(closed) runs before cancel().
+		defer cancel()
+		defer close(closed)
 		defer pw.Close()
 		defer close(sizes)
 		for {
@@ -238,11 +286,18 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	// idled is closed before cancel so the exit path below can tell an idle
 	// reap from the request context going away under a server shutdown — the
 	// browser is told which one it was, and the trail should agree.
+	//
+	// The reaper writes nothing itself. Telling the browser why is a write, and a
+	// write waits for wsConn.mu, which a peer that has stopped reading can hold
+	// for a whole shellWriteWait: a reap that begins with a write is a reap that
+	// can be delayed by the very client it is trying to get rid of. So it only
+	// reaps, and the exit path below — which unblocks as soon as the cancelled
+	// stream returns — sends the explanation, in a guaranteed order ahead of the
+	// close frame rather than racing the handler's own teardown.
 	idled := make(chan struct{})
 	go func() {
 		select {
 		case <-idle.C:
-			_ = w.control(shellControl{Type: "error", Message: fmt.Sprintf("shell closed after %s idle", s.shellIdle)})
 			close(idled)
 			cancel()
 		case <-ctx.Done():
@@ -284,11 +339,20 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	// return on its way out. A stream that returns nil just as the idle timer
 	// reaps it must not be recorded as a clean exit the user chose.
 	case ctx.Err() != nil:
+		// Most specific reason first. An idle reap outranks a client close
+		// because the reap is what ended the session: closing the socket makes
+		// the browser's side go away a moment later, so both can be signalled
+		// and only the first one is the cause. The fall-through is the request
+		// context itself going away, which today means a server shutdown.
 		detail = "closed: server shutting down"
-		select {
-		case <-idled:
+		switch {
+		case signalled(idled):
 			detail = fmt.Sprintf("closed: idle for %s", s.shellIdle)
-		default:
+			// Why, before the close: a terminal that vanishes without a word
+			// reads as a bug to the person it happens to.
+			_ = w.control(shellControl{Type: "error", Message: fmt.Sprintf("shell closed after %s idle", s.shellIdle)})
+		case signalled(closed):
+			detail = "closed: the client disconnected"
 		}
 		_ = w.close(websocket.CloseNormalClosure, "closed")
 	case err == nil:
@@ -308,21 +372,72 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	s.audit(c, project, "shell.close", instance, detail)
 }
 
+// signalled reports whether ch has been closed, without waiting for it.
+func signalled(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// probe resolves the shell under a deadline. The work runs in its own
+// goroutine and the answer comes back over a buffered channel for two reasons:
+// the probe happens before the idle timer is armed, so nothing else can reclaim
+// the session while it hangs, and the handler must be able to give up on it
+// even if the exec call underneath were to ignore its context. The goroutine
+// then finishes into the buffer with nobody listening instead of leaking on a
+// send; with the real kexec.Run it returns as soon as the deadline cancels ctx.
+func (s *Server) probe(ctx context.Context, namespace, pod string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.shellProbe)
+	defer cancel()
+	type result struct {
+		command []string
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		command, err := s.probeShell(ctx, namespace, pod, appContainer)
+		done <- result{command, err}
+	}()
+	select {
+	case r := <-done:
+		return r.command, r.err
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// Named as a timeout: "no usable shell in the image" would blame the
+			// image for an instance that simply never answered.
+			return nil, fmt.Errorf("timed out after %s looking for a shell on the instance; it may be unreachable", s.shellProbe)
+		}
+		return nil, ctx.Err()
+	}
+}
+
 // streamExec is the real bridge: an exec stream with a TTY.
 func (s *Server) streamExec(ctx context.Context, namespace, pod, container string, command []string, stdin io.Reader, stdout io.Writer, sizes <-chan remotecommand.TerminalSize) error {
 	u := kexec.ExecURL(s.kube, namespace, pod, container, command, true)
-	// With a TTY there is one stream: stderr is folded into stdout.
-	return kexec.StreamIO(ctx, s.kube, u, true, stdin, stdout, stdout, sizes)
+	// With a TTY there is one stream: the pty folds stderr into stdout, and
+	// client-go ignores StreamOptions.Stderr entirely when Tty is set. So nil,
+	// rather than stdout a second time: passing a writer that can never be
+	// written to only suggests the terminal has two output paths.
+	return kexec.StreamIO(ctx, s.kube, u, true, stdin, stdout, nil, sizes)
 }
 
 // resolveShell reports the first candidate the image has. Each probe is a
 // throwaway non-TTY exec that exits at once, so a missing shell never writes
 // anything into the terminal the user is about to see.
+//
+// Only a "not found" failure moves on to the next candidate. Anything else —
+// pods/exec forbidden, the apiserver unreachable, the pod gone — aborts: the
+// image's shells are not in question then, and walking the remaining candidates
+// would turn one honest error into "no usable shell in the image", which sends
+// the user looking at the wrong thing.
 func (s *Server) resolveShell(ctx context.Context, namespace, pod, container string) ([]string, error) {
 	var lastErr error
 	for _, cand := range shellCandidates {
 		probe := append(append([]string{}, cand...), "-c", "exit 0")
-		if _, err := kexec.Run(ctx, s.kube, namespace, pod, container, probe); err == nil {
+		if _, err := s.execRun(ctx, namespace, pod, container, probe); err == nil {
 			return cand, nil
 		} else if !kexec.IsNotFound(err) {
 			return nil, err
@@ -333,11 +448,21 @@ func (s *Server) resolveShell(ctx context.Context, namespace, pod, container str
 	return nil, fmt.Errorf("%w: %v", errNoShell, lastErr)
 }
 
-// sameOrigin reports whether a handshake came from this dashboard. Browsers
-// always send Origin on a WebSocket handshake and scripts cannot forge it,
-// which is what makes this the defence against cross-site WebSocket
-// hijacking; a client that sends none is not a browser and cannot be a
-// cross-site victim.
+// runKexec is the real probe behind execRun: one throwaway non-TTY exec.
+func (s *Server) runKexec(ctx context.Context, namespace, pod, container string, command []string) (string, error) {
+	return kexec.Run(ctx, s.kube, namespace, pod, container, command)
+}
+
+// sameOrigin reports whether the handshake's Origin names this server's own
+// host — host only: not the scheme, not the port, and not "this dashboard",
+// since the engine answers on every host that reaches it. That is enough here
+// because the ticket is the entire credential and no cookie is involved, so
+// there is no ambient authority for another page on a sibling host to borrow;
+// the check exists to stop the conventional cross-site WebSocket hijack, where
+// a page elsewhere dials this socket with the victim's ambient credentials.
+// Browsers always send Origin on a WebSocket handshake and scripts cannot forge
+// it; a client that sends none is not a browser and cannot be a cross-site
+// victim.
 func sameOrigin(r *http.Request) bool {
 	o := r.Header.Get("Origin")
 	if o == "" {
@@ -352,6 +477,11 @@ func sameOrigin(r *http.Request) bool {
 
 // wsConn serialises writes: gorilla allows only one writer at a time, and
 // here the pod's output, the control frames and the idle timer all write.
+//
+// Every write takes a deadline (shellWriteWait). The mutex is what makes that
+// mandatory rather than merely tidy: a peer that stops reading would otherwise
+// park one writer inside Write forever with the lock held, and a lock nobody
+// can take is how a session becomes unreapable and its slot unrecoverable.
 type wsConn struct {
 	mu sync.Mutex
 	c  *websocket.Conn
@@ -363,6 +493,7 @@ type wsConn struct {
 func (w *wsConn) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	_ = w.c.SetWriteDeadline(time.Now().Add(shellWriteWait))
 	if err := w.c.WriteMessage(websocket.BinaryMessage, p); err != nil {
 		return 0, err
 	}
@@ -376,6 +507,7 @@ func (w *wsConn) control(v shellControl) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	_ = w.c.SetWriteDeadline(time.Now().Add(shellWriteWait))
 	return w.c.WriteMessage(websocket.TextMessage, b)
 }
 
@@ -385,7 +517,9 @@ func (w *wsConn) control(v shellControl) error {
 func (w *wsConn) ping() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.c.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
+	deadline := time.Now().Add(shellWriteWait)
+	_ = w.c.SetWriteDeadline(deadline)
+	return w.c.WriteControl(websocket.PingMessage, nil, deadline)
 }
 
 func (w *wsConn) close(code int, reason string) error {
@@ -394,6 +528,8 @@ func (w *wsConn) close(code int, reason string) error {
 	if len(reason) > 120 {
 		reason = reason[:120] // a close reason is capped at 125 bytes
 	}
+	deadline := time.Now().Add(shellWriteWait)
+	_ = w.c.SetWriteDeadline(deadline)
 	return w.c.WriteControl(websocket.CloseMessage,
-		websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+		websocket.FormatCloseMessage(code, reason), deadline)
 }

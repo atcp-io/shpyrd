@@ -31,6 +31,18 @@ type execTicket struct {
 	expires  time.Time
 }
 
+// maxOpenTickets caps unredeemed tickets. Without a cap the store grows for a
+// whole TTL window at whatever rate tickets are minted, and since every mint
+// sweeps the map the cost of filling it is quadratic. The number is deliberately
+// far above any real load: with the per-actor mint limit (shellMintsPerMinute) a
+// person can leave at most ten tickets outstanding inside the 30-second window,
+// so this is a backstop for many actors at once, not a limit anyone should meet.
+const maxOpenTickets = 256
+
+// errTicketsFull is what a full store returns; the handler turns it into a 503
+// rather than a fault, since the store drains itself within a TTL.
+var errTicketsFull = errors.New("too many shell tickets are outstanding; try again in a moment")
+
 // ticketStore holds unredeemed tickets. In memory is enough: they live for
 // 30 seconds and the server runs a single replica
 // (deploy/components/shpyrd/base/server.yaml).
@@ -38,11 +50,12 @@ type ticketStore struct {
 	mu  sync.Mutex
 	m   map[string]execTicket // keyed by the code's hash
 	ttl time.Duration
+	max int
 	now func() time.Time
 }
 
 func newTicketStore(ttl time.Duration) *ticketStore {
-	return &ticketStore{m: map[string]execTicket{}, ttl: ttl, now: time.Now}
+	return &ticketStore{m: map[string]execTicket{}, ttl: ttl, max: maxOpenTickets, now: time.Now}
 }
 
 // mint stores t and returns the code to put in the WebSocket's query. Only
@@ -57,6 +70,9 @@ func (st *ticketStore) mint(t execTicket) (string, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.sweepLocked()
+	if len(st.m) >= st.max {
+		return "", errTicketsFull
+	}
 	t.expires = st.now().Add(st.ttl)
 	st.m[hashCode(code)] = t
 	return code, nil

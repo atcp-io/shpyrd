@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -84,5 +85,53 @@ func TestActorKeyDistinguishesProviders(t *testing.T) {
 	b := actorKey(ext.Identity{Subject: "u1", Provider: "github"})
 	if a == b {
 		t.Error("the same subject from two providers is two different people")
+	}
+}
+
+func TestExecTicketStoreIsCapped(t *testing.T) {
+	// Unredeemed tickets accumulate for a whole TTL window, and every mint
+	// sweeps the map, so an uncapped store grows at quadratic cost under a
+	// caller looping mint. The cap refuses clearly instead.
+	st := newTicketStore(execTicketTTL)
+	st.max = 3
+	var codes []string
+	for i := 0; i < st.max; i++ {
+		code, err := st.mint(execTicket{Project: "blog", Instance: "web.1"})
+		if err != nil {
+			t.Fatalf("mint %d: %v", i, err)
+		}
+		codes = append(codes, code)
+	}
+	if _, err := st.mint(execTicket{Project: "blog", Instance: "web.1"}); !errors.Is(err, errTicketsFull) {
+		t.Errorf("mint past the cap = %v, want errTicketsFull", err)
+	}
+	// Nothing is wedged: the cap counts outstanding tickets, so redeeming one
+	// makes room, and the ones already minted still work.
+	if _, err := st.redeem(codes[0]); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	if _, err := st.mint(execTicket{Project: "blog", Instance: "web.1"}); err != nil {
+		t.Errorf("mint after a redemption: %v", err)
+	}
+}
+
+func TestExecTicketStoreRecoversWhenTicketsExpire(t *testing.T) {
+	// The other way out of a full store is time: tickets live 30 seconds and the
+	// sweep on each mint drops them, so a burst cannot lock the feature out.
+	st := newTicketStore(execTicketTTL)
+	st.max = 2
+	now := time.Now()
+	st.now = func() time.Time { return now }
+	for i := 0; i < st.max; i++ {
+		if _, err := st.mint(execTicket{Project: "blog", Instance: "web.1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.mint(execTicket{Project: "blog", Instance: "web.1"}); !errors.Is(err, errTicketsFull) {
+		t.Fatalf("mint past the cap = %v, want errTicketsFull", err)
+	}
+	now = now.Add(execTicketTTL + time.Second)
+	if _, err := st.mint(execTicket{Project: "blog", Instance: "web.1"}); err != nil {
+		t.Errorf("mint once the outstanding tickets expired: %v", err)
 	}
 }
