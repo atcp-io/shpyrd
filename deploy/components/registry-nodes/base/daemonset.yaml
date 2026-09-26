@@ -72,7 +72,7 @@ spec:
           command: ["sh", "/scripts/trust.sh"]
           env:
             - name: REGISTRY_HOST
-              value: ${SHPYRD_REGISTRY_HOST}
+              value: "${SHPYRD_REGISTRY_HOST}"
           securityContext:
             runAsUser: 0
             allowPrivilegeEscalation: false

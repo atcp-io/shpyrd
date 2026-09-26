@@ -36,25 +36,25 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: SHPYRD_DOMAIN
-              value: ${SHPYRD_DOMAIN}
+              value: "${SHPYRD_DOMAIN}"
             - name: SHPYRD_REGISTRY_HOST
-              value: ${SHPYRD_REGISTRY_HOST}
+              value: "${SHPYRD_REGISTRY_HOST}"
             - name: SHPYRD_VERSION
-              value: ${SHPYRD_VERSION}
+              value: "${SHPYRD_VERSION}"
             # The port public URLs carry: 443 behind a front door even when
             # kind itself listens on a high port (RFC-0057).
             - name: SHPYRD_HTTPS_PORT
               value: "${SHPYRD_URL_PORT}"
             - name: SHPYRD_DASHBOARD_URL
-              value: ${SHPYRD_DASHBOARD_URL}
+              value: "${SHPYRD_DASHBOARD_URL}"
             - name: SHPYRD_AUTH_URL
-              value: ${SHPYRD_AUTH_URL}
+              value: "${SHPYRD_AUTH_URL}"
             - name: SHPYRD_EXTENSIONS
               value: "${SHPYRD_EXTENSIONS}"
             - name: SHPYRD_POD_CIDR
               value: "${SHPYRD_POD_CIDR}"
             - name: SHPYRD_CLUSTER_ISSUER
-              value: ${SHPYRD_CLUSTER_ISSUER}
+              value: "${SHPYRD_CLUSTER_ISSUER}"
             # Private registries (RFC-0035): builds push and instances pull
             # with this Secret, mirrored into every project namespace.
             - name: SHPYRD_REGISTRY_SECRET
