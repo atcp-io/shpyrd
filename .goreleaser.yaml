@@ -85,7 +85,8 @@ release:
 
 homebrew_casks:
   - name: shpyrd
-    ids: [shpyrd]
+    ids: [shpyrd, shpyrd-ctl]
+    binaries: [shpyrd, shpyrd-ctl]
     repository:
       owner: shpyrd-io
       name: homebrew-tap
