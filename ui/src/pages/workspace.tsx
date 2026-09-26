@@ -132,8 +132,8 @@ function WorkspaceCard({ readOnly }: { readOnly: boolean }) {
         <CardTitle>Workspace</CardTitle>
         <CardDescription>
           Every project, team and person on this platform belongs to this
-          workspace. The open-source platform has one; the hosted platform runs
-          many, each with its own address, people and login methods.
+          workspace: its name here, the people who signed in, the teams projects
+          grant roles to.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
