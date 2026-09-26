@@ -76,7 +76,7 @@ runlevels:
   - name: rc0
     components: [monitoring-crds]
   - name: rc1
-    components: [cert-manager, registry-credentials]
+    components: [cert-manager, registry-credentials, platform-service]
   - name: rc2
     components: [ca-issuers, trust-manager, ingress-nginx, registry, registry-nodes]
   - name: rc3

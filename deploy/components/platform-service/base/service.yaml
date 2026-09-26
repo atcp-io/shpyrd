@@ -1,0 +1,20 @@
+# The server's Service lives in its own early component: ingress-nginx
+# refuses to start unless its --default-backend-service exists, and the
+# server itself is installed last (rc4). Endpoints appear when the server
+# runs; until then nginx answers 503 for what it would send here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: shpyrd-server
+  labels:
+    app.kubernetes.io/name: shpyrd-server
+spec:
+  selector:
+    app.kubernetes.io/name: shpyrd-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: webhook
+      port: 9443
+      targetPort: webhook

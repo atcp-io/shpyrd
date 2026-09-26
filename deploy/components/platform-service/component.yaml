@@ -1,0 +1,6 @@
+name: platform-service
+description: "The platform server's Service, created before the ingress controllers so they can name it as their default backend (the edge's pages, RFC-0033)"
+namespace: shpyrd-system
+kustomize:
+  path: base
+timeout: 1m

@@ -193,20 +193,3 @@ spec:
         - name: shpyrd-ca
           configMap:
             name: shpyrd-ca-bundle
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: shpyrd-server
-  labels:
-    app.kubernetes.io/name: shpyrd-server
-spec:
-  selector:
-    app.kubernetes.io/name: shpyrd-server
-  ports:
-    - name: http
-      port: 80
-      targetPort: http
-    - name: webhook
-      port: 9443
-      targetPort: webhook

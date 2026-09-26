@@ -90,7 +90,7 @@ runlevels:
   - name: rc0
     components: [monitoring-crds]
   - name: rc1
-    components: [aws-load-balancer-controller, cert-manager, registry-credentials, snapshot-controller, storage-gp3, storage-efs]
+    components: [aws-load-balancer-controller, cert-manager, registry-credentials, platform-service, snapshot-controller, storage-gp3, storage-efs]
   - name: rc2
     components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, ingress-nginx-internal, registry, registry-nodes, external-dns]
   - name: rc3
