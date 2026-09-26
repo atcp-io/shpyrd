@@ -127,14 +127,15 @@ jobs:
           curl -fsk --max-time 10 -H "Authorization: Bearer $TOKEN" "https://api.127.0.0.1.nip.io:8443/" >/tmp/api.html
           head -c 300 /tmp/api.html; echo
           grep -q '"service"' /tmp/api.html
-          curl -fsk --max-time 10 "https://shpyrd.127.0.0.1.nip.io:8443/.well-known/jwks.json" | grep -q Ed25519
+          curl -fsk --max-time 10 "https://shpyrd.127.0.0.1.nip.io:8443/.well-known/jwks.json" >/tmp/jwks.json
+          grep -q Ed25519 /tmp/jwks.json
           ./bin/shpyrd access --project api --context kind-ci
           ./bin/shpyrd access set public --project api --context kind-ci
           for i in $(seq 1 30); do
-            if curl -fsk --max-time 5 "https://api.127.0.0.1.nip.io:8443/" >/dev/null; then break; fi
+            if curl -fsk --max-time 5 "https://api.127.0.0.1.nip.io:8443/" >/tmp/api-public.html; then break; fi
             sleep 5
           done
-          curl -fsk --max-time 10 "https://api.127.0.0.1.nip.io:8443/" | grep -q '"service"'
+          grep -q '"service"' /tmp/api-public.html
       - name: Scale, logs, volumes, roles
         run: |
           set -euo pipefail
