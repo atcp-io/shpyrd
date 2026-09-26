@@ -138,9 +138,53 @@ text above promises but the platform does not do yet is listed here.
   bridge can select on, and an audit write that outlives the request context, since
   `pkg/api/audit.go` records through `c.Request.Context()`.
 
+- **Unreliable:** `shell.close` can go unrecorded when the client disconnects, for the same
+  reason. The audit write goes through `c.Request.Context()`, and a client going away is
+  precisely what cancels that context, so the write races the cancellation it is trying to
+  describe. Observed both ways on the dev cluster: one disconnect recorded
+  `closed: the client disconnected`, while a later session ended with nothing written at
+  all. Until the audit write takes a context that outlives the request, "every session
+  audited" holds for sessions that end in an exit status and is best-effort for those that
+  end by disconnect.
+
+- **Unverified:** that the two-second write deadline promptly drops a client which has
+  stopped reading. The unit test proves the slot is always released, but it runs with a
+  100 ms idle timeout, so it cannot distinguish the deadline from the reaper; and the deadline
+  could not be isolated on the dev cluster either, because `kubectl port-forward` sits in
+  the data path and absorbs the back-pressure the deadline exists to detect. What is
+  certain is the weaker guarantee: the idle reaper performs no socket writes, so it cannot
+  queue behind a blocked writer, and the slot is therefore freed within the idle timeout
+  rather than held until the control plane restarts. Whether the deadline shortens that
+  from 30 minutes to seconds needs a client reaching the server directly, through the
+  ingress rather than a port-forward.
+
+- **Not implemented:** `TERM` is never set for the session, so bash reports `dumb` and
+  most programs suppress colour while full-screen ones (`vim`, `top`, `less`) refuse or
+  complain. The Kubernetes exec API carries no environment, so setting it means running the
+  chosen shell through `env TERM=…`, which needs `env(1)` to be probed for rather than
+  assumed. `shpyrd shell` has the same gap; deliberately left alone for now.
+
 ## Implementation History
 
 - 2026-09-22: RFC written.
 - 2026-09-26: picked up. Settled while designing: an instances endpoint, since the selector
   had no source of instance names; the shell resolved by one probe instead of the CLI's
   retry loop; and an `Origin` check alongside the ticket.
+- 2026-09-26: implemented and reviewed. Corrections the reviews forced, worth recording
+  because each was wrong in the plan rather than in the code: the instance selector excluded
+  run pods with a `!=` label selector, which also matches pods carrying no process label at
+  all and so offered a shell into BuildKit build pods, which run with unconfined seccomp and
+  AppArmor; instance names were computed after filtering by phase, so a rolling restart could
+  show the same pod under two different names in the Logs and Shell tabs; the terminal-size
+  channel was closed while its only sender could still send, which panics in a bare goroutine
+  that gin's `Recovery` does not catch and would have taken the server down; the socket had no
+  inbound read limit, so one frame could grow a buffer until a single-replica control plane
+  died; and every socket write was unbounded, so a client that stopped reading held the only
+  writer and with it the reap that frees the user's slot.
+  Verified against the kind dev cluster over a port-forward, with a project whose image has
+  no CNB launcher so the probe had to fall through: the listing, the ticket lifecycle
+  (404, 400, 409, replay, foreign `Origin`), a real `bash` in a real pod, `stty size`
+  reporting the size a resize frame asked for, invalid UTF-8 arriving unmangled, `exit 3`
+  propagating, the slot releasing, and `shell.open`/`shell.close` reaching the trail. The
+  browser-only checks — xterm rendering, the CSP console, Strict Mode's double mount — and
+  the items under Implementation status above are outstanding.
