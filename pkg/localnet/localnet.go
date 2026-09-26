@@ -7,6 +7,7 @@ package localnet
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -34,10 +36,20 @@ func PortFree(port int) bool {
 	}
 	l, err := net.Listen("tcp4", "0.0.0.0:"+strconv.Itoa(port))
 	if err != nil {
-		return false
+		// Nothing answered the dial above, so a refusal to bind a
+		// privileged port is this process lacking the privilege, not a
+		// conflict: kind maps host ports through the Docker daemon, which
+		// binds them as root.
+		return bindDenied(err)
 	}
 	_ = l.Close()
 	return true
+}
+
+// bindDenied reports whether the error is the kernel refusing the port to
+// this user rather than something already holding it.
+func bindDenied(err error) bool {
+	return errors.Is(err, syscall.EACCES)
 }
 
 // BusyPorts returns the ports of the list that are in use.

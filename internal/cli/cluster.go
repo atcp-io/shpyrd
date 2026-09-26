@@ -494,23 +494,18 @@ resolves to this machine through dnsmasq.`,
 
 // checkPortsFree fails early when a host port kind needs is already bound,
 // which would otherwise surface as an opaque `docker run` exit status 125.
+// localnet.BusyPorts is the one definition of a free port, so this and the
+// front-door plan cannot disagree.
 func checkPortsFree(ports ...int) error {
-	var busy []string
-	for _, p := range ports {
-		if p == 0 {
-			continue
-		}
-		l, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
-		if err != nil {
-			busy = append(busy, strconv.Itoa(p))
-			continue
-		}
-		_ = l.Close()
+	busy := localnet.BusyPorts(ports...)
+	if len(busy) == 0 {
+		return nil
 	}
-	if len(busy) > 0 {
-		return fmt.Errorf("host port(s) %s already in use; stop the process using them or pass --http-port/--https-port (e.g. --http-port 8080 --https-port 8443)", strings.Join(busy, ", "))
+	list := make([]string, 0, len(busy))
+	for _, p := range busy {
+		list = append(list, strconv.Itoa(p))
 	}
-	return nil
+	return fmt.Errorf("host port(s) %s already in use; stop the process using them or pass --http-port/--https-port (e.g. --http-port 8080 --https-port 8443)", strings.Join(list, ", "))
 }
 
 func newClusterInitCmd(g *globalFlags) *cobra.Command {
