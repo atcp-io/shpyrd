@@ -131,10 +131,13 @@ jobs:
           grep -q Ed25519 /tmp/jwks.json
           ./bin/shpyrd access --project api --context kind-ci
           ./bin/shpyrd access set public --project api --context kind-ci
+          # The switch is a re-rendered Ingress: nginx keeps redirecting for a few seconds.
           for i in $(seq 1 30); do
-            if curl -fsk --max-time 5 "https://api.127.0.0.1.nip.io:8443/" >/tmp/api-public.html; then break; fi
+            code=$(curl -sk -o /tmp/api-public.html -w '%{http_code}' --max-time 5 "https://api.127.0.0.1.nip.io:8443/" || true)
+            [ "$code" = "200" ] && break
             sleep 5
           done
+          echo "public api: $code"; [ "$code" = "200" ]
           grep -q '"service"' /tmp/api-public.html
       - name: Scale, logs, volumes, roles
         run: |
