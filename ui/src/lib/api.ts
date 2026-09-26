@@ -52,6 +52,21 @@ export type WorkspaceInfo = {
   /** Where this workspace's dashboard answers. */
   url?: string;
   status?: "active" | "suspended";
+  /** The workspace's plan (ceilings) and what it uses today; absent without a plan. */
+  limits?: {
+    projects?: number;
+    instances?: number;
+    cpu?: string;
+    memory?: string;
+    storage?: string;
+  };
+  usage?: {
+    projects: number;
+    instances: number;
+    cpu: string;
+    memory: string;
+    storage: string;
+  };
   joinPolicy: "open" | "company" | "listed";
   createdAt: string;
   updatedAt: string;

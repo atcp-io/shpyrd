@@ -116,8 +116,16 @@ Shipped in v0.9.2 — sign-in at a workspace's own host:
   to the operator and do not answer at a workspace's host.
 - Explicit workspaces are enforced from birth: no bootstrap mode for them.
 
-The rest of the model (quotas per plan, OAuth for agents) follows in later releases; the
-full text is published when it settles.
+Shipped in v0.9.3 — plan limits:
+
+- A workspace may carry ceilings (projects, instances, CPU, memory, storage). The API
+  refuses what would exceed them with the number ("this would run 4 instances; the plan
+  allows 3"), and the controller backs the check with a `ResourceQuota` per project
+  namespace. The Workspace page shows the plan and the usage. Self-hosted installs have no
+  ceilings unless one is set.
+
+The rest of the model (OAuth for agents) follows in later releases; the full text is
+published when it settles.
 
 ## Implementation History
 
@@ -130,4 +138,5 @@ full text is published when it settles.
   the `everyone` team, suspension) shipped in v0.6.0.
 - 2026-09-26: phase 5 (allow lists) shipped in v0.7.0; phase 4 (CLIs) in v0.8.0; phase 6's
   first slice (the workspace resolved from the host) in v0.9.1, its second (sign-in at the
-  workspace host through the platform's dashboard) in v0.9.2.
+  workspace host through the platform's dashboard) in v0.9.2, its third (plan limits) in
+  v0.9.3.

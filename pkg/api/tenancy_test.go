@@ -48,10 +48,10 @@ func newTenantServer(t *testing.T) (*Server, client.Client, store.Store) {
 	defaultShop := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: "app-shop"}, Status: shpyrdv1.AppStatus{URL: "https://shop.example.test"}}
 	acmeShop := &shpyrdv1.App{
 		ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: "app-acme-shop", Labels: project.NamespaceLabels("acme", "shop")},
-		Spec:       shpyrdv1.AppSpec{Access: shpyrdv1.AccessAuthenticated},
+		Spec:       shpyrdv1.AppSpec{Access: shpyrdv1.AccessAuthenticated, Image: "ghcr.io/acme/shop:1"},
 		Status:     shpyrdv1.AppStatus{URL: "https://shop.acme.shpyrd.test"},
 	}
-	acmeOnly := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "wiki", Namespace: "app-acme-wiki", Labels: project.NamespaceLabels("acme", "wiki")}}
+	acmeOnly := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "wiki", Namespace: "app-acme-wiki", Labels: project.NamespaceLabels("acme", "wiki")}, Spec: shpyrdv1.AppSpec{Image: "ghcr.io/acme/wiki:1"}}
 	cr := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultShop, acmeShop, acmeOnly).WithStatusSubresource(&shpyrdv1.App{}).Build()
 	k := &kube.Client{Kube: kubefake.NewSimpleClientset(), Namespace: "shpyrd-system"}
 	public := PublicConfig{Domain: "example.test", DashboardURL: "https://shpyrd.example.test"}
@@ -365,5 +365,55 @@ func TestConsoleHandoff(t *testing.T) {
 	// A suspended workspace cannot be signed into at all.
 	if rec := get("shpyrd.example.test", "/api/auth/login?provider=test&workspace=closed"); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "suspended") {
 		t.Errorf("login for a suspended workspace = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestPlanLimits: a workspace with a plan is refused what would exceed it,
+// with the number; the implicit workspace, without a plan, is not.
+func TestPlanLimits(t *testing.T) {
+	s, _, st := newTenantServer(t)
+	ctx := context.Background()
+	// acme: at most 2 projects, 3 instances, 2 CPU, 10Gi of storage.
+	if _, err := st.UpdateWorkspaceSettings(ctx, "acme", store.WorkspaceSettings{Limits: &store.Limits{Projects: 2, Instances: 3, CPU: "2", Storage: "10Gi"}}); err != nil {
+		t.Fatal(err)
+	}
+	// acme already has shop and wiki: a third project is one too many.
+	rec := at(t, s, "acme.shpyrd.test", "POST", "/api/projects", `{"name":"third"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "allows 2 projects") {
+		t.Errorf("third project = %d %s", rec.Code, rec.Body.String())
+	}
+	// Scaling shop's web to 2 instances is fine (shop 2 + wiki 1 = 3)...
+	if rec := at(t, s, "acme.shpyrd.test", "POST", "/api/projects/shop/scale", `{"process":"web","replicas":2}`); rec.Code != http.StatusOK {
+		t.Errorf("scale to 2 = %d %s", rec.Code, rec.Body.String())
+	}
+	// ...to 3 is one instance over the plan.
+	rec = at(t, s, "acme.shpyrd.test", "POST", "/api/projects/shop/scale", `{"process":"web","replicas":3}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "run 4 instances; the plan allows 3") {
+		t.Errorf("scale to 3 = %d %s", rec.Code, rec.Body.String())
+	}
+	// CPU: shop at shared-xl (2 CPU × 2 instances) + wiki's shared-s (0.5)
+	// = 4.5 > 2.
+	rec = at(t, s, "acme.shpyrd.test", "POST", "/api/projects/shop/resize", `{"process":"web","size":"shared-xl"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "CPU; the plan allows 2") {
+		t.Errorf("resize over CPU = %d %s", rec.Code, rec.Body.String())
+	}
+	// Storage: a 20Gi volume exceeds 10Gi.
+	rec = at(t, s, "acme.shpyrd.test", "POST", "/api/projects/shop/volumes", `{"name":"data","size":"20Gi"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "storage; the plan allows 10Gi") {
+		t.Errorf("volume over storage = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := at(t, s, "acme.shpyrd.test", "POST", "/api/projects/shop/volumes", `{"name":"data","size":"5Gi"}`); rec.Code != http.StatusCreated {
+		t.Errorf("volume within storage = %d %s", rec.Code, rec.Body.String())
+	}
+	// The workspace view shows the plan and the usage.
+	var view WorkspaceView
+	rec = at(t, s, "acme.shpyrd.test", "GET", "/api/workspace", "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &view)
+	if view.Limits == nil || view.Limits.Instances != 3 || view.Usage == nil || view.Usage.Instances != 3 || view.Usage.Projects != 2 || view.Usage.Storage != "5Gi" {
+		t.Errorf("view = limits %+v usage %+v", view.Limits, view.Usage)
+	}
+	// No plan, no ceiling: the implicit workspace scales freely.
+	if rec := at(t, s, "shpyrd.example.test", "POST", "/api/projects/shop/scale", `{"process":"web","replicas":50}`); rec.Code != http.StatusOK {
+		t.Errorf("implicit scale = %d %s", rec.Code, rec.Body.String())
 	}
 }

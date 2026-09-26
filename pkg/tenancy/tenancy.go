@@ -186,27 +186,27 @@ func oneLabelUnder(host, domain string) bool {
 	return ok && label != "" && !strings.Contains(label, ".")
 }
 
-// Addresses answers a workspace's address by slug with a short cache, for
-// controllers that build hosts on every reconcile and have no request
+// Addresses answers workspaces by slug with a short cache, for controllers
+// that build hosts and quotas on every reconcile and have no request
 // context to speak of.
 type Addresses struct {
 	Store store.Store
 	TTL   time.Duration
 
 	mu    sync.Mutex
-	cache map[string]addrEntry
+	cache map[string]wsEntry
 }
 
-type addrEntry struct {
-	address string
+type wsEntry struct {
+	ws      *store.Workspace // nil: unknown slug
 	expires time.Time
 }
 
-// Address is the address of a workspace, "" for the implicit one or an
-// unknown slug. Safe for concurrent use.
-func (a *Addresses) Address(slug string) string {
-	if slug == "" || slug == store.DefaultWorkspace {
-		return ""
+// Workspace is the workspace of a slug, nil for an unknown one or when the
+// store is unreachable. Safe for concurrent use.
+func (a *Addresses) Workspace(slug string) *store.Workspace {
+	if slug == "" {
+		slug = store.DefaultWorkspace
 	}
 	ttl := a.TTL
 	if ttl <= 0 {
@@ -216,23 +216,40 @@ func (a *Addresses) Address(slug string) string {
 	a.mu.Lock()
 	if e, ok := a.cache[slug]; ok && now.Before(e.expires) {
 		a.mu.Unlock()
-		return e.address
+		return e.ws
 	}
 	a.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	address := ""
 	ws, err := a.Store.Workspace(ctx, slug)
-	if err == nil {
-		address = ws.Address
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return "" // store trouble: fall back to the platform domain, do not cache
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil // store trouble: not cached
 	}
 	a.mu.Lock()
 	if a.cache == nil {
-		a.cache = map[string]addrEntry{}
+		a.cache = map[string]wsEntry{}
 	}
-	a.cache[slug] = addrEntry{address: address, expires: now.Add(ttl)}
+	a.cache[slug] = wsEntry{ws: ws, expires: now.Add(ttl)}
 	a.mu.Unlock()
-	return address
+	return ws
+}
+
+// Address is the address of a workspace, "" for the implicit one or an
+// unknown slug.
+func (a *Addresses) Address(slug string) string {
+	if slug == "" || slug == store.DefaultWorkspace {
+		return ""
+	}
+	if ws := a.Workspace(slug); ws != nil {
+		return ws.Address
+	}
+	return ""
+}
+
+// Limits is the plan of a workspace, nil when it has none.
+func (a *Addresses) Limits(slug string) *store.Limits {
+	if ws := a.Workspace(slug); ws != nil {
+		return ws.Settings.Limits
+	}
+	return nil
 }

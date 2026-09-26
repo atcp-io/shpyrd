@@ -54,6 +54,21 @@ const (
 // WorkspaceSettings are the knobs of the workspace.
 type WorkspaceSettings struct {
 	JoinPolicy string `json:"joinPolicy,omitempty"` // JoinOpen when empty
+	// Limits is the workspace's plan (RFC-0033, RFC-0042): ceilings the
+	// API checks before changing anything and the controller backs with a
+	// ResourceQuota per project namespace. Nil means no ceiling, the
+	// open-source default.
+	Limits *Limits `json:"limits,omitempty"`
+}
+
+// Limits are the ceilings of a workspace plan. Zero values mean no ceiling
+// on that axis. Quantities use Kubernetes notation ("4", "8Gi", "50Gi").
+type Limits struct {
+	Projects  int    `json:"projects,omitempty"`
+	Instances int    `json:"instances,omitempty"`
+	CPU       string `json:"cpu,omitempty"`
+	Memory    string `json:"memory,omitempty"`
+	Storage   string `json:"storage,omitempty"`
 }
 
 // APIToken is a scoped, named credential (RFC-0031): shp_<id>_<random>.

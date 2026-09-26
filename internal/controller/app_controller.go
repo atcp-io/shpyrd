@@ -281,6 +281,9 @@ func (r *AppReconciler) reconcile(ctx context.Context, app *shpyrdv1.App) (outco
 	if err := r.reconcileIsolation(ctx, app); err != nil {
 		return outcome{}, err
 	}
+	if err := r.reconcileQuota(ctx, app); err != nil {
+		return outcome{}, err
+	}
 
 	// 2. Image: pinned, or built from the source (kpack Image for
 	// buildpacks, BuildKit Job for Dockerfiles).

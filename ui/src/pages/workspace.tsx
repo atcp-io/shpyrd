@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Building2, Trash2 } from "lucide-react";
 
-import { api, type Person } from "@/lib/api";
+import { api, type Person, type WorkspaceInfo } from "@/lib/api";
 import { ago } from "@/lib/format";
 import { usePerms } from "@/lib/me";
 import { Button } from "@/components/ui/button";
@@ -105,8 +105,9 @@ export function WorkspacePage() {
             <TabsTrigger value="tokens">API tokens</TabsTrigger>
           )}
         </TabsList>
-        <TabsContent value="overview" className="mt-4">
+        <TabsContent value="overview" className="mt-4 grid gap-6">
           <WorkspaceCard readOnly={!perms.clusterAdmin} />
+          {ws.data?.limits && <PlanCard ws={ws.data} />}
         </TabsContent>
         <TabsContent value="people" className="mt-4">
           <PeopleCard />
@@ -336,6 +337,61 @@ function PeopleCard() {
             </TableBody>
           </Table>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The workspace's plan: what it may use and what it uses (RFC-0033). */
+function PlanCard({ ws }: { ws: WorkspaceInfo }) {
+  const rows: {
+    label: string;
+    used: string | number;
+    limit?: string | number;
+  }[] = [
+    {
+      label: "Projects",
+      used: ws.usage?.projects ?? 0,
+      limit: ws.limits?.projects,
+    },
+    {
+      label: "Instances",
+      used: ws.usage?.instances ?? 0,
+      limit: ws.limits?.instances,
+    },
+    { label: "CPU", used: ws.usage?.cpu ?? "0", limit: ws.limits?.cpu },
+    {
+      label: "Memory",
+      used: ws.usage?.memory ?? "0",
+      limit: ws.limits?.memory,
+    },
+    {
+      label: "Storage",
+      used: ws.usage?.storage ?? "0",
+      limit: ws.limits?.storage,
+    },
+  ].filter((r) => r.limit !== undefined && r.limit !== "" && r.limit !== 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Plan</CardTitle>
+        <CardDescription>
+          What this workspace may use across all its projects. Changes that
+          would go over are refused with the number.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid gap-3 sm:grid-cols-5">
+          {rows.map((r) => (
+            <div key={r.label}>
+              <dt className="text-xs text-muted-foreground">{r.label}</dt>
+              <dd className="text-sm font-medium">
+                {r.used}{" "}
+                <span className="text-muted-foreground">/ {r.limit}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
       </CardContent>
     </Card>
   );

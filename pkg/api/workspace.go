@@ -36,6 +36,10 @@ type WorkspaceView struct {
 	// URL is where this workspace's dashboard answers.
 	URL    string `json:"url"`
 	Status string `json:"status"`
+	// Limits is the workspace's plan (nil: no ceiling) and Usage what it
+	// uses today, in the plan's terms.
+	Limits *store.Limits `json:"limits,omitempty"`
+	Usage  *Usage        `json:"usage,omitempty"`
 	// JoinPolicy says who becomes a person on first sign-in: open,
 	// company (through a claimed domain's method) or listed (already named
 	// in a team or a grant).
@@ -78,7 +82,12 @@ func (s *Server) getWorkspace(c *gin.Context) {
 		storeErr(c, err, "workspace")
 		return
 	}
-	c.JSON(http.StatusOK, s.workspaceView(w))
+	view := s.workspaceView(w)
+	if w.Settings.Limits != nil {
+		view.Limits = w.Settings.Limits
+		view.Usage = s.usageOf(c.Request.Context(), w.Slug)
+	}
+	c.JSON(http.StatusOK, view)
 }
 
 func (s *Server) updateWorkspace(c *gin.Context) {

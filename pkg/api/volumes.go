@@ -112,7 +112,7 @@ func (s *Server) createVolume(c *gin.Context) {
 		size, note = s.applyVolumeMinimum(size)
 	}
 	vol := &shpyrdv1.Volume{
-		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: s.projectNamespace(c), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
+		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: s.projectNamespace(c), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd", shpyrdv1.LabelWorkspace: s.workspace(c), shpyrdv1.LabelProject: c.Param("slug")}},
 		Spec:       shpyrdv1.VolumeSpec{Size: size, StorageClass: req.StorageClass, AccessMode: corev1.ReadWriteOnce, FromSnapshot: req.FromSnapshot},
 	}
 	if req.Shared {
@@ -125,6 +125,10 @@ func (s *Server) createVolume(c *gin.Context) {
 		}
 	}
 	if err := s.checkVolumeClass(c.Request.Context(), vol); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.checkPlanStorage(c.Request.Context(), s.workspace(c), vol.Spec.Size); err != nil {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
@@ -216,6 +220,12 @@ func (s *Server) resizeVolume(c *gin.Context) {
 		if rounded, note := s.applyVolumeMinimum(size); note != "" {
 			size = rounded
 		}
+	}
+	growth := size.DeepCopy()
+	growth.Sub(vol.Spec.Size)
+	if err := s.checkPlanStorage(c.Request.Context(), s.workspace(c), growth); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
 	}
 	vol.Spec.Size = size
 	if err := s.apps.Update(c.Request.Context(), vol); err != nil {

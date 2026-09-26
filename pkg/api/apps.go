@@ -321,6 +321,22 @@ func (s *Server) createApp(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+	if limits := s.planOf(ctx, ws.Slug); limits != nil && limits.Projects > 0 {
+		cat, err := s.catalog(ctx)
+		if err != nil {
+			abort(c, http.StatusBadGateway, err)
+			return
+		}
+		u, err := s.workspaceUsage(ctx, ws.Slug, cat, nil)
+		if err != nil {
+			abort(c, http.StatusBadGateway, err)
+			return
+		}
+		if u.projects+1 > limits.Projects {
+			abort(c, http.StatusBadRequest, fmt.Errorf("plan limit: the plan allows %d projects and the workspace has %d", limits.Projects, u.projects))
+			return
+		}
+	}
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   project.NamespaceIn(ws.Slug, slug),
 		Labels: project.NamespaceLabels(ws.Slug, slug),
@@ -724,6 +740,12 @@ func (s *Server) mutateApp(c *gin.Context, mutate func(*shpyrdv1.App) error) (*s
 				status = http.StatusConflict
 			}
 			abort(c, status, err)
+			return nil, err
+		}
+		// The workspace's plan (RFC-0033): checked on the App as it would
+		// be stored, whatever the change was.
+		if err := s.checkPlan(c.Request.Context(), s.workspace(c), app); err != nil {
+			abort(c, http.StatusBadRequest, err)
 			return nil, err
 		}
 		err := s.apps.Update(c.Request.Context(), app)

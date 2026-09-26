@@ -19,6 +19,7 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/project"
 	"shpyrd/pkg/sizes"
+	"shpyrd/pkg/store"
 )
 
 // Config carries cluster-level settings the controller needs.
@@ -30,6 +31,9 @@ type Config struct {
 	// live one label under (its address, RFC-0033 phase 6); "" when the
 	// workspace is unknown, which falls back to Domain. Nil: one workspace.
 	WorkspaceDomain func(slug string) string
+	// WorkspaceLimits answers a workspace's plan, nil when it has none; the
+	// controller backs it with a ResourceQuota per project namespace.
+	WorkspaceLimits func(slug string) *store.Limits
 	// HTTPSPort is the port users reach ingress on (443 unless kind maps another).
 	HTTPSPort string
 	// RegistryHost is where built images are pushed (host:port).

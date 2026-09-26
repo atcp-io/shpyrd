@@ -63,6 +63,11 @@ rules:
   - apiGroups: [autoscaling]
     resources: [horizontalpodautoscalers]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Plan ceilings of workspaces become a ResourceQuota per project
+  # namespace (RFC-0033, RFC-0042).
+  - apiGroups: [""]
+    resources: [resourcequotas]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [networking.k8s.io]
     resources: [ingresses, networkpolicies]
     verbs: [get, list, watch, create, update, patch, delete]

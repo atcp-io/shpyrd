@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,8 +26,18 @@ type SizesResponse struct {
 
 // loadCatalog reads the catalog ConfigMap, falling back to defaults.
 func (s *Server) loadCatalog(c *gin.Context) (*sizes.Catalog, *corev1.ConfigMap, error) {
+	return s.loadCatalogCtx(c.Request.Context())
+}
+
+// catalog is the size catalog for handlers without a gin context.
+func (s *Server) catalog(ctx context.Context) (*sizes.Catalog, error) {
+	cat, _, err := s.loadCatalogCtx(ctx)
+	return cat, err
+}
+
+func (s *Server) loadCatalogCtx(ctx context.Context) (*sizes.Catalog, *corev1.ConfigMap, error) {
 	cm := &corev1.ConfigMap{}
-	err := s.apps.Get(c.Request.Context(), types.NamespacedName{Namespace: s.kube.Namespace, Name: sizes.ConfigMapName}, cm)
+	err := s.apps.Get(ctx, types.NamespacedName{Namespace: s.kube.Namespace, Name: sizes.ConfigMapName}, cm)
 	if apierrors.IsNotFound(err) {
 		d := sizes.Defaults()
 		return &d, nil, nil
