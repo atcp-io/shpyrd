@@ -79,3 +79,7 @@ installclint:
 
 commitlint:
 	commitlint --from=HEAD~1
+
+## Build both CLI binaries
+cli-all: cli
+	go build -ldflags "-X shpyrd/pkg/version.Version=$(VERSION)" -o bin/shpyrd-ctl ./cmd/shpyrd-ctl

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/api"
 	"shpyrd/pkg/project"
 )
 
@@ -156,20 +158,23 @@ func newAppsListCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var list shpyrdv1.AppList
-			if err := ac.c.List(ctx, &list); err != nil {
+			raw, err := serverRequest(ctx, ac.k, "GET", "api/projects", nil, "")
+			if err != nil {
 				return err
 			}
-			sort.Slice(list.Items, func(i, j int) bool { return list.Items[i].Name < list.Items[j].Name })
+			var items []api.AppSummary
+			if err2 := json.Unmarshal(raw, &items); err2 != nil {
+				return fmt.Errorf("unexpected response: %s", truncate(string(raw), 200))
+			}
+			sort.Slice(items, func(i, j int) bool { return items[i].Slug < items[j].Slug })
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "PROJECT\tNAME\tPHASE\tRELEASE\tURL\tAGE")
-			for i := range list.Items {
-				a := &list.Items[i]
+			for _, a := range items {
 				rel := "-"
-				if r := a.CurrentRelease(); r != nil {
-					rel = fmt.Sprintf("v%d", r.Number)
+				if a.Release > 0 {
+					rel = fmt.Sprintf("v%d", a.Release)
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Name, project.DisplayName(a), firstNonEmpty(a.Status.Phase, "Pending"), rel, a.Status.URL, age(a.CreationTimestamp))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.DisplayName, firstNonEmpty(a.Phase, "Pending"), rel, a.URL, a.CreatedAt.Local().Format("Jan 2"))
 			}
 			return tw.Flush()
 		},

@@ -281,6 +281,22 @@ type appClient struct {
 }
 
 func newAppClient(g *globalFlags, out io.Writer) (*appClient, error) {
+	// When a login session or SHPYRD_TOKEN is available, skip the kubeconfig:
+	// serverRequest dials the workspace API directly. Commands that use ac.c
+	// (controller-runtime client) still need a kubeconfig; they will return
+	// an error explaining what is missing.
+	sessions := loadSessions()
+	hasSession := os.Getenv("SHPYRD_TOKEN") != ""
+	if !hasSession {
+		for _, sess := range sessions.Sessions {
+			if sess.Token != "" {
+				hasSession = true
+			}
+		}
+	}
+	if hasSession && g.kubeconfig == "" && g.kubeCtx == "" {
+		return &appClient{k: nil, c: nil, out: out}, nil
+	}
 	k, err := kube.Connect(kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx})
 	if err != nil {
 		return nil, err

@@ -21,10 +21,21 @@ builds:
     ldflags:
       - -s -w -X shpyrd/pkg/version.Version={{ .Tag }}
     mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: shpyrd-ctl
+    main: ./cmd/shpyrd-ctl
+    binary: shpyrd-ctl
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X shpyrd/pkg/version.Version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: shpyrd
-    ids: [shpyrd]
+    ids: [shpyrd, shpyrd-ctl]
     formats: [tar.gz]
     name_template: "shpyrd_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -82,7 +93,7 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Casks
     homepage: https://shpyrd.io
-    description: "Open-source Cloud PaaS on Kubernetes: deploy, run and observe applications and agents from one place"
+    description: "Open-source Cloud PaaS on Kubernetes: deploy, run and observe applications and agents from one place. Includes shpyrd (developer CLI) and shpyrd-ctl (operator CLI)."
     license: MPL-2.0
     commit_author:
       name: shpyrd-release
@@ -94,4 +105,5 @@ homebrew_casks:
         install: |
           if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/shpyrd"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/shpyrd-ctl"]
           end

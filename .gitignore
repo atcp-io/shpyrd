@@ -44,3 +44,4 @@ terraform.tfvars
 *-vpn.conf
 # terraform (contrib/*/terraform/backups): S3 credentials (RFC-0037)
 *-backups.env
+shpyrd-ctl

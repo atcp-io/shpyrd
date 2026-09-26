@@ -81,73 +81,36 @@ write-only: they are never printed back.`,
 			if err != nil {
 				return err
 			}
-			if _, err := ac.getApp(ctx, name); err != nil {
+			raw, err := serverRequest(ctx, ac.k, "GET", "api/projects/"+name+"/secrets", nil, "")
+			if err != nil {
 				return err
 			}
-			sec := &corev1.Secret{}
-			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name + shpyrdv1.EnvSecretSuffix}, sec); err != nil {
-				if !apierrors.IsNotFound(err) {
-					return err
-				}
-				sec = nil
+			var resp api.ConfigVarsResponse
+			if err2 := json.Unmarshal(raw, &resp); err2 != nil {
+				return fmt.Errorf("unexpected response: %s", truncate(string(raw), 200))
 			}
-			// Variables provided by attached resources (read-only).
-			bound := &corev1.Secret{}
-			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: name + shpyrdv1.BindingsSecretSuffix}, bound); err != nil {
-				bound = nil
-			}
-			// Global vars the project receives (RFC-0016), from the mirror
-			// the controller keeps in the project namespace.
-			global := &corev1.Secret{}
-			if err := ac.c.Get(ctx, types.NamespacedName{Namespace: appNamespace(name), Name: shpyrdv1.GlobalEnvSecretName}, global); err != nil {
-				global = nil
-			}
-			if sec == nil && bound == nil && global == nil {
+			if len(resp.Vars) == 0 && len(resp.Bound) == 0 && len(resp.Global) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "no config vars set")
 				return nil
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tUPDATED\tPROVIDED BY")
-			if sec != nil {
-				for _, v := range configvars.List(sec) {
-					when := "-"
-					if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
-						when = age(metav1.NewTime(t))
-					}
-					note := "-"
-					if global != nil {
-						if _, shadowed := global.Data[v.Name]; shadowed {
-							note = "- (overrides global)"
-						}
-					}
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, note)
+			for _, v := range resp.Vars {
+				when := "-"
+				if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
+					when = ago(t)
 				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, "-")
 			}
-			if global != nil {
-				for _, v := range configvars.List(global) {
-					if sec != nil {
-						if _, shadowed := sec.Data[v.Name]; shadowed {
-							continue // the project's own value is in effect
-						}
-					}
-					when := "-"
-					if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
-						when = age(metav1.NewTime(t))
-					}
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, "cluster")
+			for _, v := range resp.Global {
+				when := "-"
+				if t, err := time.Parse(time.RFC3339, v.UpdatedAt); err == nil {
+					when = ago(t)
 				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", v.Name, when, "cluster")
 			}
-			if bound != nil {
-				providers := map[string]string{}
-				_ = json.Unmarshal([]byte(bound.Annotations[shpyrdv1.AnnotationBindingProviders]), &providers)
-				names := make([]string, 0, len(bound.Data))
-				for k := range bound.Data {
-					names = append(names, k)
-				}
-				sort.Strings(names)
-				for _, k := range names {
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", k, "-", firstNonEmpty(providers[k], "binding"))
-				}
+			for _, b := range resp.Bound {
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", b.Name, "-", firstNonEmpty(b.Provider, "binding"))
 			}
 			return tw.Flush()
 		},

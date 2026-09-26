@@ -80,6 +80,9 @@ func New() *cobra.Command {
 	root.AddCommand(newAccessCmd(g))
 	root.AddCommand(newAllowCmd(g))
 	root.AddCommand(newDomainsCmd(g))
+	root.AddCommand(newLoginCmd(g))
+	root.AddCommand(newLogoutCmd(g))
+	root.AddCommand(newWhoAmICmd(g))
 	root.AddCommand(newRedeployCmd(g))
 	root.AddCommand(newOpenCmd(g))
 	root.AddCommand(&cobra.Command{

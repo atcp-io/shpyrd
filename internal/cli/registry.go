@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -165,7 +167,31 @@ func ago(t time.Time) string {
 // proxy (works with any kubeconfig and no ingress), authenticating with the
 // admin token from the cluster in X-Shpyrd-Token (the proxy strips
 // Authorization headers).
+// serverRequest sends a request to the shpyrd API: directly when the caller
+// has a login session from `shpyrd login`, or through the Kubernetes service
+// proxy when a kubeconfig is available.
 func serverRequest(ctx context.Context, k *kube.Client, method, path string, body []byte, contentType string) ([]byte, error) {
+	// API-first: a login session or SHPYRD_TOKEN bypasses the kubeconfig.
+	tok := os.Getenv("SHPYRD_TOKEN")
+	wsURL := os.Getenv("SHPYRD_URL")
+	if tok == "" || wsURL == "" {
+		sessions := loadSessions()
+		for _, sess := range sessions.Sessions {
+			if sess.Token != "" && tok == "" {
+				tok = sess.Token
+			}
+			if sess.URL != "" && wsURL == "" {
+				wsURL = sess.URL
+			}
+		}
+	}
+	if tok != "" && wsURL != "" {
+		return serverRequestDirect(ctx, wsURL, tok, method, path, body, contentType)
+	}
+	// Kubeconfig proxy: the traditional path for operators.
+	if k == nil {
+		return nil, fmt.Errorf("not signed in: run `shpyrd login --url <workspace URL>` or provide --context")
+	}
 	rc := k.Kube.CoreV1().RESTClient()
 	var req = rc.Verb(method).
 		Namespace(install.DefaultSystemNamespace).
@@ -180,8 +206,8 @@ func serverRequest(ctx context.Context, k *kube.Client, method, path string, bod
 		}
 	}
 	if sec, err := k.Kube.CoreV1().Secrets(install.DefaultSystemNamespace).Get(ctx, install.AdminTokenSecretName, metav1.GetOptions{}); err == nil {
-		if tok := strings.TrimSpace(string(sec.Data["token"])); tok != "" {
-			req = req.SetHeader("X-Shpyrd-Token", tok)
+		if t := strings.TrimSpace(string(sec.Data["token"])); t != "" {
+			req = req.SetHeader("X-Shpyrd-Token", t)
 		}
 	}
 	raw, err := req.Do(ctx).Raw()
@@ -191,6 +217,37 @@ func serverRequest(ctx context.Context, k *kube.Client, method, path string, bod
 			return nil, fmt.Errorf("shpyrd-server: %s", truncate(msg, 300))
 		}
 		return nil, fmt.Errorf("shpyrd-server: %w (is the base stack installed? `shpyrd cluster status`)", err)
+	}
+	return raw, nil
+}
+
+// serverRequestDirect dials the workspace URL directly with a bearer token.
+func serverRequestDirect(ctx context.Context, wsURL, token, method, path string, body []byte, contentType string) ([]byte, error) {
+	full := strings.TrimRight(wsURL, "/") + "/" + strings.TrimPrefix(path, "/")
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = strings.NewReader(string(body))
+	}
+	req, err := http.NewRequestWithContext(ctx, method, full, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("shpyrd-server: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		msg := strings.TrimSpace(string(raw))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return nil, fmt.Errorf("shpyrd-server: %s", truncate(msg, 300))
 	}
 	return raw, nil
 }
