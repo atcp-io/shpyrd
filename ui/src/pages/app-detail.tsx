@@ -43,6 +43,7 @@ import { DrainsCard } from "@/components/drains-card";
 import { DomainsCard } from "@/components/domains-card";
 import { SnapshotsDialog } from "@/components/snapshots-dialog";
 import { AppLogView, TextLogView, useLogStream } from "@/components/log-view";
+import type { LogLevel } from "@/lib/logs";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -1123,6 +1124,15 @@ function Metrics({ app }: { app: AppDetail }) {
 
 // ---- logs ---------------------------------------------------------------------
 
+// Level choices, phrased as what the reader will see rather than as the
+// threshold they set.
+const levelChoices: { value: LogLevel; label: string }[] = [
+  { value: "debug", label: "All levels" },
+  { value: "info", label: "Info and above" },
+  { value: "warn", label: "Warnings and errors" },
+  { value: "error", label: "Errors only" },
+];
+
 function Logs({ app }: { app: AppDetail }) {
   const processes = Object.keys(
     app.processes ?? app.spec.processes ?? { web: {} },
@@ -1130,6 +1140,8 @@ function Logs({ app }: { app: AppDetail }) {
   const [process, setProcess] = useState<string>("all");
   const [follow, setFollow] = useState(true);
   const [filter, setFilter] = useState("");
+  const [level, setLevel] = useState<LogLevel>("debug");
+  const [raw, setRaw] = useState(false);
   const path = useMemo(
     () =>
       api.logsPath(app.slug, {
@@ -1157,6 +1169,18 @@ function Logs({ app }: { app: AppDetail }) {
             ))}
           </SelectContent>
         </Select>
+        <Select value={level} onValueChange={(v) => setLevel(v as LogLevel)}>
+          <SelectTrigger className="w-44" size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {levelChoices.map((c) => (
+              <SelectItem key={c.value} value={c.value}>
+                {c.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -1169,6 +1193,14 @@ function Logs({ app }: { app: AppDetail }) {
           onClick={() => setFollow((f) => !f)}
         >
           {follow ? "Live" : "Paused"}
+        </Button>
+        <Button
+          variant={raw ? "default" : "outline"}
+          size="sm"
+          onClick={() => setRaw((r) => !r)}
+          title="Show each line as the application wrote it"
+        >
+          Raw
         </Button>
         <Button variant="outline" size="sm" onClick={restart}>
           <RefreshCw data-icon="inline-start" /> Reload
@@ -1186,6 +1218,8 @@ function Logs({ app }: { app: AppDetail }) {
         lines={lines}
         follow={follow}
         filter={filter}
+        level={level}
+        raw={raw}
         empty={error ? "" : "Waiting for log lines..."}
       />
     </div>

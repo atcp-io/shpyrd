@@ -17,7 +17,7 @@ Requirements: Docker (Docker Desktop with 6-8 GB of memory), macOS or Linux.
 ```sh
 brew install shpyrd-io/tap/shpyrd    # macOS; or: curl -fsSL https://shpyrd.io/install.sh | sh
 shpyrd cluster create                # kind cluster + base stack (10-20 min first time)
-shpyrd cluster trust-ca              # trust the development CA (asks for sudo)
+shpyrd cluster trust-ca              # trust the development CA (asks for sudo; undo with untrust-ca)
 shpyrd cluster status
 shpyrd cluster dashboard             # opens https://shpyrd.127.0.0.1.nip.io signed in
 ```
@@ -93,7 +93,7 @@ shpyrd deploy --git https://github.com/org/repo --dockerfile             # ...or
 shpyrd secrets set DATABASE_URL=postgres://...   # config vars -> new release, rolling restart (values are never shown again)
 shpyrd scale web=2 worker=1         # process types come from the buildpack (Procfile / launch.toml)
 shpyrd resize web=shared-l          # sizes: shpyrd sizes list (shared = burstable CPU, dedicated = guaranteed)
-shpyrd logs -f --process web
+shpyrd logs -f --process web        # JSON lines render readably on a terminal; --json passes them through
 shpyrd shell --instance web.2       # bash in a running instance, with the buildpack environment
 shpyrd run rails db:migrate         # one-off instance of the current release; exit code passes through
 shpyrd releases && shpyrd rollback 2     # re-releases v2: its build and its config vars
@@ -180,11 +180,12 @@ config vars and destroy apps. Per app it shows: metrics modelled on Heroku/Fly
 memory as a percentage of each process' allocation, network, with release
 markers), a live build log while building, the
 build history, logs from every instance (`web.1`, `worker.2`...) with level
-highlighting, filtering and live tail, and the config var names. Config var
-values are write-only: they can be added, replaced or removed but never read
-back, in the UI or the CLI. The cluster page shows capacity: CPU and memory used
-versus reserved by instance requests, per node and in total, plus the installed
-components and the available extensions.
+highlighting, filtering and live tail (JSON lines read as their level and
+message, with the rest of the fields one click away), and the config var names.
+Config var values are write-only: they can be added, replaced or removed but
+never read back, in the UI or the CLI. The cluster page shows capacity: CPU and
+memory used versus reserved by instance requests, per node and in total, plus
+the installed components and the available extensions.
 
 ## Extensions and sign-in
 
@@ -322,15 +323,15 @@ rfcs/                 design documents
 
 ```sh
 make dev-cluster     # cluster with everything except the shpyrd server
-make dev-deploy      # build the server image, load it into kind, apply the shpyrd component
+make dev-deploy      # build the server image, load it into the cluster, apply the shpyrd component
 make test vet
 ```
 
 The UI can be developed against a local server: `go run ./cmd/shpyrd-server`
 in one terminal, `cd ui && npm run dev` in another (Vite proxies `/api`).
 
-CI runs `go vet`, `go test`, the dashboard lint and build, and an end-to-end
-job on a kind cluster (`.github/workflows/ci.yml`). A tag `vX.Y.Z` releases:
+CI runs `go vet`, `go test`, the dashboard lint, tests and build, and an
+end-to-end job on a kind cluster (`.github/workflows/ci.yml`). A tag `vX.Y.Z` releases:
 GoReleaser builds the CLI archives, checksums, release notes and the Homebrew
 cask in [shpyrd-io/homebrew-tap](https://github.com/shpyrd-io/homebrew-tap);
 buildx pushes the multi-arch server image to GHCR (`release.yml`).

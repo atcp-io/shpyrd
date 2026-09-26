@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestResolverZone(t *testing.T) {
@@ -95,5 +97,35 @@ func TestDnsmasqRule(t *testing.T) {
 	}
 	if ResolverFile("test") != "/etc/resolver/test" {
 		t.Error(ResolverFile("test"))
+	}
+}
+
+// On Linux a port below net.ipv4.ip_unprivileged_port_start (1024, so the
+// default 80 and 443) cannot be bound by a normal user. That is the kernel
+// refusing this process, not a conflict: kind maps host ports through the
+// Docker daemon, which binds them as root.
+func TestBindDenied(t *testing.T) {
+	denied := &net.OpError{Op: "listen", Net: "tcp4", Err: &os.SyscallError{Syscall: "bind", Err: syscall.EACCES}}
+	inUse := &net.OpError{Op: "listen", Net: "tcp4", Err: &os.SyscallError{Syscall: "bind", Err: syscall.EADDRINUSE}}
+	if !bindDenied(denied) {
+		t.Errorf("bindDenied(permission denied) = false, want true")
+	}
+	if bindDenied(inUse) {
+		t.Errorf("bindDenied(address in use) = true, want false")
+	}
+	if bindDenied(nil) {
+		t.Errorf("bindDenied(nil) = true, want false")
+	}
+}
+
+func TestPortFreeOnPrivilegedPort(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: privileged ports are bindable, nothing to prove")
+	}
+	if _, err := net.DialTimeout("tcp", "127.0.0.1:80", 200*time.Millisecond); err == nil {
+		t.Skip("something is serving port 80 on this machine")
+	}
+	if !PortFree(80) {
+		t.Errorf("PortFree(80) = false with nothing listening; a permission error is not a conflict")
 	}
 }

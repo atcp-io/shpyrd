@@ -1,4 +1,4 @@
-# CI (RFC-0045): Go tests and vet, the dashboard build and lint, the
+# CI (RFC-0045): Go tests and vet, the dashboard tests, build and lint, the
 # manifests render test, and an end-to-end run on a kind cluster that
 # deploys the sample projects with buildpacks and a Dockerfile.
 name: ci
@@ -60,6 +60,7 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
+      - run: npm run test
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
@@ -82,10 +83,6 @@ jobs:
         with:
           name: ui-dist
           path: ui/dist
-      - name: Install kind
-        run: |
-          curl -fsSLo kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x kind && sudo mv kind /usr/local/bin/kind
       - name: Build the CLI and the server image
         run: |
           make cli
@@ -94,7 +91,7 @@ jobs:
         run: ./bin/shpyrd cluster create --name ci --skip shpyrd --http-port 8080 --https-port 8443
       - name: Install the server built from this commit
         run: |
-          kind load docker-image shpyrd-server:ci --name ci
+          make dev-load SERVER_IMAGE=shpyrd-server:ci CLUSTER=ci
           ./bin/shpyrd cluster init --context kind-ci --only shpyrd --set SHPYRD_SERVER_IMAGE=shpyrd-server:ci --http-port 8080 --https-port 8443
           ./bin/shpyrd cluster status --context kind-ci
       - name: Deploy a buildpacks project and a Dockerfile project

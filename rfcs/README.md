@@ -48,7 +48,7 @@ declare what they depend on.
 | [0018](0018-repository-monitoring.md) | Repository monitoring and auto-deploy | provisional | 0017 |
 | [0019](0019-health-checks-and-rollouts.md) | Health checks and zero-downtime rollouts | implemented, gaps | 0001 |
 | [0020](0020-maintenance-mode.md) | Maintenance mode | provisional | 0001 |
-| [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implementable | |
+| [0021](0021-structured-logs.md) | Structured logs in the viewer and the CLI | implemented | |
 | [0022](0022-log-pipeline.md) | Log pipeline (agent + Loki) — split, see 0022a and 0022b | provisional | 0046 |
 | [0022a](0022a-log-agent.md) | Log agent (Vector DaemonSet, container log limits) | implemented, gaps | 0001 |
 | [0023](0023-log-drains.md) | Log drains (project and cluster scope, syslog, HTTPS) | implemented, gaps | 0022a |
@@ -92,6 +92,7 @@ declare what they depend on.
 | [0061](0061-dns-providers.md) | DNS providers: automatic records and wildcard certificates | implemented (OCI DNS), gaps | 0035, 0036 |
 | [0062](0062-kubectl-through-platform-sign-in.md) | kubectl through the platform's sign-in (`shpyrd auth kubectl`) | provisional | 0007, 0008, 0058, 0035 |
 | [0063](0063-dashboard-access-zones.md) | Dashboard access zones: public dashboard, intranet-only areas | provisional | 0036, 0008, 0035 |
+| [0064](0064-linux-developer-loop.md) | Linux developer loop: privileged ports, image loading, browser trust | implemented | 0001, 0057 |
 
 ## Phases
 

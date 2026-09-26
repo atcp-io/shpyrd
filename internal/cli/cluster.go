@@ -195,6 +195,7 @@ func newClusterCmd(g *globalFlags) *cobra.Command {
 		newClusterStatusCmd(g),
 		newClusterDestroyCmd(g),
 		newClusterTrustCACmd(g),
+		newClusterUntrustCACmd(g),
 		newClusterExportCmd(),
 		newClusterTokenCmd(g),
 		newClusterDashboardCmd(g),
@@ -494,23 +495,18 @@ resolves to this machine through dnsmasq.`,
 
 // checkPortsFree fails early when a host port kind needs is already bound,
 // which would otherwise surface as an opaque `docker run` exit status 125.
+// localnet.BusyPorts is the one definition of a free port, so this and the
+// front-door plan cannot disagree.
 func checkPortsFree(ports ...int) error {
-	var busy []string
-	for _, p := range ports {
-		if p == 0 {
-			continue
-		}
-		l, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
-		if err != nil {
-			busy = append(busy, strconv.Itoa(p))
-			continue
-		}
-		_ = l.Close()
+	busy := localnet.BusyPorts(ports...)
+	if len(busy) == 0 {
+		return nil
 	}
-	if len(busy) > 0 {
-		return fmt.Errorf("host port(s) %s already in use; stop the process using them or pass --http-port/--https-port (e.g. --http-port 8080 --https-port 8443)", strings.Join(busy, ", "))
+	list := make([]string, 0, len(busy))
+	for _, p := range busy {
+		list = append(list, strconv.Itoa(p))
 	}
-	return nil
+	return fmt.Errorf("host port(s) %s already in use; stop the process using them or pass --http-port/--https-port (e.g. --http-port 8080 --https-port 8443)", strings.Join(list, ", "))
 }
 
 func newClusterInitCmd(g *globalFlags) *cobra.Command {
@@ -1235,6 +1231,70 @@ pointing at it, that CA is fetched from the cluster and installed.`,
 	return cmd
 }
 
+func newClusterUntrustCACmd(g *globalFlags) *cobra.Command {
+	var dir string
+	cmd := &cobra.Command{
+		Use:     "untrust-ca",
+		Aliases: []string{"untrust"},
+		Short:   "Remove the platform CA from this machine's trust stores",
+		Long: `Removes the platform CA from the operating system trust store, and on
+Linux from the store the Chromium family of browsers keeps, undoing
+'shpyrd cluster trust-ca'. Administrator rights are required for the
+system store.
+
+The certificate itself stays in ~/.shpyrd/ca, so trusting it again does
+not invalidate certificates already issued from it. Restart the browser
+afterwards.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			ctx := signalContext()
+			if ca, name, ok := clusterCA(ctx, kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx}); ok {
+				fmt.Fprintf(out, "Removing the platform CA of cluster %s (%s) from this machine's trust stores (administrator rights required)...\n", name, ca.Cert.Subject.CommonName)
+				return untrustCA(out, ca)
+			}
+			if dir == "" {
+				var err error
+				dir, err = localca.DefaultDir()
+				if err != nil {
+					return err
+				}
+			}
+			ca, created, err := localca.LoadOrCreate(dir)
+			if err != nil {
+				return err
+			}
+			if created {
+				// Nothing was trusted, and a CA was just written for nothing.
+				return fmt.Errorf("no development CA at %s: nothing to untrust", dir)
+			}
+			fmt.Fprintf(out, "Removing %s from this machine's trust stores (administrator rights required)...\n", ca.CertPath())
+			return untrustCA(out, ca)
+		},
+	}
+	cmd.Flags().StringVar(&dir, "ca-dir", "", "directory of the development CA (default ~/.shpyrd/ca)")
+	return cmd
+}
+
+func untrustCA(out io.Writer, ca *localca.CA) error {
+	res, err := ca.Untrust()
+	for _, r := range res.Removed {
+		fmt.Fprintf(out, "Removed from %s\n", r)
+	}
+	if err != nil {
+		if res.Instructions != "" {
+			fmt.Fprintln(out, res.Instructions)
+		}
+		return err
+	}
+	if len(res.Removed) > 0 {
+		fmt.Fprintln(out, "Platform CA no longer trusted. Restart the browser to pick up the change.")
+	}
+	if res.Instructions != "" {
+		fmt.Fprintln(out, res.Instructions)
+	}
+	return nil
+}
+
 func trustCA(out io.Writer, ca *localca.CA) error {
 	res, err := ca.Trust()
 	if err != nil {
@@ -1242,7 +1302,11 @@ func trustCA(out io.Writer, ca *localca.CA) error {
 		return err
 	}
 	if res.Installed {
-		fmt.Fprintln(out, "Platform CA trusted.")
+		if res.Browsers {
+			fmt.Fprintln(out, "Platform CA trusted, in the system store and in the browser store.")
+		} else {
+			fmt.Fprintln(out, "Platform CA trusted.")
+		}
 	}
 	if res.Instructions != "" {
 		fmt.Fprintln(out, res.Instructions)
