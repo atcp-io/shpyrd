@@ -76,7 +76,15 @@ func TestChanSizeQueue(t *testing.T) {
 }
 
 func TestExecURL(t *testing.T) {
-	k := &kube.Client{Kube: kubefake.NewSimpleClientset()}
+	// A real clientset, not the fake one: the fake's RESTClient() returns a
+	// nil *rest.RESTClient and .Post() panics on it. A real client built from
+	// a dummy Host never opens a connection — it only has to build a URL.
+	cfg := &rest.Config{Host: "https://api.example.test"}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := &kube.Client{Kube: cs, Config: cfg}
 	u := ExecURL(k, "app-blog", "blog-web-1", "app", []string{"bash"}, true)
 	for _, want := range []string{"/namespaces/app-blog/pods/blog-web-1/exec", "container=app", "command=bash", "tty=true", "stdin=true"} {
 		if !strings.Contains(u, want) {
@@ -91,7 +99,10 @@ func TestExecURL(t *testing.T) {
 }
 ```
 
-Add to that file's imports: `"strings"`, `"k8s.io/client-go/tools/remotecommand"`, `kubefake "k8s.io/client-go/kubernetes/fake"`, `"shpyrd/pkg/kube"`.
+Add to that file's imports: `"strings"`, `"k8s.io/client-go/tools/remotecommand"`, `"k8s.io/client-go/kubernetes"`, `"k8s.io/client-go/rest"`, `"shpyrd/pkg/kube"`.
+
+This test has been run against the real tree already; the URL it produces is
+`https://api.example.test/api/v1/namespaces/app-blog/pods/blog-web-1/exec?command=bash&container=app&stdin=true&stdout=true&tty=true`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1802,6 +1813,9 @@ export function ShellView({ slug }: { slug: string }) {
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   const ws = useRef<WebSocket | null>(null);
+  // xterm's onData returns a disposable. Reconnecting without disposing the
+  // previous one leaves a handler per session attached to the same terminal.
+  const onData = useRef<{ dispose(): void } | null>(null);
 
   // Default to the first ready instance once the list arrives.
   useEffect(() => {
@@ -1921,14 +1935,21 @@ export function ShellView({ slug }: { slug: string }) {
     // Keystrokes go out as bytes for the same reason output comes back as
     // bytes.
     const enc = new TextEncoder();
-    t.onData((d) => {
+    onData.current?.dispose();
+    onData.current = t.onData((d) => {
       if (sock.readyState === WebSocket.OPEN) sock.send(enc.encode(d));
     });
   }, [instance, sendResize, slug]);
 
   // Closing the socket on unmount is what ends the session when the tab is
   // closed or the user navigates away.
-  useEffect(() => () => ws.current?.close(), []);
+  useEffect(
+    () => () => {
+      onData.current?.dispose();
+      ws.current?.close();
+    },
+    [],
+  );
 
   const live = status.kind === "open" || status.kind === "connecting";
   return (
