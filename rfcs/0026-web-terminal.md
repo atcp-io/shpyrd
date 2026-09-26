@@ -44,13 +44,15 @@ Three routes, all on the authenticated `/api` group:
   one-time code, held in memory for 30 seconds and bound to the session, project and
   instance. Being a POST, the existing session middleware already requires the CSRF
   header.
-- `GET /api/projects/{slug}/shell?instance=web.1&ticket=...` (`project.exec`) upgrades to
-  a WebSocket: `Origin` must match the dashboard, the ticket is redeemed once, then the
-  server opens the exec stream with a TTY and pipes bytes both ways.
+- `GET /api/projects/{slug}/shell?instance=web.1&ticket=...` upgrades to a WebSocket:
+  `Origin` must match the dashboard, the ticket is redeemed once, the role it recorded is
+  checked again, then the server opens the exec stream with a TTY and pipes bytes both
+  ways.
 
-Browsers cannot set headers on a WebSocket, which is why the ticket exists; the `Origin`
-check is the conventional defence against cross-site WebSocket hijacking and costs
-nothing, so both apply.
+Browsers cannot set headers on a WebSocket, which is why the ticket exists and why it
+carries the actor rather than leaning on the session cookie; the `Origin` check is the
+conventional defence against cross-site WebSocket hijacking and costs nothing, so both
+apply.
 
 Frames: binary carries terminal bytes in both directions. Text carries JSON control —
 `{"type":"resize","cols":N,"rows":N}` from the client, and `{"type":"open","instance":…,
@@ -72,12 +74,19 @@ reason it ended).
   explicit `io.Reader`/`io.Writer` and a channel of terminal sizes. `Stream` delegates to
   it, so the CLI keeps raw mode and SIGWINCH while the server reuses the same
   WebSocket-with-SPDY-fallback executor.
-- The shell is resolved once before the terminal opens: `kexec.Run` reports which of the
-  CNB launcher, `bash` and `sh` the image has, then a single TTY exec runs it. `shpyrd
-  shell` instead tries all four in turn and reads the error text, which over a live socket
-  risks writing a failed attempt's output to the terminal — the race
-  `kexec.CountingWriter` exists to detect. The two implementations may drift; the fallback
-  order is the contract, not the code.
+- The shell is resolved before the terminal opens: the same four candidates in the same
+  order, each tried as a cheap non-TTY `kexec.Run` exiting immediately, then one TTY exec
+  runs the winner. `shpyrd shell` instead tries them as the interactive session itself and
+  reads the error text, which over a live socket risks writing a failed attempt's output
+  to the terminal — the race `kexec.CountingWriter` exists to detect. Probing separately
+  costs up to four round trips (one for a buildpack image) and keeps every failure
+  invisible to the user. The two implementations may drift; the fallback order is the
+  contract, not the code.
+- The WebSocket authenticates by ticket alone, not by the session cookie: `shpyrd cluster
+  dashboard` signs in with a token in localStorage and has no cookie, so a cookie
+  requirement would break the shell for exactly the operator most likely to open it. The
+  ticket therefore carries the actor, and the roles are resolved again at redemption so a
+  grant revoked inside those 30 seconds still takes effect.
 - Run pods live in the app's namespace labelled `shpyrd.io/process=run`, so the instance
   listing must exclude that label rather than merely listing the namespace. The
   controller's `runProcess` constant is unexported, so the API package repeats the
