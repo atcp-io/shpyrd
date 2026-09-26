@@ -232,9 +232,12 @@ export function ShellView({ slug }: { slug: string }) {
                   : "One shell per project at a time; idle sessions close after 30 minutes."}
         </span>
       </div>
+      {/* The fit addon measures this element's inner box, so padding here is
+          how the terminal gets breathing room from the border without the
+          first column and the cursor sitting against it. */}
       <div
         ref={host}
-        className="h-[30rem] overflow-hidden rounded-lg border bg-zinc-950 p-2"
+        className="h-[30rem] overflow-hidden rounded-lg border bg-zinc-950 px-3 py-2.5"
       />
     </div>
   );
