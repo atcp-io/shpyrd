@@ -79,7 +79,7 @@ func (d *connectorDeps) audit(ctx context.Context, action, target, detail string
 func newConnectorAddCmd(g ext.CLIGlobals) *cobra.Command {
 	var spec ConnectorSpec
 	cmd := &cobra.Command{
-		Use:   "add <github|google>",
+		Use:   "add <github|google|microsoft|oidc>",
 		Short: "Add or replace a connector",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -119,11 +119,13 @@ func newConnectorAddCmd(g ext.CLIGlobals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&spec.ID, "id", "", "connector id (default: the type)")
-	cmd.Flags().StringVar(&spec.Name, "label", "", "button text on the sign-in page (default: GitHub or Google)")
+	cmd.Flags().StringVar(&spec.Name, "label", "", "button text on the sign-in page (default: the provider's name)")
 	cmd.Flags().StringVar(&spec.ClientID, "client-id", "", "OAuth application client id")
 	cmd.Flags().StringVar(&spec.ClientSecret, "client-secret", "", "OAuth application client secret, or @path to read it from a file")
 	cmd.Flags().StringVar(&spec.Org, "org", "", "GitHub: only members of this organisation may sign in; its teams become groups")
 	cmd.Flags().StringVar(&spec.HostedDomain, "hosted-domain", "", "Google: only accounts of this Workspace domain may sign in")
+	cmd.Flags().StringVar(&spec.Tenant, "tenant", "", "Microsoft: only accounts of this Entra tenant (id or domain) may sign in")
+	cmd.Flags().StringVar(&spec.Issuer, "issuer", "", "oidc: the provider's issuer URL (Okta, Keycloak, Auth0, ...)")
 	_ = cmd.MarkFlagRequired("client-id")
 	_ = cmd.MarkFlagRequired("client-secret")
 	return cmd

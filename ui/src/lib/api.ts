@@ -42,8 +42,27 @@ export type WorkspaceInfo = {
   name: string;
   implicit: boolean;
   domain?: string;
+  joinPolicy: "open" | "company" | "listed";
   createdAt: string;
   updatedAt: string;
+};
+
+/** A claimed email domain (RFC-0033): prove it with the TXT record. */
+export type DomainClaim = {
+  domain: string;
+  connector?: string;
+  verified: boolean;
+  verifiedAt?: string;
+  record: string;
+  recordValue: string;
+};
+
+/** Login methods: Dex connectors plus the local password method. */
+export type LoginMethods = {
+  password: boolean;
+  connectors: { id: string; type: string; name: string; detail?: string }[];
+  kinds: string[];
+  callback: string;
 };
 
 /** Someone the workspace has seen sign in. */
@@ -53,6 +72,7 @@ export type Person = {
   provider?: string;
   groups: string[];
   realm: string;
+  status: "active" | "suspended";
   firstSeenAt: string;
   lastSeenAt: string;
 };
@@ -63,6 +83,8 @@ export type Team = {
   members: string[];
   groups: string[];
   platformRole?: string;
+  /** The built-in team of every person who signed in. */
+  everyone?: boolean;
 };
 
 export type Member = {
@@ -599,9 +621,46 @@ export const api = {
   loginUrl: (provider: string, next: string) =>
     `/api/auth/login?provider=${encodeURIComponent(provider)}&next=${encodeURIComponent(next)}`,
   workspace: () => request<WorkspaceInfo>("/api/workspace"),
-  updateWorkspace: (name: string) =>
-    request<WorkspaceInfo>("/api/workspace", json("PATCH", { name })),
+  updateWorkspace: (body: { name?: string; joinPolicy?: string }) =>
+    request<WorkspaceInfo>("/api/workspace", json("PATCH", body)),
+  domainClaims: () => request<DomainClaim[]>("/api/workspace/domain-claims"),
+  claimDomain: (domain: string, connector: string) =>
+    request<DomainClaim>(
+      "/api/workspace/domain-claims",
+      json("POST", { domain, connector }),
+    ),
+  verifyDomain: (domain: string) =>
+    request<DomainClaim>(
+      `/api/workspace/domain-claims/${encodeURIComponent(domain)}/verify`,
+      { method: "POST" },
+    ),
+  unclaimDomain: (domain: string) =>
+    request<void>(
+      `/api/workspace/domain-claims/${encodeURIComponent(domain)}`,
+      { method: "DELETE" },
+    ),
+  loginMethods: () => request<LoginMethods>("/api/auth/connectors"),
+  addConnector: (body: {
+    type: string;
+    id?: string;
+    name?: string;
+    clientId: string;
+    clientSecret: string;
+    org?: string;
+    hostedDomain?: string;
+    tenant?: string;
+    issuer?: string;
+  }) => request<{ id: string }>("/api/auth/connectors", json("POST", body)),
+  removeConnector: (id: string) =>
+    request<void>(`/api/auth/connectors/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   people: () => request<Person[]>("/api/workspace/people"),
+  setPersonStatus: (email: string, status: "active" | "suspended") =>
+    request<Person>(
+      `/api/workspace/people/${encodeURIComponent(email)}`,
+      json("PATCH", { status }),
+    ),
   forgetPerson: (email: string) =>
     request<void>(`/api/workspace/people/${encodeURIComponent(email)}`, {
       method: "DELETE",

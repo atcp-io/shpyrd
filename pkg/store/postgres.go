@@ -102,7 +102,13 @@ func (p *Postgres) Migrate(ctx context.Context, defaultName string) error {
 			return err
 		}
 	}
-	_, err = conn.Exec(ctx, `INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, newID(), DefaultWorkspace, defaultName)
+	if _, err := conn.Exec(ctx, `INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, newID(), DefaultWorkspace, defaultName); err != nil {
+		return err
+	}
+	// The built-in team of the implicit workspace.
+	_, err = conn.Exec(ctx, `INSERT INTO teams (id, workspace_id, name, description, kind)
+		SELECT $1, id, $2, 'Everyone who has signed in', 'everyone' FROM workspaces WHERE slug = $3
+		ON CONFLICT (workspace_id, name) DO UPDATE SET kind = 'everyone'`, newID(), TeamEveryone, DefaultWorkspace)
 	return err
 }
 
@@ -124,15 +130,97 @@ func (p *Postgres) wsID(ctx context.Context, q interface {
 
 func (p *Postgres) Workspace(ctx context.Context, slug string) (*Workspace, error) {
 	var w Workspace
-	err := p.pool.QueryRow(ctx, `SELECT id, slug, name, created_at, updated_at FROM workspaces WHERE slug = $1`, slug).
-		Scan(&w.ID, &w.Slug, &w.Name, &w.CreatedAt, &w.UpdatedAt)
+	var settings []byte
+	err := p.pool.QueryRow(ctx, `SELECT id, slug, name, settings, created_at, updated_at FROM workspaces WHERE slug = $1`, slug).
+		Scan(&w.ID, &w.Slug, &w.Name, &settings, &w.CreatedAt, &w.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	_ = json.Unmarshal(settings, &w.Settings)
 	return &w, nil
+}
+
+func (p *Postgres) UpdateWorkspaceSettings(ctx context.Context, slug string, settings WorkspaceSettings) (*Workspace, error) {
+	raw, _ := json.Marshal(settings)
+	tag, err := p.pool.Exec(ctx, `UPDATE workspaces SET settings = $2, updated_at = now() WHERE slug = $1`, slug, raw)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return p.Workspace(ctx, slug)
+}
+
+const claimColumns = `id, workspace_id, domain, token, connector, verified_at, created_at`
+
+func scanClaim(row pgx.Row) (*DomainClaim, error) {
+	var d DomainClaim
+	if err := row.Scan(&d.ID, &d.WorkspaceID, &d.Domain, &d.Token, &d.Connector, &d.VerifiedAt, &d.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (p *Postgres) ListDomainClaims(ctx context.Context, ws string) ([]DomainClaim, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := p.pool.Query(ctx, `SELECT `+claimColumns+` FROM domain_claims WHERE workspace_id = $1 ORDER BY domain`, wsID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DomainClaim
+	for rows.Next() {
+		d, err := scanClaim(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *d)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) PutDomainClaim(ctx context.Context, ws, domain, connector string) (*DomainClaim, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	return scanClaim(p.pool.QueryRow(ctx, `INSERT INTO domain_claims (id, workspace_id, domain, token, connector) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (workspace_id, domain) DO UPDATE SET connector = EXCLUDED.connector
+		RETURNING `+claimColumns, newID(), wsID, domain, newID(), connector))
+}
+
+func (p *Postgres) MarkDomainVerified(ctx context.Context, ws, domain string, at time.Time) (*DomainClaim, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	return scanClaim(p.pool.QueryRow(ctx, `UPDATE domain_claims SET verified_at = $3 WHERE workspace_id = $1 AND domain = $2 RETURNING `+claimColumns, wsID, strings.ToLower(domain), at))
+}
+
+func (p *Postgres) DeleteDomainClaim(ctx context.Context, ws, domain string) error {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return err
+	}
+	tag, err := p.pool.Exec(ctx, `DELETE FROM domain_claims WHERE workspace_id = $1 AND domain = $2`, wsID, strings.ToLower(domain))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (p *Postgres) UpdateWorkspace(ctx context.Context, slug, name string) (*Workspace, error) {
@@ -170,9 +258,9 @@ func (p *Postgres) TouchIdentity(ctx context.Context, ws string, id Identity) (*
 			provider = CASE WHEN EXCLUDED.provider <> '' THEN EXCLUDED.provider ELSE identities.provider END,
 			groups = COALESCE($7::jsonb, identities.groups),
 			last_seen_at = now()
-		RETURNING id, workspace_id, realm, email, name, provider, groups, first_seen_at, last_seen_at`,
+		RETURNING id, workspace_id, realm, email, name, provider, groups, status, first_seen_at, last_seen_at`,
 		newID(), wsID, realm, email, id.Name, id.Provider, groups).
-		Scan(&out.ID, &out.WorkspaceID, &out.Realm, &out.Email, &out.Name, &out.Provider, &groupsRaw, &out.FirstSeenAt, &out.LastSeenAt)
+		Scan(&out.ID, &out.WorkspaceID, &out.Realm, &out.Email, &out.Name, &out.Provider, &groupsRaw, &out.Status, &out.FirstSeenAt, &out.LastSeenAt)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +273,7 @@ func (p *Postgres) ListIdentities(ctx context.Context, ws string) ([]Identity, e
 	if err != nil {
 		return nil, err
 	}
-	rows, err := p.pool.Query(ctx, `SELECT id, workspace_id, realm, email, name, provider, groups, first_seen_at, last_seen_at FROM identities WHERE workspace_id = $1 ORDER BY email`, wsID)
+	rows, err := p.pool.Query(ctx, `SELECT id, workspace_id, realm, email, name, provider, groups, status, first_seen_at, last_seen_at FROM identities WHERE workspace_id = $1 ORDER BY email`, wsID)
 	if err != nil {
 		return nil, err
 	}
@@ -194,13 +282,33 @@ func (p *Postgres) ListIdentities(ctx context.Context, ws string) ([]Identity, e
 	for rows.Next() {
 		var it Identity
 		var groupsRaw []byte
-		if err := rows.Scan(&it.ID, &it.WorkspaceID, &it.Realm, &it.Email, &it.Name, &it.Provider, &groupsRaw, &it.FirstSeenAt, &it.LastSeenAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.WorkspaceID, &it.Realm, &it.Email, &it.Name, &it.Provider, &groupsRaw, &it.Status, &it.FirstSeenAt, &it.LastSeenAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(groupsRaw, &it.Groups)
 		out = append(out, it)
 	}
 	return out, rows.Err()
+}
+
+func (p *Postgres) SetIdentityStatus(ctx context.Context, ws, email, status string) (*Identity, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	var out Identity
+	var groupsRaw []byte
+	err = p.pool.QueryRow(ctx, `UPDATE identities SET status = $3 WHERE workspace_id = $1 AND email = $2
+		RETURNING id, workspace_id, realm, email, name, provider, groups, status, first_seen_at, last_seen_at`, wsID, strings.ToLower(email), status).
+		Scan(&out.ID, &out.WorkspaceID, &out.Realm, &out.Email, &out.Name, &out.Provider, &groupsRaw, &out.Status, &out.FirstSeenAt, &out.LastSeenAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(groupsRaw, &out.Groups)
+	return &out, nil
 }
 
 func (p *Postgres) DeleteIdentity(ctx context.Context, ws, email string) error {
@@ -218,12 +326,13 @@ func (p *Postgres) DeleteIdentity(ctx context.Context, ws, email string) error {
 	return nil
 }
 
-const teamColumns = `t.id, t.workspace_id, t.name, t.description, t.members, t.groups, t.platform_role, t.created_at, t.updated_at`
+const teamColumns = `t.id, t.workspace_id, t.name, t.description, t.members, t.groups, t.platform_role, t.kind, t.created_at, t.updated_at`
 
 func scanTeam(row pgx.Row) (*Team, error) {
 	var t Team
 	var members, groups []byte
-	if err := row.Scan(&t.ID, &t.WorkspaceID, &t.Name, &t.Description, &members, &groups, &t.PlatformRole, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	var kind string
+	if err := row.Scan(&t.ID, &t.WorkspaceID, &t.Name, &t.Description, &members, &groups, &t.PlatformRole, &kind, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -237,6 +346,7 @@ func scanTeam(row pgx.Row) (*Team, error) {
 	if t.Groups == nil {
 		t.Groups = []string{}
 	}
+	t.Everyone = kind == "everyone"
 	return &t, nil
 }
 
@@ -274,6 +384,9 @@ func (p *Postgres) PutTeam(ctx context.Context, ws string, t Team) (*Team, bool,
 	if err != nil {
 		return nil, false, err
 	}
+	if t.Name == TeamEveryone {
+		return nil, false, ErrBuiltIn
+	}
 	members, _ := json.Marshal(normalizeEmails(t.Members))
 	groups, _ := json.Marshal(dedupe(t.Groups))
 	var inserted bool
@@ -287,7 +400,8 @@ func (p *Postgres) PutTeam(ctx context.Context, ws string, t Team) (*Team, bool,
 		newID(), wsID, t.Name, t.Description, members, groups, t.PlatformRole)
 	var out Team
 	var m, g []byte
-	if err := row.Scan(&out.ID, &out.WorkspaceID, &out.Name, &out.Description, &m, &g, &out.PlatformRole, &out.CreatedAt, &out.UpdatedAt, &inserted); err != nil {
+	var kind string
+	if err := row.Scan(&out.ID, &out.WorkspaceID, &out.Name, &out.Description, &m, &g, &out.PlatformRole, &kind, &out.CreatedAt, &out.UpdatedAt, &inserted); err != nil {
 		return nil, false, err
 	}
 	_ = json.Unmarshal(m, &out.Members)
@@ -299,6 +413,9 @@ func (p *Postgres) DeleteTeam(ctx context.Context, ws, name string) error {
 	wsID, err := p.wsID(ctx, p.pool, ws)
 	if err != nil {
 		return err
+	}
+	if name == TeamEveryone {
+		return ErrBuiltIn
 	}
 	// Grants of the team go with it (ON DELETE CASCADE).
 	tag, err := p.pool.Exec(ctx, `DELETE FROM teams WHERE workspace_id = $1 AND name = $2`, wsID, name)
@@ -421,11 +538,120 @@ func (p *Postgres) Export(ctx context.Context, ws string) (*Dump, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Dump{Version: DumpVersion, Workspace: *w, Identities: ids, Teams: teams, Grants: grants}, nil
+	domains, err := p.ListDomainClaims(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	return &Dump{Version: DumpVersion, Workspace: *w, Identities: ids, Teams: teams, Grants: grants, Domains: domains}, nil
 }
 
 func (p *Postgres) Import(ctx context.Context, ws string, d *Dump, overwrite bool) (*ImportResult, error) {
 	return importDump(ctx, p, ws, d, overwrite)
+}
+
+// ---- sessions and codes ------------------------------------------------------
+
+func (p *Postgres) PutSession(ctx context.Context, ws string, sess Session) error {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return err
+	}
+	if sess.CreatedAt.IsZero() {
+		sess.CreatedAt = time.Now()
+	}
+	if sess.LastSeenAt.IsZero() {
+		sess.LastSeenAt = sess.CreatedAt
+	}
+	identity := sess.Identity
+	if len(identity) == 0 {
+		identity = json.RawMessage("{}")
+	}
+	_, err = p.pool.Exec(ctx, `INSERT INTO sessions (id, workspace_id, identity, csrf, id_token, created_at, last_seen_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (id) DO UPDATE SET identity = EXCLUDED.identity, csrf = EXCLUDED.csrf, id_token = EXCLUDED.id_token, last_seen_at = EXCLUDED.last_seen_at`,
+		sess.ID, wsID, identity, sess.CSRF, sess.IDToken, sess.CreatedAt, sess.LastSeenAt)
+	return err
+}
+
+func (p *Postgres) GetSession(ctx context.Context, id string) (*Session, error) {
+	var s Session
+	err := p.pool.QueryRow(ctx, `SELECT id, workspace_id, identity, csrf, id_token, created_at, last_seen_at FROM sessions WHERE id = $1`, id).
+		Scan(&s.ID, &s.WorkspaceID, &s.Identity, &s.CSRF, &s.IDToken, &s.CreatedAt, &s.LastSeenAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (p *Postgres) TouchSession(ctx context.Context, id string, at time.Time) error {
+	tag, err := p.pool.Exec(ctx, `UPDATE sessions SET last_seen_at = $2 WHERE id = $1 AND last_seen_at < $2`, id, at)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sessions WHERE id = $1)`, id).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteSession(ctx context.Context, id string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, id)
+	return err
+}
+
+func (p *Postgres) PurgeSessions(ctx context.Context, createdBefore, seenBefore time.Time) (int, error) {
+	tag, err := p.pool.Exec(ctx, `DELETE FROM sessions WHERE created_at < $1 OR last_seen_at < $2`, createdBefore, seenBefore)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+func (p *Postgres) CountSessions(ctx context.Context, ws string) (int, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = p.pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE workspace_id = $1`, wsID).Scan(&n)
+	return n, err
+}
+
+func (p *Postgres) PutCode(ctx context.Context, c Code) error {
+	if _, err := p.pool.Exec(ctx, `DELETE FROM edge_codes WHERE expires_at < now()`); err != nil {
+		return err
+	}
+	claims := c.Claims
+	if len(claims) == 0 {
+		claims = json.RawMessage("{}")
+	}
+	_, err := p.pool.Exec(ctx, `INSERT INTO edge_codes (code, host, claims, expires_at) VALUES ($1, $2, $3, $4)`, c.Code, c.Host, claims, c.ExpiresAt)
+	return err
+}
+
+func (p *Postgres) TakeCode(ctx context.Context, code string) (*Code, error) {
+	var c Code
+	err := p.pool.QueryRow(ctx, `DELETE FROM edge_codes WHERE code = $1 RETURNING code, host, claims, expires_at`, code).
+		Scan(&c.Code, &c.Host, &c.Claims, &c.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if time.Now().After(c.ExpiresAt) {
+		return nil, ErrNotFound
+	}
+	return &c, nil
 }
 
 var _ Store = (*Postgres)(nil)

@@ -61,6 +61,11 @@ func (extension) Routes(r ext.Router, deps ext.Deps) error {
 	api.POST("/users", h.create)
 	api.PUT("/users/:email/password", h.setPassword)
 	api.DELETE("/users/:email", h.delete)
+	// Login methods (RFC-0058 connectors) managed from the Workspace page.
+	ch := &connectorHandlers{deps: deps, issuer: issuer}
+	api.GET("/auth/connectors", ch.list)
+	api.POST("/auth/connectors", ch.add)
+	api.DELETE("/auth/connectors/:id", ch.remove)
 	return nil
 }
 

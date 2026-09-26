@@ -71,7 +71,17 @@ Shipped in v0.5.0:
   the "available to team X" page; `Open as` previews; the launcher for `user`-only people;
   `shpyrd access`, `projects create --public`; the admin token as a browser session.
 
-The rest of the model (many workspaces, identity per workspace, collaborators, OAuth for
+Shipped in v0.6.0:
+
+- Sessions and the edge's one-time codes live in the control-plane database (restarts keep
+  people signed in; replicas agree on sign-outs).
+- Login methods managed on the Workspace page: Google, Microsoft, GitHub and any OpenID
+  Connect provider through the bundled issuer; the join policy (anyone who can sign in /
+  only accounts of a claimed domain / only people already in a team); company domain claims
+  verified by DNS TXT, routing the domain's accounts to one method.
+- The built-in `everyone` team; suspending a person.
+
+The rest of the model (many workspaces, identity realms and collaborators, OAuth for
 agents) follows in later releases; the full text is published when it settles.
 
 ## Implementation History
@@ -81,3 +91,5 @@ agents) follows in later releases; the full text is published when it settles.
   workspace, Workspace page) shipped in v0.4.0.
 - 2026-09-26: phase 2 (the `user` role, access modes, the edge, previews, launcher) shipped
   in v0.5.0.
+- 2026-09-26: phase 3 (sessions in the database, login methods, join policy, domain claims,
+  the `everyone` team, suspension) shipped in v0.6.0.

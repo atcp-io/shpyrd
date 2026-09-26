@@ -99,10 +99,12 @@ type TeamView struct {
 	Members      []string `json:"members"`
 	Groups       []string `json:"groups"`
 	PlatformRole string   `json:"platformRole,omitempty"`
+	// Everyone marks the built-in team of every person who signed in.
+	Everyone bool `json:"everyone,omitempty"`
 }
 
 func teamView(t store.Team) TeamView {
-	v := TeamView{Name: t.Name, Description: t.Description, Members: t.Members, Groups: t.Groups, PlatformRole: t.PlatformRole}
+	v := TeamView{Name: t.Name, Description: t.Description, Members: t.Members, Groups: t.Groups, PlatformRole: t.PlatformRole, Everyone: t.Everyone}
 	if v.Members == nil {
 		v.Members = []string{}
 	}
@@ -134,6 +136,8 @@ func storeErr(c *gin.Context, err error, what string) {
 		abort(c, http.StatusNotFound, fmt.Errorf("%s not found", what))
 	case errors.Is(err, store.ErrConflict):
 		abort(c, http.StatusConflict, fmt.Errorf("this %s already exists", what))
+	case errors.Is(err, store.ErrBuiltIn):
+		abort(c, http.StatusBadRequest, fmt.Errorf("the %s team is built in: every person who signs in belongs to it; grant it roles, but it cannot be edited or deleted", store.TeamEveryone))
 	default:
 		abort(c, http.StatusBadGateway, err)
 	}

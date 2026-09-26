@@ -17,13 +17,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"shpyrd/pkg/store"
 )
 
 // KeysSecretName holds the signing key pair (RFC-0033).
@@ -210,57 +211,45 @@ func (k *Keys) VerifyCookie(value, project string) (*CookieClaims, error) {
 
 // Codes hands a session from the dashboard host to an app host: a one-time
 // code minted at /.shpyrd/start and redeemed at /.shpyrd/callback within a
-// minute. In memory: the server has one replica; a second one would share
-// through the store.
+// minute, kept in the control-plane store so every replica can redeem it.
 type Codes struct {
-	mu    sync.Mutex
-	codes map[string]codeEntry
+	store store.Sessions
 	now   func() time.Time
 }
 
-type codeEntry struct {
-	Claims  CookieClaims
-	Host    string // the app host the code is for
-	Expires time.Time
-}
-
-// NewCodes returns an empty code store.
-func NewCodes() *Codes { return &Codes{codes: map[string]codeEntry{}, now: time.Now} }
+// NewCodes returns a code store on top of the control-plane store.
+func NewCodes(st store.Sessions) *Codes { return &Codes{store: st, now: time.Now} }
 
 // Mint stores the claims for the host and returns the code.
-func (c *Codes) Mint(host string, claims CookieClaims) (string, error) {
+func (c *Codes) Mint(ctx context.Context, host string, claims CookieClaims) (string, error) {
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	code := base64.RawURLEncoding.EncodeToString(raw)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	now := c.now()
-	for k, e := range c.codes {
-		if now.After(e.Expires) {
-			delete(c.codes, k)
-		}
+	body, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
 	}
-	c.codes[code] = codeEntry{Claims: claims, Host: strings.ToLower(host), Expires: now.Add(CodeTTL)}
+	if err := c.store.PutCode(ctx, store.Code{Code: code, Host: strings.ToLower(host), Claims: body, ExpiresAt: c.now().Add(CodeTTL)}); err != nil {
+		return "", err
+	}
 	return code, nil
 }
 
-// Redeem returns the claims once, for the right host.
-func (c *Codes) Redeem(code, host string) (*CookieClaims, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, ok := c.codes[code]
-	if !ok {
-		return nil, errors.New("unknown or used code")
-	}
-	delete(c.codes, code)
-	if c.now().After(e.Expires) {
-		return nil, errors.New("code expired")
+// Redeem returns the claims once, for the right host. Any attempt burns
+// the code.
+func (c *Codes) Redeem(ctx context.Context, code, host string) (*CookieClaims, error) {
+	e, err := c.store.TakeCode(ctx, code)
+	if err != nil {
+		return nil, errors.New("unknown, used or expired code")
 	}
 	if e.Host != strings.ToLower(host) {
 		return nil, fmt.Errorf("code is for %s", e.Host)
 	}
-	claims := e.Claims
+	var claims CookieClaims
+	if err := json.Unmarshal(e.Claims, &claims); err != nil {
+		return nil, err
+	}
 	return &claims, nil
 }

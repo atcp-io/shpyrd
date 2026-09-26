@@ -113,6 +113,9 @@ type Server struct {
 	edgeKeys  *edge.Keys
 	edgeCodes *edge.Codes
 	hostCache hostCache
+	// lookupTXT resolves TXT records for domain claims; nil uses the system
+	// resolver (tests inject one).
+	lookupTXT func(ctx context.Context, name string) ([]string, error)
 	// tokenFailures throttles clients presenting wrong admin tokens.
 	tokenFailures *rateLimiter
 	// passwordFailures throttles wrong passwords per account (RFC-0012).
@@ -190,7 +193,7 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 			systemNS = k.Namespace
 		}
 	}
-	sessions := newSessionStore(kubeIface, systemNS, opts.Logger)
+	sessions := newSessionStore(opts.Store, kubeIface, systemNS, opts.Logger)
 	sessions.load(context.Background())
 	// The edge's signing key lives in the cluster; tests and clusterless
 	// runs get a fresh one.
@@ -207,7 +210,7 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 		}
 		s.edgeKeys = keys
 	}
-	s.edgeCodes = edge.NewCodes()
+	s.edgeCodes = edge.NewCodes(opts.Store)
 	s.rp = newRelyingParty(sessions, opts.Public.DashboardURL, opts.Public.Domain, opts.IngressService, opts.Logger)
 	s.rp.SetClusterCA(s.clusterCA(context.Background()))
 
@@ -319,6 +322,11 @@ func (s *Server) routes() error {
 	api.PATCH("/workspace", s.require(authz.ClusterAdmin), s.updateWorkspace)
 	api.GET("/workspace/people", s.require(authz.ClusterAdmin), s.listPeople)
 	api.DELETE("/workspace/people/:email", s.require(authz.ClusterAdmin), s.forgetPerson)
+	api.PATCH("/workspace/people/:email", s.require(authz.ClusterAdmin), s.setPersonStatus)
+	api.GET("/workspace/domain-claims", s.require(authz.ClusterAdmin), s.listDomainClaims)
+	api.POST("/workspace/domain-claims", s.require(authz.ClusterAdmin), s.putDomainClaim)
+	api.POST("/workspace/domain-claims/:domain/verify", s.require(authz.ClusterAdmin), s.verifyDomainClaim)
+	api.DELETE("/workspace/domain-claims/:domain", s.require(authz.ClusterAdmin), s.deleteDomainClaim)
 	api.GET("/workspace/grants", s.require(authz.ClusterAdmin), s.listAllMembers)
 	api.GET("/workspace/export", s.require(authz.ClusterAdmin), s.exportWorkspace) // RFC-0037
 	api.POST("/workspace/import", s.require(authz.ClusterAdmin), s.importWorkspace)

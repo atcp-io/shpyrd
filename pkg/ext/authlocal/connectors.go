@@ -25,8 +25,8 @@ import (
 // ConnectorGVR is Dex's connector resource.
 var ConnectorGVR = schema.GroupVersionResource{Group: "dex.coreos.com", Version: "v1", Resource: "connectors"}
 
-// ConnectorKinds the CLI knows how to configure.
-var ConnectorKinds = []string{"github", "google"}
+// ConnectorKinds the CLI and the Workspace page know how to configure.
+var ConnectorKinds = []string{"github", "google", "microsoft", "oidc"}
 
 var connectorIDRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$`)
 
@@ -50,6 +50,35 @@ type ConnectorSpec struct {
 	// its teams as groups); HostedDomain limits Google to one workspace.
 	Org          string
 	HostedDomain string
+	// Tenant limits Microsoft sign-in to one Entra tenant (id or domain);
+	// empty accepts any work or school account.
+	Tenant string
+	// Issuer is a generic OpenID Connect provider's issuer URL (Okta,
+	// Keycloak, Auth0, ...).
+	Issuer string
+}
+
+// microsoftConfig mirrors Dex's microsoft connector configuration.
+type microsoftConfig struct {
+	ClientID     string `json:"clientID"`
+	ClientSecret string `json:"clientSecret"`
+	RedirectURI  string `json:"redirectURI"`
+	Tenant       string `json:"tenant,omitempty"`
+	// Groups arrive only with the tenant's consent; on by default.
+	UseGroupsAsWhitelist bool `json:"useGroupsAsWhitelist,omitempty"`
+}
+
+// oidcConfig mirrors Dex's oidc connector configuration.
+type oidcConfig struct {
+	Issuer                    string   `json:"issuer"`
+	ClientID                  string   `json:"clientID"`
+	ClientSecret              string   `json:"clientSecret"`
+	RedirectURI               string   `json:"redirectURI"`
+	Scopes                    []string `json:"scopes,omitempty"`
+	InsecureEnableGroups      bool     `json:"insecureEnableGroups,omitempty"`
+	GetUserInfo               bool     `json:"getUserInfo,omitempty"`
+	UserNameKey               string   `json:"userNameKey,omitempty"`
+	InsecureSkipEmailVerified bool     `json:"insecureSkipEmailVerified,omitempty"`
 }
 
 // githubConfig mirrors Dex's github connector configuration.
@@ -103,10 +132,15 @@ func (spec *ConnectorSpec) Validate() error {
 		return fmt.Errorf("invalid connector id %q: lowercase letters, digits and dashes", spec.ID)
 	}
 	if spec.Name == "" {
-		spec.Name = map[string]string{"github": "GitHub", "google": "Google"}[spec.Type]
+		spec.Name = map[string]string{"github": "GitHub", "google": "Google", "microsoft": "Microsoft", "oidc": "Single sign-on"}[spec.Type]
 	}
 	if strings.TrimSpace(spec.ClientID) == "" || strings.TrimSpace(spec.ClientSecret) == "" {
 		return errors.New("client id and client secret are required")
+	}
+	if spec.Type == "oidc" {
+		if !strings.HasPrefix(spec.Issuer, "https://") {
+			return errors.New("an OpenID Connect provider needs its issuer URL (https://...)")
+		}
 	}
 	return nil
 }
@@ -127,6 +161,13 @@ func (s *ConnectorStore) config(spec ConnectorSpec) ([]byte, error) {
 		if spec.HostedDomain != "" {
 			cfg.HostedDomains = []string{spec.HostedDomain}
 		}
+		return json.Marshal(cfg)
+	case "microsoft":
+		cfg := microsoftConfig{ClientID: spec.ClientID, ClientSecret: spec.ClientSecret, RedirectURI: redirect, Tenant: spec.Tenant}
+		return json.Marshal(cfg)
+	case "oidc":
+		cfg := oidcConfig{Issuer: strings.TrimRight(spec.Issuer, "/"), ClientID: spec.ClientID, ClientSecret: spec.ClientSecret, RedirectURI: redirect,
+			Scopes: []string{"openid", "email", "profile", "groups"}, InsecureEnableGroups: true, GetUserInfo: true}
 		return json.Marshal(cfg)
 	}
 	return nil, fmt.Errorf("unknown connector type %q", spec.Type)
@@ -199,6 +240,8 @@ func connectorOf(u unstructured.Unstructured) Connector {
 			var cfg struct {
 				Orgs          []githubOrg `json:"orgs"`
 				HostedDomains []string    `json:"hostedDomains"`
+				Tenant        string      `json:"tenant"`
+				Issuer        string      `json:"issuer"`
 			}
 			_ = json.Unmarshal(raw, &cfg)
 			switch {
@@ -206,6 +249,10 @@ func connectorOf(u unstructured.Unstructured) Connector {
 				c.Detail = "organisation " + cfg.Orgs[0].Name
 			case len(cfg.HostedDomains) > 0:
 				c.Detail = "domain " + cfg.HostedDomains[0]
+			case cfg.Tenant != "":
+				c.Detail = "tenant " + cfg.Tenant
+			case cfg.Issuer != "":
+				c.Detail = cfg.Issuer
 			}
 		}
 	}

@@ -30,6 +30,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TeamsPage } from "@/pages/teams";
 import { UsersPage } from "@/pages/users";
+import { SignInSettings } from "@/components/signin-settings";
 
 /**
  * The workspace (RFC-0033): the tenant every project belongs to. Its name,
@@ -91,6 +92,9 @@ export function WorkspacePage() {
             <TabsTrigger value="teams">Teams</TabsTrigger>
           )}
           {usersEnabled && <TabsTrigger value="users">Accounts</TabsTrigger>}
+          {perms.clusterAdmin && (
+            <TabsTrigger value="signin">Sign-in</TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <WorkspaceCard readOnly={!perms.clusterAdmin} />
@@ -103,6 +107,11 @@ export function WorkspacePage() {
         </TabsContent>
         <TabsContent value="users" className="mt-4">
           <UsersPage />
+        </TabsContent>
+        <TabsContent value="signin" className="mt-4">
+          <SignInSettings
+            authLocal={!!config.data?.extensions?.includes("auth-local")}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -117,7 +126,7 @@ function WorkspaceCard({ readOnly }: { readOnly: boolean }) {
     if (ws.data) setName(ws.data.name);
   }, [ws.data]);
   const rename = useMutation({
-    mutationFn: (n: string) => api.updateWorkspace(n),
+    mutationFn: (n: string) => api.updateWorkspace({ name: n }),
     onSuccess: () => {
       toast.success("Workspace renamed");
       qc.invalidateQueries({ queryKey: ["workspace"] });
@@ -211,6 +220,22 @@ function PeopleCard() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const status = useMutation({
+    mutationFn: (p: Person) =>
+      api.setPersonStatus(
+        p.email,
+        p.status === "suspended" ? "active" : "suspended",
+      ),
+    onSuccess: (r) => {
+      toast.success(
+        r.status === "suspended"
+          ? `Suspended ${r.email}`
+          : `Reactivated ${r.email}`,
+      );
+      qc.invalidateQueries({ queryKey: ["people"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   return (
     <Card>
@@ -219,8 +244,9 @@ function PeopleCard() {
         <CardDescription>
           Everyone who has signed in to this workspace, with the login method
           they used last. Roles come from teams and project grants, not from
-          this list; forgetting someone removes the record, and the next sign-in
-          creates it again.
+          this list. Suspending someone switches their access off at once —
+          every app, every page — until reactivated; forgetting someone removes
+          the record, and the next sign-in creates it again.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -245,7 +271,7 @@ function PeopleCard() {
                 <TableHead>Signed in with</TableHead>
                 <TableHead>Groups</TableHead>
                 <TableHead className="text-right">Last seen</TableHead>
-                <TableHead className="w-10" />
+                <TableHead className="w-48" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -270,14 +296,27 @@ function PeopleCard() {
                     {ago(p.lastSeenAt)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Forget ${p.email}`}
-                      onClick={() => forget.mutate(p)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      {p.status === "suspended" && (
+                        <Badge variant="destructive">suspended</Badge>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={status.isPending}
+                        onClick={() => status.mutate(p)}
+                      >
+                        {p.status === "suspended" ? "Reactivate" : "Suspend"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Forget ${p.email}`}
+                        onClick={() => forget.mutate(p)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

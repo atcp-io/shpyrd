@@ -82,3 +82,30 @@ func TestRolesResolution(t *testing.T) {
 		t.Error("namespace mapping")
 	}
 }
+
+func TestEveryoneAndSuspended(t *testing.T) {
+	snap := &Snapshot{
+		Teams:     []store.Team{{Name: store.TeamEveryone, Everyone: true}, team("ops", []string{"ops@example.test"}, nil, shpyrdv1.RolePlatformAdmin)},
+		Grants:    []store.Grant{member("intranet", shpyrdv1.RoleUser, "", store.TeamEveryone)},
+		Suspended: map[string]bool{"gone@example.test": true},
+	}
+	anyone := snap.RolesFor(ext.Identity{Email: "someone@example.test", Provider: "google"})
+	if !anyone.Can(ProjectOpen, "intranet") || anyone.Can(ProjectView, "intranet") || anyone.ProjectRole("intranet") != shpyrdv1.RoleUser {
+		t.Errorf("everyone grant: %+v", anyone)
+	}
+	if got := snap.TeamNames(ext.Identity{Email: "someone@example.test"}); len(got) != 1 || got[0] != store.TeamEveryone {
+		t.Errorf("teams = %v", got)
+	}
+	gone := snap.RolesFor(ext.Identity{Email: "gone@example.test", Provider: "google"})
+	if !gone.Suspended || gone.Can(ProjectOpen, "intranet") || gone.Platform != "" {
+		t.Errorf("suspended = %+v", gone)
+	}
+	// The token is never suspended, and not a person for the everyone team.
+	tok := snap.RolesFor(ext.Identity{Subject: "admin-token", Provider: "token"})
+	if tok.Suspended || tok.Platform != shpyrdv1.RolePlatformAdmin {
+		t.Errorf("token = %+v", tok)
+	}
+	if got := snap.TeamNames(ext.Identity{Subject: "admin-token", Provider: "token"}); len(got) != 0 {
+		t.Errorf("token teams = %v", got)
+	}
+}

@@ -139,3 +139,7 @@ evaluator asks for, right after the product looking like itself (RFC-0012).
 Audited on 2026-09-25 against the code. What the text promises but the platform does not do yet is listed here; superseded means a later RFC decided otherwise and the text above is history.
 
 - **Not implemented:** `shpyrd auth connector add` without auth-local shows a raw "no matches for kind Connector" error instead of saying the extension is needed.
+- **Extended (v0.6.0):** Dex connectors gain `microsoft` and generic `oidc` types; connectors
+  are listed, added and removed from the Workspace page (`/api/auth/connectors`) and take
+  effect without a server restart; a verified company domain can require its accounts to
+  use one connector (RFC-0033).

@@ -160,7 +160,13 @@ func newTeamsCreateCmd(g *globalFlags) *cobra.Command {
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created team %s%s\n", name, describeTeam(team))
-			if len(before) == 0 {
+			first := true
+			for _, e := range before {
+				if !e.Everyone {
+					first = false
+				}
+			}
+			if first {
 				warnFirstEnforcement(cmd, t, ctx)
 			}
 			return nil
@@ -215,14 +221,23 @@ func newTeamsListCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(teams) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No teams: every signed-in user is a platform admin. Create one with `shpyrd teams create platform --platform-role platform-admin --member you@example.com`.")
-				return nil
+			real := 0
+			for _, t := range teams {
+				if !t.Everyone {
+					real++
+				}
+			}
+			if real == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No teams yet (besides the built-in `everyone`): every signed-in user is a platform admin. Create one with `shpyrd teams create platform --platform-role platform-admin --member you@example.com`.")
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tMEMBERS\tGROUPS\tPLATFORM ROLE")
 			for _, team := range teams {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", team.Name, firstNonEmpty(strings.Join(team.Members, ", "), "-"), firstNonEmpty(strings.Join(team.Groups, ", "), "-"), firstNonEmpty(team.PlatformRole, "-"))
+				members := firstNonEmpty(strings.Join(team.Members, ", "), "-")
+				if team.Everyone {
+					members = "(every person who signs in)"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", team.Name, members, firstNonEmpty(strings.Join(team.Groups, ", "), "-"), firstNonEmpty(team.PlatformRole, "-"))
 			}
 			return tw.Flush()
 		},
@@ -321,6 +336,7 @@ and destroy). A role is granted to a user by email or to a team.
 
   shpyrd members add shop --user ada@example.com --role developer
   shpyrd members add shop --team web --role developer
+  shpyrd members add intranet --team everyone --role user   # every person who signs in may open it
   shpyrd members list shop
   shpyrd members remove shop --user ada@example.com`,
 	}

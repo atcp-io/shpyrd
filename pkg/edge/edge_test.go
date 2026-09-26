@@ -9,6 +9,8 @@ import (
 	"time"
 
 	kubefake "k8s.io/client-go/kubernetes/fake"
+
+	"shpyrd/pkg/store"
 )
 
 func TestKeysRoundTrip(t *testing.T) {
@@ -73,29 +75,31 @@ func TestCookieAndCodes(t *testing.T) {
 		t.Error("expired cookie must fail")
 	}
 
-	codes := NewCodes()
-	code, err := codes.Mint("Expenses.acme.test", CookieClaims{SessionID: "s1", Project: "expenses", Preview: &Preview{Teams: []string{"finance"}}})
+	ctx := context.Background()
+	mem := store.NewMemory()
+	codes := NewCodes(mem)
+	code, err := codes.Mint(ctx, "Expenses.acme.test", CookieClaims{SessionID: "s1", Project: "expenses", Preview: &Preview{Teams: []string{"finance"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrong, _ := codes.Mint("expenses.acme.test", CookieClaims{SessionID: "s1", Project: "expenses"})
-	if _, err := codes.Redeem(wrong, "crm.acme.test"); err == nil {
+	wrong, _ := codes.Mint(ctx, "expenses.acme.test", CookieClaims{SessionID: "s1", Project: "expenses"})
+	if _, err := codes.Redeem(ctx, wrong, "crm.acme.test"); err == nil {
 		t.Error("code is bound to the host")
 	}
-	if _, err := codes.Redeem(wrong, "expenses.acme.test"); err == nil {
+	if _, err := codes.Redeem(ctx, wrong, "expenses.acme.test"); err == nil {
 		t.Error("an attempt for the wrong host burns the code")
 	}
-	got, err := codes.Redeem(code, "expenses.acme.test")
+	got, err := codes.Redeem(ctx, code, "expenses.acme.test")
 	if err != nil || got.Preview == nil || got.Preview.Teams[0] != "finance" {
 		t.Fatalf("redeem: %v %+v", err, got)
 	}
-	if _, err := codes.Redeem(code, "expenses.acme.test"); err == nil {
+	if _, err := codes.Redeem(ctx, code, "expenses.acme.test"); err == nil {
 		t.Error("a code is redeemed once")
 	}
-	codes.now = func() time.Time { return time.Now().Add(2 * CodeTTL) }
-	late, _ := codes.Mint("expenses.acme.test", CookieClaims{})
-	codes.now = func() time.Time { return time.Now().Add(4 * CodeTTL) }
-	if _, err := codes.Redeem(late, "expenses.acme.test"); err == nil {
+	codes.now = func() time.Time { return time.Now().Add(-2 * CodeTTL) } // minted in the past: already expired
+	late, _ := codes.Mint(ctx, "expenses.acme.test", CookieClaims{})
+	codes.now = time.Now
+	if _, err := codes.Redeem(ctx, late, "expenses.acme.test"); err == nil {
 		t.Error("stale code must fail")
 	}
 }

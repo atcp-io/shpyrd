@@ -186,6 +186,21 @@ func (rp *relyingParty) httpClient() *http.Client {
 
 // providerList returns the sign-in buttons: every provider except the one
 // behind the password form.
+// RemoveOIDC forgets a provider (a connector removed from the Workspace
+// page); sessions opened through it stay until they expire.
+func (rp *relyingParty) RemoveOIDC(id string) {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	delete(rp.providers, id)
+	kept := rp.order[:0]
+	for _, o := range rp.order {
+		if o != id {
+			kept = append(kept, o)
+		}
+	}
+	rp.order = kept
+}
+
 func (rp *relyingParty) providerList() []ProviderInfo {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -480,6 +495,11 @@ func (s *Server) authPassword(c *gin.Context) {
 		abort(c, http.StatusBadGateway, errors.New("the sign-in service is not reachable; try again"))
 		return
 	}
+	if err := s.admitSignIn(c.Request.Context(), id); err != nil {
+		s.auditFailure(c, "auth.refused", id.Email, err.Error())
+		abort(c, http.StatusForbidden, err)
+		return
+	}
 	next, ok := s.openSession(c, id, idToken, "password")
 	if !ok {
 		return
@@ -543,6 +563,11 @@ func (s *Server) authCallback(c *gin.Context) {
 	if err != nil {
 		s.log.Warn("login failed", "error", err, "remote", c.ClientIP())
 		s.auditAnonymous(c, "auth.login_failed", err.Error())
+		s.loginFailed(c, err)
+		return
+	}
+	if err := s.admitSignIn(c.Request.Context(), id); err != nil {
+		s.auditFailure(c, "auth.refused", id.Email, err.Error())
 		s.loginFailed(c, err)
 		return
 	}

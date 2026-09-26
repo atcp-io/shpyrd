@@ -90,6 +90,8 @@ func (d Deps) Var(name string) string {
 type AuthRegistry interface {
 	// AddOIDC registers an OpenID Connect provider users can sign in with.
 	AddOIDC(ctx context.Context, p OIDCProvider) error
+	// RemoveOIDC unregisters a provider; existing sessions stay.
+	RemoveOIDC(id string)
 }
 
 // OIDCProvider configures one OpenID Connect issuer.

@@ -58,6 +58,8 @@ type Roles struct {
 	// Enforced is false while the cluster has no Team or ProjectMember:
 	// then every signed-in user is a platform admin (bootstrap).
 	Enforced bool `json:"enforced"`
+	// Suspended says the person's access is switched off (RFC-0033).
+	Suspended bool `json:"suspended,omitempty"`
 }
 
 // Can reports whether the roles allow an action; project is "" for cluster
@@ -126,10 +128,20 @@ func platformRank(role string) int {
 type Snapshot struct {
 	Teams  []store.Team
 	Grants []store.Grant
+	// Suspended lists the emails of people whose access is switched off.
+	Suspended map[string]bool
 }
 
-// Enforced reports whether any team or grant exists.
-func (s *Snapshot) Enforced() bool { return len(s.Teams) > 0 || len(s.Grants) > 0 }
+// Enforced reports whether any team (other than the built-in one) or any
+// grant exists: until then a fresh cluster is in bootstrap mode.
+func (s *Snapshot) Enforced() bool {
+	for _, t := range s.Teams {
+		if !t.Everyone {
+			return true
+		}
+	}
+	return len(s.Grants) > 0
+}
 
 // teamsOf returns the teams an identity belongs to (by email or group).
 func (s *Snapshot) teamsOf(id ext.Identity) map[string]*store.Team {
@@ -137,6 +149,10 @@ func (s *Snapshot) teamsOf(id ext.Identity) map[string]*store.Team {
 	email := strings.ToLower(id.Email)
 	for i := range s.Teams {
 		t := &s.Teams[i]
+		if t.Everyone && email != "" {
+			out[t.Name] = t // every person who signed in
+			continue
+		}
 		if email != "" {
 			for _, m := range t.Members {
 				if strings.EqualFold(m, email) {
@@ -163,6 +179,11 @@ func (s *Snapshot) RolesFor(id ext.Identity) Roles {
 	// (login tickets), are platform admins: their holders already are.
 	if id.Provider == "token" || id.Provider == "kubeconfig" || id.Subject == "admin-token" {
 		r.Platform = shpyrdv1.RolePlatformAdmin
+		return r
+	}
+	// A suspended person has nothing, bootstrap or not.
+	if id.Email != "" && s.Suspended[strings.ToLower(id.Email)] {
+		r.Suspended, r.Enforced = true, true
 		return r
 	}
 	if !r.Enforced {
@@ -226,7 +247,15 @@ func Load(ctx context.Context, st store.Store, workspace string) (*Snapshot, err
 	if err != nil {
 		return nil, err
 	}
-	return &Snapshot{Teams: teams, Grants: grants}, nil
+	snap := &Snapshot{Teams: teams, Grants: grants, Suspended: map[string]bool{}}
+	if people, err := st.ListIdentities(ctx, workspace); err == nil {
+		for _, p := range people {
+			if p.Status == store.StatusSuspended {
+				snap.Suspended[p.Email] = true
+			}
+		}
+	}
+	return snap, nil
 }
 
 // Resolver caches snapshots briefly: a request costs two queries at most

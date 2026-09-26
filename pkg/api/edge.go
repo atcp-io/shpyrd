@@ -192,6 +192,10 @@ func (s *Server) edgeAuth(c *gin.Context) {
 		return
 	}
 	roles := snap.RolesFor(caller.identity)
+	if roles.Suspended {
+		c.JSON(http.StatusForbidden, gin.H{"error": "your access is suspended"})
+		return
+	}
 	teams := snap.TeamNames(caller.identity)
 	projectRole := roles.ProjectRole(slug)
 	claims := edge.Claims{
@@ -283,7 +287,7 @@ func (s *Server) edgeStart(c *gin.Context) {
 		return
 	}
 	sid, _ := c.Cookie(sessionCookie)
-	code, err := s.edgeCodes.Mint(appHost, edge.CookieClaims{SessionID: sid, Project: app.Name})
+	code, err := s.edgeCodes.Mint(c.Request.Context(), appHost, edge.CookieClaims{SessionID: sid, Project: app.Name})
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
 		return
@@ -299,7 +303,7 @@ func (s *Server) edgeCallback(c *gin.Context) {
 		s.edgePage(c, http.StatusNotFound, "No app here", "There is no app at this address.", nil)
 		return
 	}
-	claims, err := s.edgeCodes.Redeem(c.Query("code"), c.Request.Host)
+	claims, err := s.edgeCodes.Redeem(c.Request.Context(), c.Query("code"), c.Request.Host)
 	if err != nil || claims.Project != app.Name {
 		s.edgePage(c, http.StatusBadRequest, "Sign-in link expired", "Open the app again to sign in.", nil)
 		return
@@ -342,6 +346,15 @@ func (s *Server) edgeDenied(c *gin.Context) {
 				}
 			}
 			sort.Strings(teams)
+		}
+	}
+	// A suspended person gets the reason, not the team list.
+	if app != nil {
+		if caller, err := s.edgeIdentify(c, app.Name); err == nil && caller != nil {
+			if roles, err := s.authz.Roles(c.Request.Context(), caller.identity); err == nil && roles.Suspended {
+				s.edgePage(c, http.StatusForbidden, "Your access is suspended", "An administrator switched your access off. Ask them to reactivate it.", map[string]string{"Sign in as someone else": edgePathPrefix + "logout"})
+				return
+			}
 		}
 	}
 	msg := name + " is available to its team"
@@ -468,7 +481,7 @@ func (s *Server) previewApp(c *gin.Context) {
 		}
 	}
 	host := s.appPublicHost(app.Name)
-	code, err := s.edgeCodes.Mint(host, edge.CookieClaims{SessionID: sid, Project: app.Name, Preview: &edge.Preview{Teams: teams, Anonymous: req.Anonymous}})
+	code, err := s.edgeCodes.Mint(c.Request.Context(), host, edge.CookieClaims{SessionID: sid, Project: app.Name, Preview: &edge.Preview{Teams: teams, Anonymous: req.Anonymous}})
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
 		return

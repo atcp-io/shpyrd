@@ -17,12 +17,15 @@ type Memory struct {
 	identities []Identity
 	teams      []Team
 	grants     []Grant
+	sessions   map[string]*Session
+	codes      map[string]*Code
+	domains    []DomainClaim
 	now        func() time.Time
 }
 
 // NewMemory returns an empty store with the implicit workspace.
 func NewMemory() *Memory {
-	m := &Memory{workspaces: map[string]*Workspace{}, now: func() time.Time { return time.Now().UTC() }}
+	m := &Memory{workspaces: map[string]*Workspace{}, sessions: map[string]*Session{}, codes: map[string]*Code{}, now: func() time.Time { return time.Now().UTC() }}
 	_ = m.Migrate(context.Background(), "shpyrd")
 	return m
 }
@@ -35,6 +38,17 @@ func (m *Memory) Migrate(_ context.Context, defaultName string) error {
 	if _, ok := m.workspaces[DefaultWorkspace]; !ok {
 		t := m.now()
 		m.workspaces[DefaultWorkspace] = &Workspace{ID: newID(), Slug: DefaultWorkspace, Name: defaultName, CreatedAt: t, UpdatedAt: t}
+	}
+	w := m.workspaces[DefaultWorkspace]
+	found := false
+	for _, t := range m.teams {
+		if t.WorkspaceID == w.ID && t.Everyone {
+			found = true
+		}
+	}
+	if !found {
+		t := m.now()
+		m.teams = append(m.teams, Team{ID: newID(), WorkspaceID: w.ID, Name: TeamEveryone, Description: "Everyone who has signed in", Members: []string{}, Groups: []string{}, Everyone: true, CreatedAt: t, UpdatedAt: t})
 	}
 	return nil
 }
@@ -72,6 +86,91 @@ func (m *Memory) UpdateWorkspace(_ context.Context, slug, name string) (*Workspa
 	return &c, nil
 }
 
+func (m *Memory) UpdateWorkspaceSettings(_ context.Context, slug string, settings WorkspaceSettings) (*Workspace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(slug)
+	if err != nil {
+		return nil, err
+	}
+	w.Settings, w.UpdatedAt = settings, m.now()
+	c := *w
+	return &c, nil
+}
+
+func (m *Memory) ListDomainClaims(_ context.Context, ws string) ([]DomainClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	var out []DomainClaim
+	for _, d := range m.domains {
+		if d.WorkspaceID == w.ID {
+			out = append(out, d)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Domain < out[j].Domain })
+	return out, nil
+}
+
+func (m *Memory) PutDomainClaim(_ context.Context, ws, domain, connector string) (*DomainClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	for i := range m.domains {
+		d := &m.domains[i]
+		if d.WorkspaceID == w.ID && d.Domain == domain {
+			d.Connector = connector
+			c := *d
+			return &c, nil
+		}
+	}
+	d := DomainClaim{ID: newID(), WorkspaceID: w.ID, Domain: domain, Token: newID(), Connector: connector, CreatedAt: m.now()}
+	m.domains = append(m.domains, d)
+	return &d, nil
+}
+
+func (m *Memory) MarkDomainVerified(_ context.Context, ws, domain string, at time.Time) (*DomainClaim, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	for i := range m.domains {
+		d := &m.domains[i]
+		if d.WorkspaceID == w.ID && d.Domain == strings.ToLower(domain) {
+			t := at
+			d.VerifiedAt = &t
+			c := *d
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Memory) DeleteDomainClaim(_ context.Context, ws, domain string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return err
+	}
+	for i, d := range m.domains {
+		if d.WorkspaceID == w.ID && d.Domain == strings.ToLower(domain) {
+			m.domains = append(m.domains[:i], m.domains[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func (m *Memory) TouchIdentity(_ context.Context, ws string, id Identity) (*Identity, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -102,7 +201,7 @@ func (m *Memory) TouchIdentity(_ context.Context, ws string, id Identity) (*Iden
 			return &c, nil
 		}
 	}
-	it := Identity{ID: newID(), WorkspaceID: w.ID, Realm: realm, Email: email, Name: id.Name, Provider: id.Provider, Groups: append([]string(nil), id.Groups...), FirstSeenAt: now, LastSeenAt: now}
+	it := Identity{ID: newID(), WorkspaceID: w.ID, Realm: realm, Email: email, Name: id.Name, Provider: id.Provider, Groups: append([]string(nil), id.Groups...), Status: StatusActive, FirstSeenAt: now, LastSeenAt: now}
 	m.identities = append(m.identities, it)
 	return &it, nil
 }
@@ -122,6 +221,25 @@ func (m *Memory) ListIdentities(_ context.Context, ws string) ([]Identity, error
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
 	return out, nil
+}
+
+func (m *Memory) SetIdentityStatus(_ context.Context, ws, email, status string) (*Identity, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	email = strings.ToLower(email)
+	for i := range m.identities {
+		it := &m.identities[i]
+		if it.WorkspaceID == w.ID && it.Email == email {
+			it.Status = status
+			c := *it
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (m *Memory) DeleteIdentity(_ context.Context, ws, email string) error {
@@ -183,10 +301,14 @@ func (m *Memory) PutTeam(_ context.Context, ws string, t Team) (*Team, bool, err
 	}
 	t.Members = normalizeEmails(t.Members)
 	t.Groups = dedupe(t.Groups)
+	t.Everyone = false
 	now := m.now()
 	for i := range m.teams {
 		e := &m.teams[i]
 		if e.WorkspaceID == w.ID && e.Name == t.Name {
+			if e.Everyone {
+				return nil, false, ErrBuiltIn
+			}
 			e.Description, e.Members, e.Groups, e.PlatformRole, e.UpdatedAt = t.Description, t.Members, t.Groups, t.PlatformRole, now
 			c := cloneTeam(*e)
 			return &c, false, nil
@@ -207,6 +329,9 @@ func (m *Memory) DeleteTeam(_ context.Context, ws, name string) error {
 	}
 	for i, t := range m.teams {
 		if t.WorkspaceID == w.ID && t.Name == name {
+			if t.Everyone {
+				return ErrBuiltIn
+			}
 			m.teams = append(m.teams[:i], m.teams[i+1:]...)
 			kept := m.grants[:0]
 			for _, g := range m.grants {
@@ -323,7 +448,8 @@ func (m *Memory) Export(ctx context.Context, ws string) (*Dump, error) {
 	ids, _ := m.ListIdentities(ctx, ws)
 	teams, _ := m.ListTeams(ctx, ws)
 	grants, _ := m.ListGrants(ctx, ws)
-	return &Dump{Version: DumpVersion, Workspace: *w, Identities: ids, Teams: teams, Grants: grants}, nil
+	domains, _ := m.ListDomainClaims(ctx, ws)
+	return &Dump{Version: DumpVersion, Workspace: *w, Identities: ids, Teams: teams, Grants: grants, Domains: domains}, nil
 }
 
 func (m *Memory) Import(ctx context.Context, ws string, d *Dump, overwrite bool) (*ImportResult, error) {
@@ -339,8 +465,23 @@ func importDump(ctx context.Context, s Store, ws string, d *Dump, overwrite bool
 		if _, err := s.UpdateWorkspace(ctx, ws, d.Workspace.Name); err != nil {
 			return res, err
 		}
+		if _, err := s.UpdateWorkspaceSettings(ctx, ws, d.Workspace.Settings); err != nil {
+			return res, err
+		}
+	}
+	for _, dc := range d.Domains {
+		claim, err := s.PutDomainClaim(ctx, ws, dc.Domain, dc.Connector)
+		if err != nil {
+			return res, err
+		}
+		if dc.VerifiedAt != nil && claim.VerifiedAt == nil {
+			_, _ = s.MarkDomainVerified(ctx, ws, dc.Domain, *dc.VerifiedAt)
+		}
 	}
 	for _, t := range d.Teams {
+		if t.Everyone || t.Name == TeamEveryone {
+			continue // built in everywhere
+		}
 		if !overwrite {
 			if _, err := s.GetTeam(ctx, ws, t.Name); err == nil {
 				res.Skipped++
@@ -366,6 +507,9 @@ func importDump(ctx context.Context, s Store, ws string, d *Dump, overwrite bool
 	for _, id := range d.Identities {
 		if _, err := s.TouchIdentity(ctx, ws, id); err != nil {
 			return res, err
+		}
+		if id.Status == StatusSuspended {
+			_, _ = s.SetIdentityStatus(ctx, ws, id.Email, StatusSuspended)
 		}
 		res.Identities++
 	}
@@ -417,4 +561,104 @@ func dedupe(in []string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+func (m *Memory) PutSession(_ context.Context, ws string, sess Session) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return err
+	}
+	sess.WorkspaceID = w.ID
+	c := sess
+	m.sessions[sess.ID] = &c
+	return nil
+}
+
+func (m *Memory) GetSession(_ context.Context, id string) (*Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	c := *s
+	return &c, nil
+}
+
+func (m *Memory) TouchSession(_ context.Context, id string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok {
+		return ErrNotFound
+	}
+	s.LastSeenAt = at
+	return nil
+}
+
+func (m *Memory) DeleteSession(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, id)
+	return nil
+}
+
+func (m *Memory) PurgeSessions(_ context.Context, createdBefore, seenBefore time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for id, s := range m.sessions {
+		if s.CreatedAt.Before(createdBefore) || s.LastSeenAt.Before(seenBefore) {
+			delete(m.sessions, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *Memory) CountSessions(_ context.Context, ws string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, s := range m.sessions {
+		if s.WorkspaceID == w.ID {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *Memory) PutCode(_ context.Context, c Code) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	for k, e := range m.codes {
+		if now.After(e.ExpiresAt) {
+			delete(m.codes, k)
+		}
+	}
+	cc := c
+	m.codes[c.Code] = &cc
+	return nil
+}
+
+func (m *Memory) TakeCode(_ context.Context, code string) (*Code, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.codes[code]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	delete(m.codes, code)
+	if m.now().After(c.ExpiresAt) {
+		return nil, ErrNotFound
+	}
+	cc := *c
+	return &cc, nil
 }

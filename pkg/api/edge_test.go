@@ -70,12 +70,12 @@ func TestEdgeAuthDecisions(t *testing.T) {
 
 	// João, in Finance with the user role: in, with headers and a JWT.
 	rec := edgeRequest(t, s, "expenses", "authenticated", cookieFor(joaoSID, "expenses", nil), "")
-	if rec.Code != http.StatusOK || rec.Header().Get("X-Shpyrd-User") != "joao@acme.test" || rec.Header().Get("X-Shpyrd-Teams") != "finance" || rec.Header().Get("X-Shpyrd-Roles") != "user" {
+	if rec.Code != http.StatusOK || rec.Header().Get("X-Shpyrd-User") != "joao@acme.test" || rec.Header().Get("X-Shpyrd-Teams") != "everyone,finance" || rec.Header().Get("X-Shpyrd-Roles") != "user" {
 		t.Fatalf("joao = %d %v", rec.Code, rec.Header())
 	}
 	var claims edge.Claims
 	tok := strings.TrimPrefix(rec.Header().Get("Authorization"), "Bearer ")
-	if err := s.edgeKeys.Verify(tok, "JWT", &claims); err != nil || claims.Audience != "expenses" || claims.Email != "joao@acme.test" || claims.Teams[0] != "finance" || claims.Preview {
+	if err := s.edgeKeys.Verify(tok, "JWT", &claims); err != nil || claims.Audience != "expenses" || claims.Email != "joao@acme.test" || claims.Teams[1] != "finance" || claims.Preview {
 		t.Errorf("jwt: %v %+v", err, claims)
 	}
 	// A cookie for another project does not open this one.
@@ -90,6 +90,48 @@ func TestEdgeAuthDecisions(t *testing.T) {
 	if rec := edgeRequest(t, s, "expenses", "identified", cookieFor(pedroSID, "expenses", nil), ""); rec.Code != http.StatusOK || rec.Header().Get("X-Shpyrd-User") != "pedro@acme.test" || rec.Header().Get("X-Shpyrd-Roles") != "" {
 		t.Errorf("pedro identified = %d %v", rec.Code, rec.Header())
 	}
+	// Suspending João switches him off at once; reactivating brings him back.
+	if _, err := s.store.TouchIdentity(ctx, store.DefaultWorkspace, store.Identity{Email: "joao@acme.test", Provider: "google"}); err != nil {
+		t.Fatal(err)
+	}
+	req0 := httptest.NewRequest("PATCH", "/api/workspace/people/joao@acme.test", strings.NewReader(`{"status":"suspended"}`))
+	req0.Header.Set("Content-Type", "application/json")
+	req0.Header.Set("Authorization", "Bearer "+testToken)
+	rec0 := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec0, req0)
+	if rec0.Code != http.StatusOK || !strings.Contains(rec0.Body.String(), `"status":"suspended"`) {
+		t.Fatalf("suspend = %d %s", rec0.Code, rec0.Body.String())
+	}
+	if rec := edgeRequest(t, s, "expenses", "authenticated", cookieFor(joaoSID, "expenses", nil), ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "suspended") {
+		t.Errorf("suspended joao = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doCookie(t, s, "GET", "/api/me", "", joaoSID, ""); !strings.Contains(rec.Body.String(), `"suspended":true`) {
+		t.Errorf("me while suspended = %s", rec.Body.String())
+	}
+	req0 = httptest.NewRequest("PATCH", "/api/workspace/people/joao@acme.test", strings.NewReader(`{"status":"active"}`))
+	req0.Header.Set("Content-Type", "application/json")
+	req0.Header.Set("Authorization", "Bearer "+testToken)
+	rec0 = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec0, req0)
+	if rec := edgeRequest(t, s, "expenses", "authenticated", cookieFor(joaoSID, "expenses", nil), ""); rec.Code != http.StatusOK {
+		t.Errorf("reactivated joao = %d", rec.Code)
+	}
+	// The everyone team opens the app to every signed-in person.
+	if _, err := s.store.AddGrant(ctx, store.DefaultWorkspace, store.Grant{Project: "expenses", Role: shpyrdv1.RoleUser, Team: store.TeamEveryone}); err != nil {
+		t.Fatal(err)
+	}
+	s.authz.Invalidate()
+	if rec := edgeRequest(t, s, "expenses", "authenticated", cookieFor(pedroSID, "expenses", nil), ""); rec.Code != http.StatusOK || rec.Header().Get("X-Shpyrd-Teams") != "everyone" {
+		t.Errorf("pedro via everyone = %d %v", rec.Code, rec.Header())
+	}
+	if err := s.store.DeleteProjectGrants(ctx, store.DefaultWorkspace, "expenses"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.AddGrant(ctx, store.DefaultWorkspace, store.Grant{Project: "expenses", Role: shpyrdv1.RoleUser, Team: "finance"}); err != nil {
+		t.Fatal(err)
+	}
+	s.authz.Invalidate()
+
 	// Signing out ends it.
 	s.rp.sessions.delete(ctx, pedroSID)
 	if rec := edgeRequest(t, s, "expenses", "authenticated", cookieFor(pedroSID, "expenses", nil), ""); rec.Code != http.StatusUnauthorized {

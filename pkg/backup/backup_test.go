@@ -125,7 +125,7 @@ func TestExportEncryptReadRoundTrip(t *testing.T) {
 		t.Errorf("secrets kept = %v", names)
 	}
 	var dump store.Dump
-	if err := json.Unmarshal(a.Files["cluster/store.json"], &dump); err != nil || len(dump.Teams) != 1 || dump.Teams[0].Name != "platform" {
+	if err := json.Unmarshal(a.Files["cluster/store.json"], &dump); err != nil || len(dump.Teams) != 2 || dump.Teams[1].Name != "platform" {
 		t.Errorf("store dump: %v %+v", err, dump)
 	}
 	if _, has := a.Files["system/configmap-shpyrd-install.yaml"]; !has {

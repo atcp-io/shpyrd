@@ -132,7 +132,15 @@ export function TeamsPage() {
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
-                      {t.members.length ? t.members.join(", ") : "-"}
+                      {t.everyone ? (
+                        <span className="font-sans text-muted-foreground">
+                          every person who signs in
+                        </span>
+                      ) : t.members.length ? (
+                        t.members.join(", ")
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {t.groups.length ? t.groups.join(", ") : "-"}
@@ -141,25 +149,31 @@ export function TeamsPage() {
                       {t.platformRole || "-"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <TeamDialog onDone={refresh} team={t} />
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          className="text-destructive"
-                          disabled={remove.isPending}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `Delete team ${t.name} and the project roles granted to it?`,
+                      {t.everyone ? (
+                        <span className="text-xs text-muted-foreground">
+                          built in
+                        </span>
+                      ) : (
+                        <div className="flex justify-end gap-1">
+                          <TeamDialog onDone={refresh} team={t} />
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="text-destructive"
+                            disabled={remove.isPending}
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Delete team ${t.name} and the project roles granted to it?`,
+                                )
                               )
-                            )
-                              remove.mutate(t);
-                          }}
-                        >
-                          <Trash2 data-icon="inline-start" /> Delete
-                        </Button>
-                      </div>
+                                remove.mutate(t);
+                            }}
+                          >
+                            <Trash2 data-icon="inline-start" /> Delete
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

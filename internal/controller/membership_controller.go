@@ -177,6 +177,12 @@ func (s subjectSet) team(snap *authz.Snapshot, name string) {
 		if t.Name != name {
 			continue
 		}
+		if t.Everyone {
+			// Every signed-in person: not enumerable, and the Kubernetes
+			// equivalent (system:authenticated) would be far wider. The
+			// edge honours it; kubectl does not.
+			continue
+		}
 		for _, m := range t.Members {
 			s.user(m)
 		}

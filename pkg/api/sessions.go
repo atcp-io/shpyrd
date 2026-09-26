@@ -10,26 +10,30 @@ import (
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"shpyrd/pkg/ext"
+	"shpyrd/pkg/store"
 )
 
-// Sessions of signed-in dashboard users (RFC-0007). They are kept in memory
-// and mirrored into a Secret so a server restart does not sign everyone
-// out. A session holds the identity, never the issuer's access or refresh
-// tokens; the id_token is kept only for issuers that support RP-initiated
-// logout (RFC-0012).
+// Sessions (RFC-0007) live in the control-plane store since RFC-0033
+// phase 3, so a restart keeps people signed in and every replica sees the
+// same sign-outs. The server keeps a short-lived cache in front of it: a
+// hit costs nothing, a miss one query, and an entry is re-checked against
+// the store every cacheRevalidate so a sign-out on another replica takes
+// effect within that window. Installs made earlier kept sessions in Secret
+// shpyrd-sessions; the first start imports them once.
 
-// SessionsSecretName is the Secret mirroring the sessions.
+// SessionsSecretName is the pre-store mirror (imported, then left alone).
 const SessionsSecretName = "shpyrd-sessions"
 
 const (
 	sessionIdle     = 12 * time.Hour
 	sessionAbsolute = 7 * 24 * time.Hour
+	cacheRevalidate = 30 * time.Second
+	touchEvery      = time.Minute
 )
 
 type session struct {
@@ -47,69 +51,73 @@ func (s *session) expired(now time.Time) bool {
 	return now.Sub(s.CreatedAt) > sessionAbsolute || now.Sub(s.LastSeen) > sessionIdle
 }
 
+type cachedSession struct {
+	s         *session
+	checkedAt time.Time
+	touchedAt time.Time
+}
+
 type sessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]*session
-	kube     kubernetes.Interface // nil: memory only (tests)
-	ns       string
-	log      *slog.Logger
-	now      func() time.Time
+	mu    sync.Mutex
+	cache map[string]*cachedSession
+	store store.Store
+	ws    string
+	kube  kubernetes.Interface // nil: no Secret to import from (tests)
+	ns    string
+	log   *slog.Logger
+	now   func() time.Time
 }
 
-func newSessionStore(kube kubernetes.Interface, ns string, log *slog.Logger) *sessionStore {
-	return &sessionStore{sessions: map[string]*session{}, kube: kube, ns: ns, log: log, now: time.Now}
+func newSessionStore(st store.Store, kube kubernetes.Interface, ns string, log *slog.Logger) *sessionStore {
+	return &sessionStore{cache: map[string]*cachedSession{}, store: st, ws: store.DefaultWorkspace, kube: kube, ns: ns, log: log, now: time.Now}
 }
 
-// load reads the mirrored sessions; missing Secret means a fresh start.
+// load imports the pre-store Secret mirror once: only when the store holds
+// no sessions yet, so an upgrade keeps everyone signed in.
 func (st *sessionStore) load(ctx context.Context) {
 	if st.kube == nil {
+		return
+	}
+	if n, err := st.store.CountSessions(ctx, st.ws); err != nil || n > 0 {
 		return
 	}
 	sec, err := st.kube.CoreV1().Secrets(st.ns).Get(ctx, SessionsSecretName, metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			st.log.Warn("sessions: cannot read mirror", "error", err)
+			st.log.Warn("sessions: cannot read the old mirror", "error", err)
 		}
 		return
 	}
 	var list []*session
 	if err := json.Unmarshal(sec.Data["sessions"], &list); err != nil {
-		st.log.Warn("sessions: corrupt mirror, starting empty", "error", err)
 		return
 	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
 	now := st.now()
+	imported := 0
 	for _, s := range list {
-		if !s.expired(now) {
-			st.sessions[s.ID] = s
+		if s.expired(now) {
+			continue
+		}
+		if err := st.store.PutSession(ctx, st.ws, toStoreSession(s)); err == nil {
+			imported++
 		}
 	}
+	if imported > 0 {
+		st.log.Info("sessions imported from the Secret mirror into the control-plane store", "count", imported)
+	}
+	// The mirror is history from here on.
+	_ = st.kube.CoreV1().Secrets(st.ns).Delete(ctx, SessionsSecretName, metav1.DeleteOptions{})
 }
 
-// persist writes the current sessions to the Secret (best effort).
-func (st *sessionStore) persist(ctx context.Context) {
-	if st.kube == nil {
-		return
-	}
-	st.mu.Lock()
-	list := make([]*session, 0, len(st.sessions))
-	for _, s := range st.sessions {
-		list = append(list, s)
-	}
-	st.mu.Unlock()
-	raw, _ := json.Marshal(list)
-	sec := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: SessionsSecretName, Namespace: st.ns, Labels: map[string]string{"app.kubernetes.io/managed-by": "shpyrd"}},
-		Data:       map[string][]byte{"sessions": raw},
-	}
-	_, err := st.kube.CoreV1().Secrets(st.ns).Update(ctx, sec, metav1.UpdateOptions{})
-	if apierrors.IsNotFound(err) {
-		_, err = st.kube.CoreV1().Secrets(st.ns).Create(ctx, sec, metav1.CreateOptions{})
-	}
-	if err != nil {
-		st.log.Warn("sessions: cannot persist", "error", err)
-	}
+func toStoreSession(s *session) store.Session {
+	id, _ := json.Marshal(s.Identity)
+	return store.Session{ID: s.ID, Identity: id, CSRF: s.CSRF, IDToken: s.IDToken, CreatedAt: s.CreatedAt, LastSeenAt: s.LastSeen}
+}
+
+func fromStoreSession(s *store.Session) *session {
+	out := &session{ID: s.ID, CSRF: s.CSRF, IDToken: s.IDToken, CreatedAt: s.CreatedAt, LastSeen: s.LastSeenAt}
+	_ = json.Unmarshal(s.Identity, &out.Identity)
+	return out
 }
 
 func (st *sessionStore) create(ctx context.Context, id ext.Identity, idToken string) (*session, error) {
@@ -123,48 +131,95 @@ func (st *sessionStore) create(ctx context.Context, id ext.Identity, idToken str
 	}
 	now := st.now()
 	s := &session{ID: sid, CSRF: csrf, Identity: id, CreatedAt: now, LastSeen: now, IDToken: idToken}
-	st.mu.Lock()
-	st.sessions[sid] = s
-	// Housekeeping while we hold the lock.
-	for k, v := range st.sessions {
-		if v.expired(now) {
-			delete(st.sessions, k)
-		}
+	if err := st.store.PutSession(ctx, st.ws, toStoreSession(s)); err != nil {
+		return nil, fmt.Errorf("store session: %w", err)
 	}
+	st.mu.Lock()
+	st.cache[sid] = &cachedSession{s: s, checkedAt: now, touchedAt: now}
 	st.mu.Unlock()
-	st.persist(ctx)
+	// Housekeeping, off the request's path.
+	go func() {
+		pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = st.store.PurgeSessions(pctx, now.Add(-sessionAbsolute), now.Add(-sessionIdle))
+	}()
 	return s, nil
 }
 
-// get returns a live session and marks it seen.
+// get returns a live session and marks it seen. The cache answers within
+// cacheRevalidate; then the store is asked again.
 func (st *sessionStore) get(id string) (*session, bool) {
+	now := st.now()
 	st.mu.Lock()
-	defer st.mu.Unlock()
-	s, ok := st.sessions[id]
-	if !ok {
+	c, ok := st.cache[id]
+	if ok && now.Sub(c.checkedAt) < cacheRevalidate {
+		if c.s.expired(now) {
+			delete(st.cache, id)
+			st.mu.Unlock()
+			return nil, false
+		}
+		c.s.LastSeen = now
+		touch := now.Sub(c.touchedAt) >= touchEvery
+		if touch {
+			c.touchedAt = now
+		}
+		s := c.s
+		st.mu.Unlock()
+		if touch {
+			st.touch(id, now)
+		}
+		return s, true
+	}
+	st.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stored, err := st.store.GetSession(ctx, id)
+	if err != nil {
+		st.mu.Lock()
+		delete(st.cache, id)
+		st.mu.Unlock()
 		return nil, false
 	}
-	now := st.now()
+	s := fromStoreSession(stored)
 	if s.expired(now) {
-		delete(st.sessions, id)
+		_ = st.store.DeleteSession(ctx, id)
+		st.mu.Lock()
+		delete(st.cache, id)
+		st.mu.Unlock()
 		return nil, false
 	}
 	s.LastSeen = now
+	st.mu.Lock()
+	st.cache[id] = &cachedSession{s: s, checkedAt: now, touchedAt: now}
+	st.mu.Unlock()
+	st.touch(id, now)
 	return s, true
+}
+
+func (st *sessionStore) touch(id string, at time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := st.store.TouchSession(ctx, id, at); err != nil && st.log != nil {
+		st.log.Debug("session touch failed", "error", err)
+	}
 }
 
 func (st *sessionStore) delete(ctx context.Context, id string) {
 	st.mu.Lock()
-	delete(st.sessions, id)
+	delete(st.cache, id)
 	st.mu.Unlock()
-	st.persist(ctx)
+	if err := st.store.DeleteSession(ctx, id); err != nil && st.log != nil {
+		st.log.Warn("sessions: cannot delete", "error", err)
+	}
 }
 
 // count is used by tests and the cluster page.
 func (st *sessionStore) count() int {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	return len(st.sessions)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	n, _ := st.store.CountSessions(ctx, st.ws)
+	return n
 }
 
 func randomToken(n int) (string, error) {

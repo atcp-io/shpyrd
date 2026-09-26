@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -22,7 +24,7 @@ func implementations(t *testing.T) map[string]func(t *testing.T) Store {
 				t.Fatal(err)
 			}
 			// A clean slate per test.
-			for _, stmt := range []string{"DROP TABLE IF EXISTS grants", "DROP TABLE IF EXISTS teams", "DROP TABLE IF EXISTS identities", "DROP TABLE IF EXISTS workspaces", "DROP TABLE IF EXISTS schema_migrations"} {
+			for _, stmt := range []string{"DROP TABLE IF EXISTS domain_claims", "DROP TABLE IF EXISTS edge_codes", "DROP TABLE IF EXISTS sessions", "DROP TABLE IF EXISTS grants", "DROP TABLE IF EXISTS teams", "DROP TABLE IF EXISTS identities", "DROP TABLE IF EXISTS workspaces", "DROP TABLE IF EXISTS schema_migrations"} {
 				if _, err := p.pool.Exec(ctx, stmt); err != nil {
 					t.Fatal(err)
 				}
@@ -57,6 +59,30 @@ func TestStoreConformance(t *testing.T) {
 			if w, err := s.UpdateWorkspace(ctx, DefaultWorkspace, "Acme"); err != nil || w.Name != "Acme" {
 				t.Errorf("rename: %+v %v", w, err)
 			}
+			if w, err := s.UpdateWorkspaceSettings(ctx, DefaultWorkspace, WorkspaceSettings{JoinPolicy: JoinListed}); err != nil || w.Settings.JoinPolicy != JoinListed {
+				t.Errorf("settings: %+v %v", w, err)
+			}
+			if w, _ := s.Workspace(ctx, DefaultWorkspace); w.Settings.JoinPolicy != JoinListed {
+				t.Errorf("settings not persisted: %+v", w)
+			}
+			// Domain claims: created with a token, verified later, connector updatable.
+			claim, err := s.PutDomainClaim(ctx, DefaultWorkspace, "Acme.com", "google")
+			if err != nil || claim.Domain != "acme.com" || claim.Token == "" || claim.VerifiedAt != nil {
+				t.Fatalf("claim: %+v %v", claim, err)
+			}
+			again, _ := s.PutDomainClaim(ctx, DefaultWorkspace, "acme.com", "okta")
+			if again.Token != claim.Token || again.Connector != "okta" {
+				t.Errorf("claim update: %+v", again)
+			}
+			if v, err := s.MarkDomainVerified(ctx, DefaultWorkspace, "acme.com", time.Now()); err != nil || v.VerifiedAt == nil {
+				t.Errorf("verify: %+v %v", v, err)
+			}
+			if claims, _ := s.ListDomainClaims(ctx, DefaultWorkspace); len(claims) != 1 || claims[0].VerifiedAt == nil {
+				t.Errorf("claims = %+v", claims)
+			}
+			if err := s.DeleteDomainClaim(ctx, DefaultWorkspace, "nope.com"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("delete unknown claim: %v", err)
+			}
 
 			// Teams: create, update in place, normalised emails.
 			team, created, err := s.PutTeam(ctx, DefaultWorkspace, Team{Name: "platform", Description: "ops", Members: []string{" Ops@Example.test ", "ops@example.test", "dev@example.test"}, Groups: []string{"g1", "g1"}, PlatformRole: "platform-admin"})
@@ -71,9 +97,20 @@ func TestStoreConformance(t *testing.T) {
 				t.Fatal(err)
 			}
 			teams, err := s.ListTeams(ctx, DefaultWorkspace)
-			if err != nil || len(teams) != 2 || teams[0].Name != "finance" {
+			if err != nil || len(teams) != 3 || teams[0].Name != "everyone" || !teams[0].Everyone || teams[1].Name != "finance" {
 				t.Fatalf("list teams: %+v %v", teams, err)
 			}
+			// The built-in team is neither editable nor deletable, but grantable.
+			if _, _, err := s.PutTeam(ctx, DefaultWorkspace, Team{Name: TeamEveryone, Members: []string{"x@example.test"}}); !errors.Is(err, ErrBuiltIn) {
+				t.Errorf("put everyone: %v", err)
+			}
+			if err := s.DeleteTeam(ctx, DefaultWorkspace, TeamEveryone); !errors.Is(err, ErrBuiltIn) {
+				t.Errorf("delete everyone: %v", err)
+			}
+			if _, err := s.AddGrant(ctx, DefaultWorkspace, Grant{Project: "intranet", Role: "user", Team: TeamEveryone}); err != nil {
+				t.Errorf("grant everyone: %v", err)
+			}
+			_ = s.DeleteProjectGrants(ctx, DefaultWorkspace, "intranet")
 			if _, err := s.GetTeam(ctx, DefaultWorkspace, "nope"); !errors.Is(err, ErrNotFound) {
 				t.Errorf("get unknown team: %v", err)
 			}
@@ -137,8 +174,17 @@ func TestStoreConformance(t *testing.T) {
 				t.Fatalf("touch again: %+v %v", id2, err)
 			}
 			ids, _ := s.ListIdentities(ctx, DefaultWorkspace)
-			if len(ids) != 1 {
-				t.Errorf("identities = %d", len(ids))
+			if len(ids) != 1 || ids[0].Status != StatusActive {
+				t.Errorf("identities = %+v", ids)
+			}
+			if sus, err := s.SetIdentityStatus(ctx, DefaultWorkspace, "maria@example.test", StatusSuspended); err != nil || sus.Status != StatusSuspended {
+				t.Errorf("suspend: %v %+v", err, sus)
+			}
+			if _, err := s.SetIdentityStatus(ctx, DefaultWorkspace, "nobody@example.test", StatusSuspended); !errors.Is(err, ErrNotFound) {
+				t.Errorf("suspend unknown: %v", err)
+			}
+			if _, err := s.SetIdentityStatus(ctx, DefaultWorkspace, "maria@example.test", StatusActive); err != nil {
+				t.Fatal(err)
 			}
 
 			// Export / import round trip into a fresh store.
@@ -149,7 +195,7 @@ func TestStoreConformance(t *testing.T) {
 				t.Fatal(err)
 			}
 			dump, err := s.Export(ctx, DefaultWorkspace)
-			if err != nil || dump.Version != DumpVersion || len(dump.Teams) != 2 || len(dump.Grants) != 1 || len(dump.Identities) != 1 {
+			if err != nil || dump.Version != DumpVersion || len(dump.Teams) != 3 || len(dump.Grants) != 1 || len(dump.Identities) != 1 || len(dump.Domains) != 1 {
 				t.Fatalf("export: %+v %v", dump, err)
 			}
 			fresh := NewMemory()
@@ -157,12 +203,74 @@ func TestStoreConformance(t *testing.T) {
 			if err != nil || res.Teams != 2 || res.Grants != 1 || res.Identities != 1 {
 				t.Fatalf("import: %+v %v", res, err)
 			}
+			if claims, _ := fresh.ListDomainClaims(ctx, DefaultWorkspace); len(claims) != 1 || claims[0].VerifiedAt == nil {
+				t.Errorf("imported claims = %+v", claims)
+			}
 			res, err = fresh.Import(ctx, DefaultWorkspace, dump, false)
 			if err != nil || res.Teams != 0 || res.Skipped != 3 {
 				t.Errorf("import again without overwrite: %+v %v", res, err)
 			}
 			if err := s.DeleteIdentity(ctx, DefaultWorkspace, "maria@example.test"); err != nil {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestSessionsAndCodes(t *testing.T) {
+	for name, open := range implementations(t) {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s := open(t)
+			now := time.Now().UTC().Truncate(time.Millisecond)
+			sess := Session{ID: "sid-1", Identity: json.RawMessage(`{"email":"maria@acme.test"}`), CSRF: "c1", CreatedAt: now, LastSeenAt: now}
+			if err := s.PutSession(ctx, DefaultWorkspace, sess); err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.GetSession(ctx, "sid-1")
+			if err != nil || got.CSRF != "c1" || got.WorkspaceID == "" || !strings.Contains(string(got.Identity), "maria") {
+				t.Fatalf("get: %v %+v", err, got)
+			}
+			if err := s.TouchSession(ctx, "sid-1", now.Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			got, _ = s.GetSession(ctx, "sid-1")
+			if !got.LastSeenAt.After(now) {
+				t.Errorf("touch did not move last_seen: %v", got.LastSeenAt)
+			}
+			if err := s.TouchSession(ctx, "nope", now); !errors.Is(err, ErrNotFound) {
+				t.Errorf("touch unknown: %v", err)
+			}
+			if n, _ := s.CountSessions(ctx, DefaultWorkspace); n != 1 {
+				t.Errorf("count = %d", n)
+			}
+			// Purge by idle time and by age.
+			_ = s.PutSession(ctx, DefaultWorkspace, Session{ID: "old", Identity: json.RawMessage(`{}`), CSRF: "c", CreatedAt: now.Add(-48 * time.Hour), LastSeenAt: now.Add(-2 * time.Hour)})
+			n, err := s.PurgeSessions(ctx, now.Add(-24*time.Hour), now.Add(-12*time.Hour))
+			if err != nil || n != 1 {
+				t.Errorf("purge = %d %v", n, err)
+			}
+			if err := s.DeleteSession(ctx, "sid-1"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.GetSession(ctx, "sid-1"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("deleted session: %v", err)
+			}
+
+			// Codes: once, and not after expiry.
+			if err := s.PutCode(ctx, Code{Code: "k1", Host: "app.acme.test", Claims: json.RawMessage(`{"sid":"sid-1"}`), ExpiresAt: now.Add(time.Minute)}); err != nil {
+				t.Fatal(err)
+			}
+			c, err := s.TakeCode(ctx, "k1")
+			if err != nil || c.Host != "app.acme.test" || !strings.Contains(string(c.Claims), "sid-1") {
+				t.Fatalf("take: %v %+v", err, c)
+			}
+			if _, err := s.TakeCode(ctx, "k1"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("second take: %v", err)
+			}
+			_ = s.PutCode(ctx, Code{Code: "k2", Host: "h", Claims: json.RawMessage(`{}`), ExpiresAt: now.Add(-time.Second)})
+			if _, err := s.TakeCode(ctx, "k2"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("expired take: %v", err)
 			}
 		})
 	}
