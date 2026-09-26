@@ -2,7 +2,7 @@
 
 **Status:** in progress
 
-**Owner:** Marcelo Paez Sequeira (branch `rfc-0026-web-terminal`)
+**Owner:** Marcelo Paez Sequeira (PR shpyrd-io/shpyrd#6, branch `rfc-0026-web-terminal`)
 
 **Depends on:** RFC-0005 (implemented), RFC-0008 (implemented)
 
