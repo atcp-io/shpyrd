@@ -92,6 +92,7 @@ declare what they depend on.
 | [0061](0061-dns-providers.md) | DNS providers: automatic records and wildcard certificates | implemented (OCI DNS), gaps | 0035, 0036 |
 | [0062](0062-kubectl-through-platform-sign-in.md) | kubectl through the platform's sign-in (`shpyrd auth kubectl`) | provisional | 0007, 0008, 0058, 0035 |
 | [0063](0063-dashboard-access-zones.md) | Dashboard access zones: public dashboard, intranet-only areas | provisional | 0036, 0008, 0035 |
+| [0064](0064-linux-developer-loop.md) | Linux developer loop: privileged ports, image loading, browser trust | implemented | 0001, 0057 |
 
 ## Phases
 

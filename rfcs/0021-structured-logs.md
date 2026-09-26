@@ -8,7 +8,7 @@
 
 **Creation date:** 2026-09-22
 
-**Last update:** 2026-09-25
+**Last update:** 2026-09-26
 
 ## Summary
 
@@ -86,3 +86,23 @@ read and the viewer's level highlighting misses it.
     plain text.
   - Not built, and not promised by this RFC: a `--level` filter for the CLI, and `key=value`
     queries in the filter box (it matches field keys and values as substrings).
+- 2026-09-26: the viewer, after reading real output on a cluster.
+  - A field holding an object or an array opens too, as deep as the line goes, each level
+    indented behind a rule; arrays number their entries and an empty object stays a leaf.
+    The parser keeps the parsed value beside the one-line form, so the filter and
+    `pkg/logfmt` are untouched.
+  - The level column shows the bucket rather than the spelling, because logrus writes
+    "warning" and pino a number and both pushed the message out of line; the spelling is on
+    the element's title, and `--pretty` does the same.
+  - A plain line that reads as an error or a warning is labelled too, dimmed, with a title
+    saying it was read from the text. Ordinary output stays unlabelled: an INFO against
+    every line of buildpack chatter is noise, and the blank column is what makes a labelled
+    line worth looking at.
+  - Fixed: the nested chevrons did nothing. The expansion was stored under
+    `<line>#<field path>` and read back as the field path alone, so the write and the read
+    never met.
+  - jsdom and testing-library join the dashboard's tests. Both UI defects so far -- an
+    unsized icon and that one -- were invisible to tests that can render but never click.
+  - Considered and dropped: ANSI colour in `shpyrd logs`. It was built and reverted; the
+    owner did not want it. A large record is read with `--json | jq`, and the terminal
+    keeps one line per log line.
