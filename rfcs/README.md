@@ -54,7 +54,7 @@ declare what they depend on.
 | [0023](0023-log-drains.md) | Log drains (project and cluster scope, syslog, HTTPS) | implemented, gaps | 0022a |
 | [0024](0024-runs-and-scheduled-tasks.md) | Run history and scheduled tasks | provisional | 0005, 0022 |
 | [0025](0025-audit-trail-v2.md) | Audit trail v2 (durable, cluster-wide) | provisional | 0008, 0022 |
-| [0026](0026-web-terminal.md) | Web terminal | implementable | 0005, 0008 |
+| [0026](0026-web-terminal.md) | Web terminal | in progress (branch `rfc-0026-web-terminal`) | 0005, 0008 |
 | [0027](0027-application-metrics-v2.md) | Application metrics v2 | implementable | 0011 |
 | [0028](0028-resource-pages-and-metrics.md) | Resource detail pages and metrics | provisional | 0006, 0009, 0010 |
 | [0029](0029-opentelemetry.md) | OpenTelemetry | provisional | 0016 |
