@@ -130,6 +130,7 @@ type Server struct {
 	execStream execStreamFunc
 	probeShell probeShellFunc
 	shellIdle  time.Duration
+	shellPing  time.Duration
 }
 
 // New wires the routes.
@@ -192,6 +193,7 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	s.execStream = s.streamExec
 	s.probeShell = s.resolveShell
 	s.shellIdle = shellIdleTimeout
+	s.shellPing = shellPingInterval
 	s.engine = gin.New()
 	s.engine.Use(gin.Recovery(), s.requestLogger(), securityHeaders())
 	_ = s.engine.SetTrustedProxies(nil)

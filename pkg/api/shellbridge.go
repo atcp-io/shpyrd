@@ -31,6 +31,17 @@ import (
 // open for someone who has walked away.
 const shellIdleTimeout = 30 * time.Minute
 
+// shellPingInterval keeps a quiet session alive. ingress-nginx fronts the
+// dashboard and reaps an idle upstream after its default 60s
+// proxy_read_timeout, and a browser cannot send pings from JavaScript, so
+// without pings from this side a live terminal nobody is typing into would die
+// in about a minute and shellIdleTimeout above could never be reached.
+const shellPingInterval = 30 * time.Second
+
+// shellReadLimit caps an inbound frame. See the call site in appShell: it
+// bounds what one client can make this single-replica server allocate.
+const shellReadLimit = 1 << 20
+
 // shellCandidates is the fallback order, the same as `shpyrd shell`
 // (internal/cli/shell.go). The launcher comes first so buildpack images get
 // their environment; the order is the contract between the two, not the code.
@@ -130,6 +141,14 @@ func (s *Server) appShell(c *gin.Context) {
 		return
 	}
 	defer conn.Close()
+	// Gorilla reads an unlimited frame by default, so one client declaring a
+	// multi-gigabyte payload would make ReadMessage grow a buffer until the
+	// process died. The cap is not about the terminal — a keystroke stream
+	// needs nothing close to a megabyte — it is about the blast radius: this
+	// API server runs at replicas: 1 and holds the ticket store, the shell
+	// registry and every other tenant's dashboard, and this route is reachable
+	// by anyone holding project.exec on a single project of their own.
+	conn.SetReadLimit(shellReadLimit)
 	s.runShell(c, conn, app.Namespace, pod, t.Instance, app.Name)
 }
 
@@ -144,6 +163,12 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	if err != nil {
 		_ = w.control(shellControl{Type: "error", Message: err.Error()})
 		_ = w.close(websocket.CloseInternalServerErr, err.Error())
+		// Audited even though no terminal opened: probing has by now run up to
+		// four pods/exec calls against a running pod, and minting the ticket
+		// records nothing, so without this the whole attempt — who, which
+		// instance, and an RBAC or apiserver failure behind those four execs —
+		// would leave no trace at all.
+		s.audit(c, project, "shell.close", instance, err.Error())
 		return
 	}
 	shell := command[len(command)-1]
@@ -165,12 +190,20 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	defer idle.Stop()
 
 	// The reader goroutine is the only owner of sizes: it is the only sender,
-	// so it is the only safe closer. Closing from here while the reader was
-	// still alive would let a resize race into a closed channel, and a panic
-	// in a bare goroutine is not caught by gin's Recovery — it would take the
-	// server down. The reader always exits: it parks in either ReadMessage,
-	// which the handler's deferred conn.Close unblocks, or the stdin Write,
-	// which the deferred pr.Close above unblocks.
+	// so it is the only safe closer. `defer close(sizes)` below must stay the
+	// single close in this file — do not add a second one after execStream
+	// returns, and do not reach for a sync.Once to make one safe.
+	//
+	// The stakes, since no test can catch a regression here: a user dragging
+	// their browser window as their process exits would send a resize into a
+	// channel another path had already closed. That panics, and a panic in a
+	// bare goroutine is not recovered by gin's Recovery — it would take down
+	// the API server, and with it every other tenant's dashboard. The window is
+	// narrow enough that it would pass review and tests and fail in production.
+	//
+	// The reader always exits: it parks in either ReadMessage, which the
+	// handler's deferred conn.Close unblocks, or the stdin Write, which the
+	// deferred pr.Close above unblocks.
 	go func() {
 		defer pw.Close()
 		defer close(sizes)
@@ -202,32 +235,76 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 	}()
 
 	// The idle timer cancels the session; it is reset by client input only.
+	// idled is closed before cancel so the exit path below can tell an idle
+	// reap from the request context going away under a server shutdown — the
+	// browser is told which one it was, and the trail should agree.
+	idled := make(chan struct{})
 	go func() {
 		select {
 		case <-idle.C:
 			_ = w.control(shellControl{Type: "error", Message: fmt.Sprintf("shell closed after %s idle", s.shellIdle)})
+			close(idled)
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
 
+	// Server pings keep a proxy from reaping a live but quiet session; see
+	// shellPingInterval. A ping deliberately does not touch the idle timer: a
+	// keepalive we sent ourselves is not client input and says nothing about
+	// whether anyone is still at the keyboard, so letting it reset the timer
+	// would hold a terminal open forever for someone who walked away. Pongs
+	// are handled inside gorilla and never surface in the reader loop, so they
+	// cannot reset it either.
+	pings := time.NewTicker(s.shellPing)
+	defer pings.Stop()
+	go func() {
+		for {
+			select {
+			case <-pings.C:
+				_ = w.ping()
+			case <-ctx.Done(): // always fires: runShell defers cancel
+				return
+			}
+		}
+	}()
+
 	err = s.execStream(ctx, namespace, pod, appContainer, command, pr, w, sizes)
 
-	code := 0
-	detail := "exit 0"
+	// Only an error carrying a remote status is an exit. Reporting anything
+	// else as one would tell the browser the command finished and write a
+	// status into the audit trail that never happened, leaving an operator
+	// unable to tell a user typing `exit 1` from this server losing the
+	// cluster — and discarding the only description of what actually broke.
+	var ee *kexec.ExitError
+	var detail string
 	switch {
-	case err == nil:
+	// Cancellation is checked before the error, not after: we ended this
+	// session, so that is what happened, whatever the stream happened to
+	// return on its way out. A stream that returns nil just as the idle timer
+	// reaps it must not be recorded as a clean exit the user chose.
 	case ctx.Err() != nil:
-		detail = "closed"
+		detail = "closed: server shutting down"
+		select {
+		case <-idled:
+			detail = fmt.Sprintf("closed: idle for %s", s.shellIdle)
+		default:
+		}
 		_ = w.close(websocket.CloseNormalClosure, "closed")
-		s.audit(c, project, "shell.close", instance, detail)
-		return
+	case err == nil:
+		code := 0
+		detail = "exit 0"
+		_ = w.control(shellControl{Type: "exit", Code: &code})
+		_ = w.close(websocket.CloseNormalClosure, detail)
+	case errors.As(kexec.RemoteExit(err), &ee):
+		detail = fmt.Sprintf("exit %d", ee.Code)
+		_ = w.control(shellControl{Type: "exit", Code: &ee.Code})
+		_ = w.close(websocket.CloseNormalClosure, detail)
 	default:
-		code = kexec.ExitCode(kexec.RemoteExit(err))
-		detail = fmt.Sprintf("exit %d", code)
+		detail = err.Error()
+		_ = w.control(shellControl{Type: "error", Message: detail})
+		_ = w.close(websocket.CloseInternalServerErr, detail)
 	}
-	_ = w.control(shellControl{Type: "exit", Code: &code})
-	_ = w.close(websocket.CloseNormalClosure, detail)
 	s.audit(c, project, "shell.close", instance, detail)
 }
 
@@ -300,6 +377,15 @@ func (w *wsConn) control(v shellControl) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.c.WriteMessage(websocket.TextMessage, b)
+}
+
+// ping is a keepalive, not a liveness probe: nothing waits for the pong. Its
+// only job is to put a byte on the wire often enough that a proxy counting
+// idle seconds does not reap a session someone is still watching.
+func (w *wsConn) ping() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.c.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
 }
 
 func (w *wsConn) close(code int, reason string) error {

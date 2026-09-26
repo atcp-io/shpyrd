@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/audit"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/kexec"
 )
@@ -295,32 +297,128 @@ func TestShellReportsExitCode(t *testing.T) {
 	}
 }
 
-func TestShellSurvivesResizeAfterExit(t *testing.T) {
-	// Review Focus 5: the process is already gone when a resize arrives. The
-	// reader goroutine is the only closer of the size channel for exactly this
-	// reason; a send on a closed channel would panic in a bare goroutine,
-	// which gin's Recovery does not catch, and crash the test binary here.
+func TestShellReportsStreamFailureAsError(t *testing.T) {
+	// A broken stream carries no remote exit status, so it must not be dressed
+	// up as one: an apiserver refusal or a mid-session SPDY break is an error
+	// frame, and the audit trail gets the reason rather than a fabricated
+	// "exit 1" that an operator cannot tell from a user typing `exit 1`.
 	f := newShellFixture(t, "", nil)
 	f.s.execStream = func(ctx context.Context, namespace, pod, container string, command []string, stdin io.Reader, stdout io.Writer, sizes <-chan remotecommand.TerminalSize) error {
-		return nil // exits immediately, before any resize can arrive
+		return errors.New(`pods/exec is forbidden: User "x" cannot create resource`)
 	}
 	c := f.dial(t, "web.1")
 	defer c.Close()
 	readControl(t, c) // open
-	for {
-		if m := readControl(t, c); m["type"] == "exit" {
-			break
+	m := readControl(t, c)
+	if m["type"] != "error" {
+		t.Fatalf("frame = %v, want an error frame and not an exit", m)
+	}
+	if msg, _ := m["message"].(string); !strings.Contains(msg, "forbidden") {
+		t.Errorf("message = %q, want the stream failure in it", msg)
+	}
+}
+
+func TestShellPingsToSurviveAProxy(t *testing.T) {
+	// A live but quiet terminal has to outlast ingress-nginx's 60s
+	// proxy_read_timeout, and only the server can ping.
+	f := newShellFixture(t, "", nil)
+	f.s.shellPing = 20 * time.Millisecond
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	f.s.execStream = func(ctx context.Context, namespace, pod, container string, command []string, stdin io.Reader, stdout io.Writer, sizes <-chan remotecommand.TerminalSize) error {
+		<-release // hold the session open, writing nothing
+		return nil
+	}
+	c := f.dial(t, "web.1")
+	defer c.Close()
+	readControl(t, c) // open
+
+	// Control frames are only processed while a read is in flight.
+	pinged := make(chan struct{}, 1)
+	c.SetPingHandler(func(string) error {
+		select {
+		case pinged <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	go func() {
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case <-pinged:
+	case <-time.After(3 * time.Second):
+		t.Error("no ping arrived: a quiet session would be reaped by the proxy")
+	}
+}
+
+// auditDetails returns the detail recorded for every audit event of the given
+// action on project blog, which is where shell.open and shell.close land.
+func auditDetails(t *testing.T, f *shellFixture, action string) []string {
+	t.Helper()
+	evs, err := f.s.kube.Kube.CoreV1().Events("app-blog").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range evs.Items {
+		if e.Annotations[audit.AnnotationAction] == action {
+			out = append(out, e.Annotations[audit.AnnotationDetail])
 		}
 	}
-	for i := 0; i < 20; i++ {
-		if err := c.WriteMessage(websocket.TextMessage, []byte(`{"type":"resize","cols":120,"rows":40}`)); err != nil {
-			return // the server closed the socket, which is fine
-		}
+	return out
+}
+
+func TestShellAuditsAProbeFailure(t *testing.T) {
+	// No terminal opens, but resolving the shell has already run real execs
+	// against a running pod and minting the ticket records nothing, so this is
+	// the only chance to leave a trace of who tried what — and an RBAC or
+	// apiserver failure behind those probes is exactly what an operator needs
+	// to see.
+	f := newShellFixture(t, "", nil)
+	f.s.probeShell = func(ctx context.Context, namespace, pod, container string) ([]string, error) {
+		return nil, errNoShell
 	}
-	// Give the reader goroutine time to handle them and panic if it is going to.
-	time.Sleep(100 * time.Millisecond)
-	if !f.s.shells.held(actorKey(ext.Identity{Subject: "admin-token", Provider: "token"}), "blog") {
-		return // session finished cleanly
+	c := f.dial(t, "web.1")
+	defer c.Close()
+	if m := readControl(t, c); m["type"] != "error" {
+		t.Fatalf("frame = %v, want an error frame", m)
+	}
+	waitFor(t, "the failed attempt to be audited", func() bool {
+		return len(auditDetails(t, f, "shell.close")) > 0
+	})
+	if got := auditDetails(t, f, "shell.close"); !strings.Contains(got[0], "no usable shell") {
+		t.Errorf("audit detail = %q, want the probe failure named", got)
+	}
+	if got := auditDetails(t, f, "shell.open"); len(got) != 0 {
+		t.Errorf("shell.open was audited though no terminal ever opened: %q", got)
+	}
+}
+
+func TestShellCandidateOrder(t *testing.T) {
+	// The order is the contract with `shpyrd shell` (internal/cli/shell.go),
+	// not the constant, and the two are deliberately not shared: the launcher
+	// comes first so a buildpack image gets its environment, and bash before sh
+	// so a user gets the better shell where both exist. Reordering this table
+	// silently diverges the web terminal from the CLI, which is why it is
+	// pinned here rather than left to the reader.
+	want := [][]string{
+		{cnbLauncher, "--", "bash"},
+		{"bash"},
+		{cnbLauncher, "--", "sh"},
+		{"sh"},
+	}
+	if len(shellCandidates) != len(want) {
+		t.Fatalf("shellCandidates = %v, want %v", shellCandidates, want)
+	}
+	for i := range want {
+		if strings.Join(shellCandidates[i], "\x00") != strings.Join(want[i], "\x00") {
+			t.Errorf("candidate %d = %v, want %v", i, shellCandidates[i], want[i])
+		}
 	}
 }
 
@@ -423,5 +521,16 @@ func TestShellIdleTimeout(t *testing.T) {
 	m := readControl(t, c)
 	if m["type"] != "error" || !strings.Contains(m["message"].(string), "idle") {
 		t.Errorf("expected an idle error frame, got %v", m)
+	}
+	// The browser is told it was reaped for being idle; the trail has to say
+	// the same, or an operator cannot tell this from a server shutdown. The
+	// fake exec above ignores ctx where the real StreamIO returns on cancel, so
+	// the socket has to close here to let the session finish and audit.
+	c.Close()
+	waitFor(t, "the idle reap to be audited", func() bool {
+		return len(auditDetails(t, f, "shell.close")) > 0
+	})
+	if got := auditDetails(t, f, "shell.close"); !strings.Contains(got[0], "idle") {
+		t.Errorf("audit detail = %q, want it to name the idle reap rather than a bare close", got)
 	}
 }
