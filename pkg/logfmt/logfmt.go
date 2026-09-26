@@ -105,10 +105,6 @@ func Parse(line string) Entry {
 		e.Level = guessLevel(e.Message)
 	default:
 		e.Level = NormalizeLevel(e.LevelText)
-		// A number says nothing to the reader: name it by its bucket.
-		if _, err := strconv.Atoi(e.LevelText); err == nil {
-			e.LevelText = string(e.Level)
-		}
 	}
 	return e
 }
@@ -120,8 +116,10 @@ func Parse(line string) Entry {
 func (e Entry) Pretty() string {
 	var parts []string
 	if e.LevelText != "" {
-		// Padded so messages line up across levels.
-		parts = append(parts, pad(strings.ToUpper(e.LevelText), 5))
+		// The bucket, not the spelling: logrus writes "warning" and pino a
+		// number, and the column has to stay one width. Padded so messages
+		// line up across levels.
+		parts = append(parts, pad(strings.ToUpper(string(e.Level)), 5))
 	}
 	if e.Message != "" {
 		parts = append(parts, e.Message)

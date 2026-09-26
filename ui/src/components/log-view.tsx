@@ -7,6 +7,7 @@ import {
   atLeast,
   lineMatches,
   parseLogLine,
+  type LogField,
   type LogLevel,
   type ParsedLine,
 } from "@/lib/logs";
@@ -42,6 +43,110 @@ const levelColor: Record<LogLevel, string> = {
 /** Identifies a line across the trimming the stream does as it grows. */
 function lineKey(l: LogLine): string {
   return (l.t ?? "") + "|" + l.i + "|" + l.m;
+}
+
+/** One key/value pair of a structured line. An object or an array gets a
+ * control of its own: closed it reads as the one line it came in on, open
+ * it becomes rows, as deep as the line goes. */
+function Field({
+  field,
+  path,
+  open,
+  onToggle,
+}: {
+  field: LogField;
+  path: string;
+  open: Set<string>;
+  onToggle: (path: string) => void;
+}) {
+  const nested = field.json;
+  const expanded = open.has(path);
+  return (
+    <>
+      <dt className="flex gap-1 text-zinc-500">
+        {nested ? (
+          <button
+            type="button"
+            onClick={() => onToggle(path)}
+            aria-expanded={expanded}
+            aria-label={(expanded ? "Hide " : "Show ") + field.key}
+            className="mt-0.5 size-3 shrink-0 self-start text-zinc-600 hover:text-zinc-200 focus-visible:ring-1 focus-visible:ring-zinc-400 focus-visible:outline-none"
+          >
+            {expanded ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+          </button>
+        ) : (
+          <span className="size-3 shrink-0" aria-hidden="true" />
+        )}
+        {field.key}
+      </dt>
+      <dd className="break-all whitespace-pre-wrap text-zinc-200">
+        {nested && expanded ? (
+          <LogFields
+            fields={entries(nested)}
+            path={path}
+            open={open}
+            onToggle={onToggle}
+          />
+        ) : (
+          field.value.replace(ansi, "")
+        )}
+      </dd>
+    </>
+  );
+}
+
+/** The key/value rows under an expanded line, and under every object
+ * opened within it. */
+export function LogFields({
+  fields,
+  path,
+  open,
+  onToggle,
+}: {
+  fields: LogField[];
+  path: string;
+  open: Set<string>;
+  onToggle: (path: string) => void;
+}) {
+  return (
+    <dl
+      className={cn(
+        "grid grid-cols-[auto_1fr] gap-x-3 text-zinc-400",
+        // Nested rows sit under their key, with a rule to follow back up.
+        path !== "" && "mt-0.5 border-l border-zinc-800 pl-2",
+      )}
+    >
+      {fields.map((f) => (
+        <div key={f.key} className="col-span-2 grid grid-cols-subgrid">
+          <Field
+            field={f}
+            path={path === "" ? f.key : path + "." + f.key}
+            open={open}
+            onToggle={onToggle}
+          />
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The rows of an object or an array, as fields. */
+function entries(value: object): LogField[] {
+  const pairs = Array.isArray(value)
+    ? value.map((v, i) => ["[" + i + "]", v] as const)
+    : Object.entries(value);
+  return pairs.map(([key, v]) => {
+    const json =
+      v !== null && typeof v === "object" && Object.keys(v).length > 0
+        ? (v as object)
+        : undefined;
+    const value = typeof v === "string" ? v : (JSON.stringify(v) ?? "");
+    return json ? { key, value, json } : { key, value };
+  });
 }
 
 /** Structured app log viewer: time, instance and message columns, JSON
@@ -154,10 +259,13 @@ export function AppLogView({
                     <span className="size-3 shrink-0" aria-hidden="true" />
                   )}
                   {!raw && p.levelText && (
+                    // The bucket, so the column keeps one width whatever
+                    // the application spelled; the spelling is in the title.
                     <span
+                      title={p.levelText}
                       className={cn("shrink-0 uppercase", levelColor[p.level])}
                     >
-                      {p.levelText}
+                      {p.level}
                     </span>
                   )}
                   <span
@@ -171,19 +279,14 @@ export function AppLogView({
                   </span>
                 </div>
                 {open && fields.length > 0 && (
-                  <dl className="mb-1 ml-4.5 grid grid-cols-[auto_1fr] gap-x-3 text-zinc-400">
-                    {fields.map((f) => (
-                      <div
-                        key={f.key}
-                        className="col-span-2 grid grid-cols-subgrid"
-                      >
-                        <dt className="text-zinc-500">{f.key}</dt>
-                        <dd className="break-all whitespace-pre-wrap text-zinc-200">
-                          {f.value.replace(ansi, "")}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <div className="mb-1 ml-4.5">
+                    <LogFields
+                      fields={fields}
+                      path=""
+                      open={expanded}
+                      onToggle={(p) => toggle(key + "#" + p)}
+                    />
+                  </div>
                 )}
               </div>
             </div>

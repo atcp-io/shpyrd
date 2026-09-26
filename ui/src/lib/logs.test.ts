@@ -51,15 +51,15 @@ describe("parseLogLine on JSON objects", () => {
     ]);
   });
 
-  it("renders nested values as compact JSON", () => {
+  it("renders nested values as compact JSON for the collapsed row", () => {
     const l = parseLogLine(
       '{"msg":"hi","req":{"path":"/","n":2},"tags":["a","b"],"ok":true,"none":null}',
     );
-    expect(l.fields).toEqual([
-      { key: "req", value: '{"path":"/","n":2}' },
-      { key: "tags", value: '["a","b"]' },
-      { key: "ok", value: "true" },
-      { key: "none", value: "null" },
+    expect(l.fields.map((f) => [f.key, f.value])).toEqual([
+      ["req", '{"path":"/","n":2}'],
+      ["tags", '["a","b"]'],
+      ["ok", "true"],
+      ["none", "null"],
     ]);
   });
 });
@@ -187,16 +187,16 @@ describe("parseLogLine with two spellings of one well-known key", () => {
 
 // Mirrors TestParseNumericLevels in pkg/logfmt.
 describe("parseLogLine with a numeric level", () => {
-  it("names pino's scale by its bucket", () => {
-    for (const [level, want, text] of [
-      [10, "debug", "debug"],
-      [30, "info", "info"],
-      [40, "warn", "warn"],
-      [50, "error", "error"],
-      [60, "error", "error"],
+  it("reads pino's scale as a bucket, keeping the digits as written", () => {
+    for (const [level, want] of [
+      [10, "debug"],
+      [30, "info"],
+      [40, "warn"],
+      [50, "error"],
+      [60, "error"],
     ] as const) {
       const l = parseLogLine(`{"level":${level},"msg":"x"}`);
-      expect([l.level, l.levelText]).toEqual([want, text]);
+      expect([l.level, l.levelText]).toEqual([want, String(level)]);
     }
   });
 
@@ -209,5 +209,51 @@ describe("parseLogLine with a numeric level", () => {
     ] as const) {
       expect(parseLogLine(`{"level":${level},"msg":"x"}`).level).toBe(want);
     }
+  });
+});
+
+// Mirrors TestParseNumericLevels / TestPrettyNormalizesTheLevelLabel.
+describe("parseLogLine keeps the spelling and the bucket apart", () => {
+  it("keeps what the line wrote in levelText", () => {
+    expect(parseLogLine('{"level":"warning","msg":"x"}').levelText).toBe(
+      "warning",
+    );
+    expect(parseLogLine('{"level":50,"msg":"x"}').levelText).toBe("50");
+  });
+});
+
+describe("parseLogLine keeps nested values as data", () => {
+  it("carries the parsed object alongside the one-line preview", () => {
+    const l = parseLogLine('{"msg":"hi","job":{"id":"j-12","queue":"mail"}}');
+    const job = l.fields[0];
+    expect(job.key).toBe("job");
+    expect(job.value).toBe('{"id":"j-12","queue":"mail"}');
+    expect(job.json).toEqual({ id: "j-12", queue: "mail" });
+  });
+
+  it("carries arrays too", () => {
+    const l = parseLogLine('{"msg":"hi","tags":["a","b"]}');
+    expect(l.fields[0].json).toEqual(["a", "b"]);
+  });
+
+  it("leaves primitives without a parsed value", () => {
+    const l = parseLogLine('{"msg":"hi","n":2,"s":"text","b":true}');
+    expect(l.fields.map((f) => f.json)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("treats an empty object or array as a leaf", () => {
+    const l = parseLogLine('{"msg":"hi","empty":{},"none":[]}');
+    expect(l.fields.map((f) => f.json)).toEqual([undefined, undefined]);
+    expect(l.fields.map((f) => f.value)).toEqual(["{}", "[]"]);
+  });
+
+  it("keeps the error field's object when it has one", () => {
+    const l = parseLogLine('{"msg":"boom","err":{"code":500,"why":"eof"}}');
+    expect(l.fields[0].key).toBe("error");
+    expect(l.fields[0].json).toEqual({ code: 500, why: "eof" });
   });
 });

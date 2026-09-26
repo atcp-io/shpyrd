@@ -211,28 +211,31 @@ func TestParseDuplicateWellKnownKeys(t *testing.T) {
 	}
 }
 
-// pino and the syslog severities report the level as a number. Showing "30"
-// tells the reader nothing, so a numeric level is named by its bucket.
+// pino and the syslog severities report the level as a number. "30" tells a
+// reader nothing, so the bucket is what gets displayed; LevelText keeps the
+// digits for anyone who wants what the line actually said.
 func TestParseNumericLevels(t *testing.T) {
 	for _, tc := range []struct {
 		level string
 		want  logfmt.Level
-		text  string
 	}{
-		{"10", logfmt.LevelDebug, "debug"}, // pino trace
-		{"20", logfmt.LevelDebug, "debug"}, // pino debug
-		{"30", logfmt.LevelInfo, "info"},   // pino info
-		{"40", logfmt.LevelWarn, "warn"},   // pino warn
-		{"50", logfmt.LevelError, "error"}, // pino error
-		{"60", logfmt.LevelError, "error"}, // pino fatal
-		{"3", logfmt.LevelError, "error"},  // syslog err
-		{"4", logfmt.LevelWarn, "warn"},    // syslog warning
-		{"6", logfmt.LevelInfo, "info"},    // syslog info
-		{"7", logfmt.LevelDebug, "debug"},  // syslog debug
+		{"10", logfmt.LevelDebug}, // pino trace
+		{"20", logfmt.LevelDebug}, // pino debug
+		{"30", logfmt.LevelInfo},  // pino info
+		{"40", logfmt.LevelWarn},  // pino warn
+		{"50", logfmt.LevelError}, // pino error
+		{"60", logfmt.LevelError}, // pino fatal
+		{"3", logfmt.LevelError},  // syslog err
+		{"4", logfmt.LevelWarn},   // syslog warning
+		{"6", logfmt.LevelInfo},   // syslog info
+		{"7", logfmt.LevelDebug},  // syslog debug
 	} {
 		e := logfmt.Parse(`{"level":` + tc.level + `,"msg":"x"}`)
-		if e.Level != tc.want || e.LevelText != tc.text {
-			t.Errorf("level %s = %q/%q, want %q/%q", tc.level, e.Level, e.LevelText, tc.want, tc.text)
+		if e.Level != tc.want {
+			t.Errorf("level %s = %q, want %q", tc.level, e.Level, tc.want)
+		}
+		if e.LevelText != tc.level {
+			t.Errorf("level %s: LevelText = %q, want the digits", tc.level, e.LevelText)
 		}
 	}
 }
@@ -242,5 +245,29 @@ func TestPrettyDoesNotEscapeNestedValues(t *testing.T) {
 	want := `ERROR job lost job={"id":"j-12","queue":"mail"} tags=["a b"]`
 	if got != want {
 		t.Errorf("Pretty() = %q, want %q", got, want)
+	}
+}
+
+// The label is the bucket, not the spelling the logger used, so the column
+// stays four or five characters wide whatever the application writes.
+func TestPrettyNormalizesTheLevelLabel(t *testing.T) {
+	for _, tc := range []struct{ line, want string }{
+		{`{"level":"warning","msg":"slow"}`, "WARN  slow"},
+		{`{"level":"WARN","msg":"slow"}`, "WARN  slow"},
+		{`{"level":"fatal","msg":"gone"}`, "ERROR gone"},
+		{`{"level":"notice","msg":"fyi"}`, "INFO  fyi"},
+		{`{"level":"trace","msg":"deep"}`, "DEBUG deep"},
+		{`{"level":50,"msg":"upstream down"}`, "ERROR upstream down"},
+	} {
+		if got := logfmt.Parse(tc.line).Pretty(); got != tc.want {
+			t.Errorf("Parse(%q).Pretty() = %q, want %q", tc.line, got, tc.want)
+		}
+	}
+}
+
+// The spelling the line used is still available to callers that want it.
+func TestLevelTextKeepsTheSourceSpelling(t *testing.T) {
+	if got := logfmt.Parse(`{"level":"warning","msg":"x"}`).LevelText; got != "warning" {
+		t.Errorf("LevelText = %q, want warning", got)
 	}
 }

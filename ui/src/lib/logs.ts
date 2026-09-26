@@ -8,7 +8,14 @@
 /** Severity buckets used for colouring and filtering. */
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
-export type LogField = { key: string; value: string };
+export type LogField = {
+  key: string;
+  /** One-line form, shown collapsed and searched by the filter. */
+  value: string;
+  /** The parsed value when it is a non-empty object or array, so the
+   * viewer can open it instead of showing a wall of JSON. */
+  json?: object;
+};
 
 export type ParsedLine = {
   /** True when the line was a JSON object. */
@@ -43,6 +50,29 @@ function guessLevel(text: string): LogLevel {
 function fieldValue(v: unknown): string {
   if (typeof v === "string") return v;
   return JSON.stringify(v) ?? "";
+}
+
+/** The value as data when it is worth opening: a non-empty object or
+ * array. Anything else reads fine on one line. */
+function fieldJSON(v: unknown): object | undefined {
+  if (v === null || typeof v !== "object") return undefined;
+  return Object.keys(v).length > 0 ? (v as object) : undefined;
+}
+
+function field(key: string, v: unknown): LogField {
+  const json = fieldJSON(v);
+  return json
+    ? { key, value: fieldValue(v), json }
+    : { key, value: fieldValue(v) };
+}
+
+/** The first value of the aliases that is set, as data. */
+function firstRaw(obj: Record<string, unknown>, keys: string[]): unknown {
+  for (const k of keys) {
+    const v = obj[k];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return undefined;
 }
 
 function first(obj: Record<string, unknown>, keys: string[]): string {
@@ -81,6 +111,7 @@ export function parseLogLine(raw: string): ParsedLine {
   const message = first(obj, messageKeys);
   const time = first(obj, timeKeys);
   const err = first(obj, errorKeys);
+  const errRaw = firstRaw(obj, errorKeys);
 
   const known = new Set([
     ...levelKeys,
@@ -90,28 +121,23 @@ export function parseLogLine(raw: string): ParsedLine {
   ]);
   const fields: LogField[] = [];
   // The error reads as part of the message, so it leads the fields.
-  if (err) fields.push({ key: "error", value: err });
+  if (err) fields.push(field("error", errRaw));
   // Object.keys preserves insertion order for non-numeric keys, so fields
   // stay in the order the application wrote them.
   for (const k of Object.keys(obj)) {
     if (known.has(k)) continue;
-    fields.push({ key: k, value: fieldValue(obj[k]) });
+    fields.push(field(k, obj[k]));
   }
 
-  let level: LogLevel;
-  let label = levelText;
-  if (levelText === "") {
-    level = guessLevel(message);
-  } else {
-    level = normalizeLevel(levelText);
-    // A number says nothing to the reader: name it by its bucket.
-    if (/^-?\d+$/.test(levelText.trim())) label = level;
-  }
+  // levelText keeps the spelling the line used; the bucket in `level` is
+  // what gets displayed, so "warning" and pino's 40 read the same width.
+  const level =
+    levelText === "" ? guessLevel(message) : normalizeLevel(levelText);
 
   return {
     structured: true,
     level,
-    levelText: label,
+    levelText,
     message,
     time: time || undefined,
     fields,

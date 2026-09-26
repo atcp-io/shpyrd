@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { AppLogView } from "@/components/log-view";
+import { AppLogView, LogFields } from "@/components/log-view";
+import { parseLogLine } from "@/lib/logs";
 import type { LogLine } from "@/lib/api";
 
 const lines: LogLine[] = [
@@ -35,6 +36,94 @@ function render(props: Partial<Parameters<typeof AppLogView>[0]> = {}) {
     ),
   );
 }
+
+describe("AppLogView level labels", () => {
+  const spelled: LogLine[] = [
+    { t: "2026-09-25T10:00:00Z", i: "web.1", p: "web", m: '{"level":"warning","msg":"slow query"}' },
+  ];
+
+  it("shows the bucket, not the spelling, so the column keeps one width", () => {
+    const html = decode(
+      renderToStaticMarkup(
+        <AppLogView lines={spelled} follow={false} filter="" />,
+      ),
+    );
+    // Uppercased by CSS, so the text node itself is the bucket.
+    expect(html).toContain(">warn<");
+    expect(html).not.toContain(">warning<");
+  });
+
+  it("keeps what the line wrote within reach", () => {
+    const html = decode(
+      renderToStaticMarkup(
+        <AppLogView lines={spelled} follow={false} filter="" />,
+      ),
+    );
+    expect(html).toContain('title="warning"');
+  });
+});
+
+describe("LogFields", () => {
+  const fields = parseLogLine(
+    '{"msg":"job lost","job":{"id":"j-12","queue":"mail"},"tags":["a","b"],"n":2}',
+  ).fields;
+
+  const show = (open: string[] = []) =>
+    decode(
+      renderToStaticMarkup(
+        <LogFields
+          fields={fields}
+          path=""
+          open={new Set(open)}
+          onToggle={() => {}}
+        />,
+      ),
+    );
+
+  it("previews an object on one line while it is closed", () => {
+    expect(show()).toContain('{"id":"j-12","queue":"mail"}');
+  });
+
+  it("gives an object its own control, named for the field", () => {
+    expect(show()).toContain("Show job");
+  });
+
+  it("gives a primitive no control", () => {
+    const html = show();
+    expect(html).toContain("Show tags");
+    expect(html).not.toContain("Show n");
+  });
+
+  it("opens an object into its own keys and values", () => {
+    const html = show(["job"]);
+    expect(html).toContain("j-12");
+    expect(html).toContain("queue");
+    expect(html).toContain("Hide job");
+    // The one-line preview gives way to the opened rows.
+    expect(html).not.toContain('{"id":"j-12","queue":"mail"}');
+  });
+
+  it("numbers the entries of an array", () => {
+    const html = show(["tags"]);
+    expect(html).toContain("[0]");
+    expect(html).toContain("[1]");
+  });
+
+  it("opens objects nested inside objects", () => {
+    const deep = parseLogLine('{"msg":"x","a":{"b":{"c":"deep"}}}').fields;
+    const html = decode(
+      renderToStaticMarkup(
+        <LogFields
+          fields={deep}
+          path=""
+          open={new Set(["a", "a.b"])}
+          onToggle={() => {}}
+        />,
+      ),
+    );
+    expect(html).toContain("deep");
+  });
+});
 
 describe("AppLogView", () => {
   it("shows the level and message of a JSON line, not its braces", () => {
