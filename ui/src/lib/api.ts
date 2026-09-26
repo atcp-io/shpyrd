@@ -485,6 +485,14 @@ export type RegistryInfo = {
   };
 };
 
+/** A running instance of a project (RFC-0026). */
+export type Instance = {
+  name: string;
+  process: string;
+  pod: string;
+  ready: boolean;
+};
+
 export type HelmRelease = {
   name: string;
   namespace: string;
@@ -581,6 +589,17 @@ export async function apiStream(
 
 /** Base path of a project: the server derives the namespace from the slug. */
 const project = (slug: string) => `/api/projects/${encodeURIComponent(slug)}`;
+
+/** WebSocket URL of a shell session on an instance. */
+export function shellSocketURL(
+  slug: string,
+  instance: string,
+  ticket: string,
+): string {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const q = `instance=${encodeURIComponent(instance)}&ticket=${encodeURIComponent(ticket)}`;
+  return `${proto}//${location.host}${project(slug)}/shell?${q}`;
+}
 
 export const api = {
   config: () => request<PublicConfig>("/api/config"),
@@ -902,4 +921,12 @@ export const api = {
   registryGC: () =>
     request<{ status: string }>("/api/cluster/registry/gc", { method: "POST" }),
   helmReleases: () => request<HelmRelease[]>("/api/helm/releases"),
+  instances: (slug: string) => request<Instance[]>(`${project(slug)}/instances`),
+  /** A one-time code for a shell socket: browsers cannot set headers on a
+   * WebSocket, so the ticket is what authenticates it. */
+  shellTicket: (slug: string, instance: string) =>
+    request<{ ticket: string }>(
+      `${project(slug)}/shell/ticket?instance=${encodeURIComponent(instance)}`,
+      { method: "POST" },
+    ),
 };
