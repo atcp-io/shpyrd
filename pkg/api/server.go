@@ -150,6 +150,20 @@ type Server struct {
 	passwordFailures *rateLimiter
 	// regCache holds the registry catalog summary for a minute.
 	regCache registryCache
+	// The web terminal (RFC-0026): unredeemed tickets and the live shells.
+	execTickets *ticketStore
+	shells      *shellRegistry
+	// shellMints throttles ticket minting per actor (RFC-0026).
+	shellMints *rateLimiter
+	// The exec bridge (RFC-0026). The three function fields are the seam tests
+	// replace: everything but the pod stream itself is then testable, down to
+	// the candidate walk execRun sits under.
+	execStream execStreamFunc
+	probeShell probeShellFunc
+	execRun    execRunFunc
+	shellIdle  time.Duration
+	shellPing  time.Duration
+	shellProbe time.Duration
 }
 
 // New wires the routes.
@@ -216,6 +230,15 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	s.authz = &authz.Resolver{Store: opts.Store}
 	s.tokenFailures = newRateLimiter(20)
 	s.passwordFailures = newRateLimiter(10)
+	s.execTickets = newTicketStore(execTicketTTL)
+	s.shells = newShellRegistry()
+	s.execStream = s.streamExec
+	s.probeShell = s.resolveShell
+	s.execRun = s.runKexec
+	s.shellIdle = shellIdleTimeout
+	s.shellPing = shellPingInterval
+	s.shellProbe = shellProbeTimeout
+	s.shellMints = newRateLimiter(shellMintsPerMinute)
 	s.engine = gin.New()
 	s.engine.Use(gin.Recovery(), s.requestLogger(), securityHeaders())
 	_ = s.engine.SetTrustedProxies(nil)
@@ -328,6 +351,12 @@ func (s *Server) routes() error {
 	// Archives are content addressed (SHA-256) and fetched by build
 	// instances, which cannot present the admin token.
 	pub.GET("/sources/:name", s.serveSource)
+	// The web terminal (RFC-0026) carries no header and may carry no cookie: a
+	// browser cannot set headers on a WebSocket, and `shpyrd cluster dashboard`
+	// signs in with a token in localStorage. So it skips s.auth() and the
+	// one-time ticket is the whole credential; appShell takes the identity from
+	// it and re-resolves the role itself.
+	pub.GET("/projects/:slug/shell", s.appShell)
 	// Sign-in (RFC-0007): the issuer redirects back to /api/auth/callback.
 	pub.GET("/auth/providers", s.authProviders)
 	login := newRateLimiter(30).middleware()
@@ -413,6 +442,11 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/domains", s.require(authz.ProjectConfig), s.addDomain)
 	api.DELETE("/projects/:slug/domains/:host", s.require(authz.ProjectConfig), s.removeDomain)
 	api.GET("/projects/:slug/audit", s.require(authz.ProjectView), s.appAudit)
+	api.GET("/projects/:slug/instances", s.require(authz.ProjectExec), s.listInstances) // RFC-0026
+	// RFC-0026; the socket itself is on pub. The throttle comes first because it
+	// is the cheaper check and because minting is what the socket costs: see
+	// throttleShellMints.
+	api.POST("/projects/:slug/shell/ticket", s.throttleShellMints(), s.require(authz.ProjectExec), s.mintShellTicket)
 	// Project resources (RFC-0003/0006) live in the project namespace.
 	api.GET("/projects/:slug/resources", s.require(authz.ProjectView), s.listProjectResources)
 	api.POST("/projects/:slug/resources", s.require(authz.ProjectResource), s.createResource)

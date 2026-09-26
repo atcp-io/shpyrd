@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -83,6 +83,13 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ConnectionsCard } from "@/components/connections-card";
+
+// xterm is only worth its bundle to someone who opens the tab, so it is loaded
+// when the tab is selected rather than with the page. Mounting only lists the
+// project's instances; no socket is dialled until Connect.
+const ShellView = lazy(() =>
+  import("@/components/shell-view").then((m) => ({ default: m.ShellView })),
+);
 
 export function AppDetailPage() {
   const { slug = "" } = useParams();
@@ -178,6 +185,7 @@ export function AppDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
+          {perms.exec && <TabsTrigger value="shell">Shell</TabsTrigger>}
           <TabsTrigger value="builds">Builds</TabsTrigger>
           <TabsTrigger value="config">Config</TabsTrigger>
         </TabsList>
@@ -190,6 +198,19 @@ export function AppDetailPage() {
         <TabsContent value="logs" className="pt-4">
           <Logs app={a} />
         </TabsContent>
+        {perms.exec && (
+          <TabsContent value="shell" className="pt-4">
+            <Suspense
+              fallback={
+                <div className="text-sm text-muted-foreground">
+                  Loading the terminal...
+                </div>
+              }
+            >
+              <ShellView slug={slug} />
+            </Suspense>
+          </TabsContent>
+        )}
         <TabsContent value="builds" className="pt-4">
           <Builds app={a} />
         </TabsContent>
