@@ -185,6 +185,7 @@ export type AppSummary = {
   exposure?: "external" | "internal";
   /** Who may open the app (RFC-0033). */
   access: "public" | "authenticated" | "identified";
+  allow?: AllowEntry[];
 };
 
 export type Release = {
@@ -394,6 +395,12 @@ export type ClusterMetrics = {
 
 // The image registry (RFC-0059).
 /** The platform's object store (RFC-0046). */
+/** One entry in an app's allow list (RFC-0033 phase 5). */
+export type AllowEntry = {
+  project?: string;
+  platform?: "actions" | "mcp";
+};
+
 /** One tile of the launcher: an app the caller may open (RFC-0033). */
 export type LauncherApp = {
   slug: string;
@@ -879,6 +886,9 @@ export const api = {
   registry: () => request<RegistryInfo>("/api/cluster/registry"),
   objectStorage: () =>
     request<ObjectStorageSummary>("/api/cluster/object-storage"),
+  allow: (slug: string) => request<AllowEntry[]>(`${project(slug)}/allow`),
+  setAllow: (slug: string, entries: AllowEntry[]) =>
+    request<AllowEntry[]>(`${project(slug)}/allow`, json("PUT", entries)),
   setAccess: (slug: string, access: string) =>
     request<AppSummary>(`${project(slug)}/access`, json("PUT", { access })),
   preview: (slug: string, body: { teams: string[]; anonymous?: boolean }) =>

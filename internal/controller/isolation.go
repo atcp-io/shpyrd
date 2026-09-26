@@ -65,12 +65,14 @@ func (r *AppReconciler) ensureNamespaceLabels(ctx context.Context, app *shpyrdv1
 	return r.Patch(ctx, ns, patch)
 }
 
-// reconcileIsolation keeps the project's NetworkPolicy in place.
+// reconcileIsolation keeps the project's NetworkPolicy in place. The policy
+// admits the project's own pods, platform namespaces and the callers listed
+// in spec.allow (RFC-0033 phase 5); everything else is refused.
 func (r *AppReconciler) reconcileIsolation(ctx context.Context, app *shpyrdv1.App) error {
 	np := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: IsolationPolicyName, Namespace: app.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, np, func() error {
 		np.Labels = mergeMaps(np.Labels, map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"})
-		np.Spec = r.Config.isolationPolicy()
+		np.Spec = r.Config.isolationPolicyFor(app)
 		return nil
 	})
 	if err != nil {
@@ -79,7 +81,34 @@ func (r *AppReconciler) reconcileIsolation(ctx context.Context, app *shpyrdv1.Ap
 	return nil
 }
 
-// isolationPolicy is the spec applied to every project namespace.
+// isolationPolicyFor is the spec applied to app's project namespace; it
+// extends the base policy with the caller entries from spec.allow.
+func (c Config) isolationPolicyFor(app *shpyrdv1.App) networkingv1.NetworkPolicySpec {
+	spec := c.isolationPolicy()
+	for _, e := range app.EffectiveAllow() {
+		var peer networkingv1.NetworkPolicyPeer
+		switch {
+		case e.Project != "":
+			// Any pod in that project's namespace.
+			peer = networkingv1.NetworkPolicyPeer{
+				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{shpyrdv1.LabelProject: e.Project}},
+				PodSelector:       &metav1.LabelSelector{},
+			}
+		case e.Platform == "actions" || e.Platform == "mcp":
+			// The shpyrd server pod, which runs both (RFC-0067/0032).
+			peer = networkingv1.NetworkPolicyPeer{
+				NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: shpyrdv1.LabelProject, Operator: metav1.LabelSelectorOpDoesNotExist}}},
+				PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "shpyrd-server"}},
+			}
+		default:
+			continue
+		}
+		spec.Ingress[0].From = append(spec.Ingress[0].From, peer)
+	}
+	return spec
+}
+
+// isolationPolicy is the base spec (no allow list).
 func (c Config) isolationPolicy() networkingv1.NetworkPolicySpec {
 	samePods := networkingv1.NetworkPolicyPeer{PodSelector: &metav1.LabelSelector{}}
 	// Platform namespaces: anything that is not a project.

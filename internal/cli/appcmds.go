@@ -791,3 +791,135 @@ func newAccessCmd(g *globalFlags) *cobra.Command {
 	appFlag(cmd, &appName)
 	return cmd
 }
+
+// shpyrd allow — show and manage the project's allow list (RFC-0033 §5).
+func newAllowCmd(g *globalFlags) *cobra.Command {
+	var appName string
+	cmd := &cobra.Command{
+		Use:   "allow",
+		Short: "Show and manage which projects may call this one from inside the cluster",
+		Long: `Projects are network-isolated by default: nothing else running on the cluster may
+reach them, even from the same workspace. The allow list opens specific
+inbound connections:
+
+  project: <slug>    another project of the workspace may call this one
+  platform: actions  the shpyrd server acting on a user's behalf (RFC-0067)
+  platform: mcp      the MCP connector's direct calls (RFC-0032)
+
+The ingress controller and monitoring are always admitted regardless of the
+allow list. Changes apply within seconds; no release needed.
+
+  shpyrd allow --project shop
+  shpyrd allow add project expenses --project shop
+  shpyrd allow add platform mcp --project shop
+  shpyrd allow remove project expenses --project shop`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			name, err := resolveAppName(appName)
+			if err != nil {
+				return err
+			}
+			ac, err := newAppClient(g, cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			raw, err := serverRequest(ctx, ac.k, "GET", "api/projects/"+name+"/allow", nil, "")
+			if err != nil {
+				return err
+			}
+			var entries []shpyrdv1.AllowEntry
+			_ = json.Unmarshal(raw, &entries)
+			out := cmd.OutOrStdout()
+			if len(entries) == 0 {
+				fmt.Fprintln(out, "No allow entries: only platform infrastructure (ingress, monitoring) may reach this app. Add with `shpyrd allow add project <slug>`.")
+				return nil
+			}
+			for _, e := range entries {
+				if e.Project != "" {
+					fmt.Fprintf(out, "project: %s\n", e.Project)
+				} else {
+					fmt.Fprintf(out, "platform: %s\n", e.Platform)
+				}
+			}
+			return nil
+		},
+	}
+	appFlag(cmd, &appName)
+
+	mutate := func(add bool, kind, value string) error {
+		ctx := signalContext()
+		name, err := resolveAppName(appName)
+		if err != nil {
+			return err
+		}
+		ac, err := newAppClient(g, nil)
+		if err != nil {
+			return err
+		}
+		raw, err := serverRequest(ctx, ac.k, "GET", "api/projects/"+name+"/allow", nil, "")
+		if err != nil {
+			return err
+		}
+		var current []shpyrdv1.AllowEntry
+		_ = json.Unmarshal(raw, &current)
+		var entry shpyrdv1.AllowEntry
+		switch kind {
+		case "project":
+			entry = shpyrdv1.AllowEntry{Project: value}
+		case "platform":
+			entry = shpyrdv1.AllowEntry{Platform: value}
+		default:
+			return fmt.Errorf("kind must be project or platform")
+		}
+		var updated []shpyrdv1.AllowEntry
+		if add {
+			for _, e := range current {
+				if e.Project == entry.Project && e.Platform == entry.Platform {
+					return fmt.Errorf("already in the allow list")
+				}
+			}
+			updated = append(current, entry)
+		} else {
+			for _, e := range current {
+				if e.Project == entry.Project && e.Platform == entry.Platform {
+					continue
+				}
+				updated = append(updated, e)
+			}
+			if len(updated) == len(current) {
+				return fmt.Errorf("not in the allow list")
+			}
+		}
+		body, _ := json.Marshal(updated)
+		if _, err := serverRequest(ctx, ac.k, "PUT", "api/projects/"+name+"/allow", body, "application/json"); err != nil {
+			return err
+		}
+		verb := "Added"
+		if !add {
+			verb = "Removed"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", verb, kind, value)
+		return nil
+	}
+
+	addCmd := &cobra.Command{
+		Use:   "add <project|platform> <slug|actions|mcp>",
+		Short: "Grant a project or platform caller access",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return mutate(true, args[0], args[1])
+		},
+	}
+	appFlag(addCmd, &appName)
+	removeCmd := &cobra.Command{
+		Use:   "remove <project|platform> <slug|actions|mcp>",
+		Short: "Revoke access for a project or platform caller",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return mutate(false, args[0], args[1])
+		},
+	}
+	appFlag(removeCmd, &appName)
+	cmd.AddCommand(addCmd, removeCmd)
+	return cmd
+}

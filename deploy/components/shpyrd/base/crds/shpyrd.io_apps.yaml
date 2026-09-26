@@ -70,6 +70,28 @@ spec:
                 - authenticated
                 - identified
                 type: string
+              allow:
+                description: |-
+                  Allow lists the projects and platform callers that may reach this
+                  app from inside the cluster. The project's own pods and platform
+                  namespaces (ingress, monitoring, operators) are always admitted.
+                  Cross-project calls are refused by default (RFC-0033 phase 5).
+                items:
+                  description: AllowEntry names one caller that may reach an app inside
+                    the cluster.
+                  properties:
+                    platform:
+                      description: |-
+                        Platform is a named platform caller: "actions" (the shpyrd server
+                        acting on a user's behalf, RFC-0067) or "mcp" (the MCP connector).
+                      type: string
+                    project:
+                      description: |-
+                        Project is the slug of another project of the same workspace whose
+                        pods may reach this one.
+                      type: string
+                  type: object
+                type: array
               bindings:
                 description: |-
                   Bindings attach project resources (Postgres, Redis, ...) to the app:

@@ -66,6 +66,9 @@ type projectConfig struct {
 	// Exposure controls which front door serves this project:
 	// "external" (the public LB, default) or "internal" (RFC-0036).
 	Exposure string `json:"exposure,omitempty"`
+	// Allow lists the projects and platform callers that may reach this
+	// app from inside the cluster (RFC-0033 phase 5).
+	Allow []shpyrdv1.AllowEntry `json:"allow,omitempty"`
 }
 
 // projectGlobals is the `globals` key (RFC-0016): `false` opts the project
@@ -228,6 +231,9 @@ func (pc *projectConfig) applyTo(a *shpyrdv1.App) error {
 		a.Spec.Exposure = pc.Exposure
 	} else if pc.Exposure != "" {
 		return fmt.Errorf("shpyrd.yaml: exposure must be external or internal, got %q", pc.Exposure)
+	}
+	if pc.Allow != nil {
+		a.Spec.Allow = pc.Allow
 	}
 	return nil
 }

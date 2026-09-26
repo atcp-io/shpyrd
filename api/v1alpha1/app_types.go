@@ -146,6 +146,31 @@ type AppSpec struct {
 	// with `shpyrd globals` (RFC-0016). Nil injects all of them.
 	// +optional
 	Globals *Globals `json:"globals,omitempty"`
+
+	// Allow lists the projects and platform callers that may reach this
+	// app from inside the cluster. The project's own pods and platform
+	// namespaces (ingress, monitoring, operators) are always admitted.
+	// Cross-project calls are refused by default (RFC-0033 phase 5).
+	// +optional
+	Allow []AllowEntry `json:"allow,omitempty"`
+}
+
+// AllowEntry names one caller that may reach an app inside the cluster.
+type AllowEntry struct {
+	// Project is the slug of another project of the same workspace whose
+	// pods may reach this one.
+	Project string `json:"project,omitempty"`
+	// Platform is a named platform caller: "actions" (the shpyrd server
+	// acting on a user's behalf, RFC-0067) or "mcp" (the MCP connector).
+	Platform string `json:"platform,omitempty"`
+}
+
+// EffectiveAllow is spec.Allow, deduplicated.
+func (a *App) EffectiveAllow() []AllowEntry {
+	if a == nil {
+		return nil
+	}
+	return a.Spec.Allow
 }
 
 // Globals is a project's opt-out from cluster-wide config vars.

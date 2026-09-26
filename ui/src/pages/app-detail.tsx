@@ -82,6 +82,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { ConnectionsCard } from "@/components/connections-card";
 
 export function AppDetailPage() {
   const { slug = "" } = useParams();
@@ -674,6 +675,7 @@ function Overview({
       <div className="grid gap-4 lg:grid-cols-2">
         {perms.view && <AccessModeCard app={app} />}
         {perms.members && <MembersCard app={app} />}
+        {perms.view && <ConnectionsCard slug={app.slug} />}
         <AuditCard app={app} />
       </div>
 

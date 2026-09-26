@@ -518,3 +518,54 @@ func TestEdgeObjects(t *testing.T) {
 		t.Errorf("edge service should be gone: %v", err)
 	}
 }
+
+// Allow lists (RFC-0033 phase 5): spec.allow entries inject peer rules
+// into the isolation NetworkPolicy.
+func TestAllowList(t *testing.T) {
+	app := &shpyrdv1.App{
+		ObjectMeta: metav1.ObjectMeta{Name: "crm", Namespace: "app-crm"},
+		Spec: shpyrdv1.AppSpec{
+			Image:     "ghcr.io/acme/crm:1",
+			Processes: map[string]shpyrdv1.Process{"web": {Port: ptr.To[int32](8080)}},
+			Allow:     []shpyrdv1.AllowEntry{{Project: "expenses"}, {Platform: "mcp"}},
+		},
+	}
+	r, c := newTestReconciler(t, app)
+	r.Config.SystemNamespace = "shpyrd-system"
+	runReconcile(t, r, app)
+
+	np := &networkingv1.NetworkPolicy{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-crm", Name: "shpyrd-isolation"}, np); err != nil {
+		t.Fatal(err)
+	}
+	peers := np.Spec.Ingress[0].From
+	// base: samePods + nonProject; extras: expenses namespace + shpyrd-server
+	if len(peers) < 4 {
+		t.Fatalf("ingress peers = %d, want >=4: %+v", len(peers), peers)
+	}
+	var hasExpenses, hasMCP bool
+	for _, p := range peers {
+		if p.NamespaceSelector != nil && p.PodSelector != nil {
+			if lv, ok := p.NamespaceSelector.MatchLabels[shpyrdv1.LabelProject]; ok && lv == "expenses" {
+				hasExpenses = true
+			}
+			if lv, ok := p.PodSelector.MatchLabels["app.kubernetes.io/name"]; ok && lv == "shpyrd-server" {
+				hasMCP = true
+			}
+		}
+	}
+	if !hasExpenses || !hasMCP {
+		t.Errorf("expenses=%v mcp=%v peers=%+v", hasExpenses, hasMCP, peers)
+	}
+
+	// Removing all allows collapses back to the base policy.
+	cur := &shpyrdv1.App{}
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: "app-crm", Name: "crm"}, cur)
+	cur.Spec.Allow = nil
+	_ = c.Update(context.Background(), cur)
+	runReconcile(t, r, cur)
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: "app-crm", Name: "shpyrd-isolation"}, np)
+	if len(np.Spec.Ingress[0].From) != 2 {
+		t.Errorf("base peers = %d, want 2", len(np.Spec.Ingress[0].From))
+	}
+}

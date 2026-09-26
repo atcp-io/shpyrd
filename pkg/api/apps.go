@@ -721,3 +721,46 @@ func (s *Server) mutateApp(c *gin.Context, mutate func(*shpyrdv1.App) error) (*s
 	abort(c, http.StatusConflict, err)
 	return nil, err
 }
+
+// listAllow is GET /api/projects/:slug/allow: who may reach this project
+// from inside the cluster.
+func (s *Server) listAllow(c *gin.Context) {
+	app, ok := s.loadApp(c)
+	if !ok {
+		return
+	}
+	allow := app.EffectiveAllow()
+	if allow == nil {
+		allow = []shpyrdv1.AllowEntry{}
+	}
+	c.JSON(http.StatusOK, allow)
+}
+
+// setAllow is PUT /api/projects/:slug/allow: replace the allow list.
+func (s *Server) setAllow(c *gin.Context) {
+	var req []shpyrdv1.AllowEntry
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	// Validate: each entry must be exactly a project or a platform caller.
+	for _, e := range req {
+		if (e.Project == "" && e.Platform == "") || (e.Project != "" && e.Platform != "") {
+			abort(c, http.StatusBadRequest, fmt.Errorf("each allow entry needs exactly one of project or platform"))
+			return
+		}
+		if e.Platform != "" && e.Platform != "actions" && e.Platform != "mcp" {
+			abort(c, http.StatusBadRequest, fmt.Errorf("platform must be actions or mcp"))
+			return
+		}
+	}
+	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
+		a.Spec.Allow = req
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	s.audit(c, app.Name, "allow", app.Name, fmt.Sprintf("%d entries", len(req)))
+	c.JSON(http.StatusOK, app.EffectiveAllow())
+}

@@ -355,7 +355,9 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/rollback", s.require(authz.ProjectDeploy), s.rollbackApp)
 	api.POST("/projects/:slug/redeploy", s.require(authz.ProjectDeploy), s.redeployApp)
 	api.PUT("/projects/:slug/exposure", s.require(authz.ProjectDeploy), s.setExposure)
-	api.PUT("/projects/:slug/access", s.require(authz.ProjectMembers), s.setAccess)   // RFC-0033: who may open the app
+	api.PUT("/projects/:slug/access", s.require(authz.ProjectMembers), s.setAccess) // RFC-0033: who may open the app
+	api.GET("/projects/:slug/allow", s.require(authz.ProjectView), s.listAllow)     // RFC-0033: who may reach from inside
+	api.PUT("/projects/:slug/allow", s.require(authz.ProjectMembers), s.setAllow)
 	api.POST("/projects/:slug/preview", s.require(authz.ProjectDeploy), s.previewApp) // "Open as"
 	api.GET("/launcher", s.launcher)                                                  // the apps the caller may open
 	api.GET("/projects/:slug/domains", s.require(authz.ProjectView), s.listDomains)   // RFC-0034
