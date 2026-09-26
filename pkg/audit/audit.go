@@ -53,9 +53,15 @@ type Ref struct {
 	UID       string
 }
 
-// AppRef points at the App of a project.
+// AppRef points at the App of a project of the implicit workspace.
 func AppRef(project string) Ref {
-	return Ref{Namespace: "app-" + project, Kind: "App", Name: project}
+	return AppRefIn("app-"+project, project)
+}
+
+// AppRefIn points at the App of a project in its namespace (RFC-0033:
+// app-<workspace>-<project> for explicit workspaces).
+func AppRefIn(namespace, project string) Ref {
+	return Ref{Namespace: namespace, Kind: "App", Name: project}
 }
 
 // ClusterRef points at the install record for cluster-level actions.

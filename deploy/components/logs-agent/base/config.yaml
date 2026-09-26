@@ -42,6 +42,10 @@ data:
           # Core shpyrd labels from the pod annotations and labels.
           .project   = get!(object!(.kubernetes.pod_labels), ["shpyrd.io/app"])
           .process   = get!(object!(.kubernetes.pod_labels), ["shpyrd.io/process"])
+          # The namespace tells projects of different workspaces apart
+          # (RFC-0033): drains select on it, never on the project name alone.
+          .namespace = .kubernetes.pod_namespace
+          .workspace = get!(object!(.kubernetes.pod_labels), ["shpyrd.io/workspace"]) ?? "default"
           .instance  = string(get!(object!(.kubernetes.pod_annotations), ["shpyrd.io/instance"])) ?? .process
           .pod       = .kubernetes.pod_name
 

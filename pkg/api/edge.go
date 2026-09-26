@@ -58,7 +58,8 @@ func hostOnly(h string) string {
 	return h
 }
 
-// dashboardHost is the host (with port) of the dashboard URL.
+// dashboardHost is the host (with port) of the platform's dashboard URL:
+// where the implicit workspace answers.
 func (s *Server) dashboardHost() string {
 	if u, err := url.Parse(s.opts.Public.DashboardURL); err == nil && u.Host != "" {
 		return u.Host
@@ -66,13 +67,56 @@ func (s *Server) dashboardHost() string {
 	return "shpyrd." + s.opts.Public.Domain
 }
 
-// appPublicHost is <slug>.<domain>[:port]: the app's default address.
-func (s *Server) appPublicHost(slug string) string {
-	h := slug + "." + s.opts.Public.Domain
+// withPort appends the platform's HTTPS port when it is not the default.
+func (s *Server) withPort(host string) string {
 	if p := s.opts.Public.HTTPSPort; p != "" && p != "443" {
-		h += ":" + p
+		return host + ":" + p
 	}
-	return h
+	return host
+}
+
+// Names of a workspace (RFC-0033 phase 6). The implicit workspace answers
+// at the platform's names (shpyrd.<domain>, <app>.<domain>); an explicit
+// one at its address (<address>, <app>.<address>).
+
+// dashboardHostOf is the host (with port) of a workspace's dashboard.
+func (s *Server) dashboardHostOf(ws *store.Workspace) string {
+	if ws != nil && ws.Address != "" {
+		return s.withPort(ws.Address)
+	}
+	return s.dashboardHost()
+}
+
+// dashboardURLOf is the URL of a workspace's dashboard.
+func (s *Server) dashboardURLOf(ws *store.Workspace) string {
+	if ws != nil && ws.Address != "" {
+		return "https://" + s.withPort(ws.Address)
+	}
+	return s.opts.Public.DashboardURL
+}
+
+// appsDomainOf is the domain a workspace's apps live one label under.
+func (s *Server) appsDomainOf(ws *store.Workspace) string {
+	if ws != nil && ws.Address != "" {
+		return ws.Address
+	}
+	return s.opts.Public.Domain
+}
+
+// appPublicHostIn is <slug>.<apps domain>[:port]: an app's default address
+// in its workspace.
+func (s *Server) appPublicHostIn(ws *store.Workspace, slug string) string {
+	return s.withPort(slug + "." + s.appsDomainOf(ws))
+}
+
+// dashboardURLFor is the dashboard URL of the request's workspace; the
+// platform's when the host resolves to none (error pages for unknown hosts).
+func (s *Server) dashboardURLFor(c *gin.Context) string {
+	ws, err := s.tenant(c)
+	if err != nil {
+		return s.opts.Public.DashboardURL
+	}
+	return s.dashboardURLOf(ws)
 }
 
 // appByHost finds the app an incoming host belongs to: its default address
@@ -93,10 +137,21 @@ func (s *Server) appByHost(c *gin.Context, host string) (*shpyrdv1.App, error) {
 	if err := s.apps.List(c.Request.Context(), &list); err != nil {
 		return nil, err
 	}
+	// Each app answers one label under its workspace's apps domain.
+	domains := map[string]string{store.DefaultWorkspace: s.opts.Public.Domain}
+	if all, err := s.store.ListWorkspaces(c.Request.Context()); err == nil {
+		for i := range all {
+			domains[all[i].Slug] = s.appsDomainOf(&all[i])
+		}
+	}
 	index := map[string]*shpyrdv1.App{}
 	for i := range list.Items {
 		app := &list.Items[i]
-		index[strings.ToLower(app.Name+"."+s.opts.Public.Domain)] = app
+		domain, ok := domains[workspaceOf(app)]
+		if !ok {
+			continue // an app of a workspace this server does not know
+		}
+		index[strings.ToLower(app.Name+"."+domain)] = app
 		for _, d := range app.Spec.Domains {
 			index[hostOnly(d)] = app
 		}
@@ -149,18 +204,52 @@ func (s *Server) edgeIdentify(c *gin.Context, project string) (*edgeCaller, erro
 	if s.rp == nil {
 		return nil, nil
 	}
-	sess, ok := s.rp.sessions.get(claims.SessionID)
+	sess, ok := s.rp.sessions.getIn(claims.SessionID, s.workspaceID(c))
 	if !ok {
-		return nil, nil // signed out
+		return nil, nil // signed out, or a session of another workspace
 	}
 	return &edgeCaller{identity: sess.Identity, session: claims.SessionID, preview: claims.Preview}, nil
 }
 
-// edgeAuth is GET /edge/auth?project=<slug>&mode=<authenticated|identified>.
+// edgeWorkspace finds the workspace an auth subrequest is about. nginx
+// calls /edge/auth at the service name, so the host says nothing; the
+// Ingress annotation may name the workspace, and X-Original-URL carries
+// the app host the visitor used. Neither: the implicit workspace.
+func (s *Server) edgeWorkspace(c *gin.Context) (*store.Workspace, error) {
+	if v, ok := c.Get(ctxWorkspace); ok {
+		return v.(*store.Workspace), nil
+	}
+	var ws *store.Workspace
+	var err error
+	if slug := c.Query("workspace"); slug != "" {
+		ws, err = s.store.Workspace(c.Request.Context(), slug)
+	} else if u, perr := url.Parse(c.GetHeader("X-Original-URL")); perr == nil && u.Host != "" {
+		ws, err = s.tenancy.Resolve(c.Request.Context(), u.Host)
+	} else {
+		ws, err = s.tenancy.Resolve(c.Request.Context(), c.Request.Host)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.Set(ctxWorkspace, ws)
+	return ws, nil
+}
+
+// edgeAuth is GET /edge/auth?project=<slug>&mode=<authenticated|identified>
+// [&workspace=<slug>].
 func (s *Server) edgeAuth(c *gin.Context) {
 	slug := c.Query("project")
 	if !project.ValidSlug(slug) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+		return
+	}
+	ws, err := s.edgeWorkspace(c)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no workspace answers at this address"})
+		return
+	}
+	if ws.Status == store.WorkspaceSuspended {
+		c.JSON(http.StatusForbidden, gin.H{"error": "this workspace is suspended"})
 		return
 	}
 	mode := c.DefaultQuery("mode", shpyrdv1.AccessAuthenticated)
@@ -186,7 +275,7 @@ func (s *Server) edgeAuth(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "sign in to open this app"})
 		return
 	}
-	snap, err := s.authz.Snapshot(c.Request.Context())
+	snap, err := s.authz.SnapshotFor(c.Request.Context(), s.workspace(c))
 	if err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
@@ -199,8 +288,8 @@ func (s *Server) edgeAuth(c *gin.Context) {
 	teams := snap.TeamNames(caller.identity)
 	projectRole := roles.ProjectRole(slug)
 	claims := edge.Claims{
-		Issuer: s.opts.Public.DashboardURL, Subject: caller.identity.Subject, Audience: slug,
-		Email: caller.identity.Email, Name: caller.identity.Name, Workspace: store.DefaultWorkspace, Project: slug,
+		Issuer: s.dashboardURLOf(ws), Subject: caller.identity.Subject, Audience: slug,
+		Email: caller.identity.Email, Name: caller.identity.Name, Workspace: ws.Slug, Project: slug,
 		Realm: "workspace", Provider: caller.identity.Provider,
 	}
 	if caller.identity.Provider == "token" {
@@ -274,8 +363,10 @@ func (s *Server) edgeSignin(c *gin.Context) {
 func (s *Server) edgeStart(c *gin.Context) {
 	appHost := strings.ToLower(c.Query("app"))
 	app, err := s.appByHost(c, appHost)
-	if err != nil {
-		s.edgePage(c, http.StatusBadRequest, "Unknown app", "That address does not belong to an app of this platform.", nil)
+	if err != nil || workspaceOf(app) != s.workspace(c) {
+		// Unknown, or an app of another workspace: its own dashboard signs
+		// people in, not this one.
+		s.edgePage(c, http.StatusBadRequest, "Unknown app", "That address does not belong to an app of this workspace.", nil)
 		return
 	}
 	rd := safeNext(c.Query("rd"))
@@ -304,7 +395,7 @@ func (s *Server) edgeCallback(c *gin.Context) {
 		return
 	}
 	claims, err := s.edgeCodes.Redeem(c.Request.Context(), c.Query("code"), c.Request.Host)
-	if err != nil || claims.Project != app.Name {
+	if err != nil || claims.Project != app.Name || workspaceOf(app) != s.workspace(c) {
 		s.edgePage(c, http.StatusBadRequest, "Sign-in link expired", "Open the app again to sign in.", nil)
 		return
 	}
@@ -324,7 +415,7 @@ func (s *Server) edgeCallback(c *gin.Context) {
 // cookie and go to the dashboard, where signing out ends the session.
 func (s *Server) edgeLogout(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{Name: s.edgeCookieName(), Value: "", Path: "/", HttpOnly: true, Secure: s.secureCookies(), SameSite: http.SameSiteLaxMode, MaxAge: -1})
-	c.Redirect(http.StatusFound, s.opts.Public.DashboardURL)
+	c.Redirect(http.StatusFound, s.dashboardURLFor(c))
 }
 
 // edgeDenied renders the page nginx shows for a 403 from /edge/auth: the
@@ -351,7 +442,7 @@ func (s *Server) edgeDenied(c *gin.Context) {
 	// A suspended person gets the reason, not the team list.
 	if app != nil {
 		if caller, err := s.edgeIdentify(c, app.Name); err == nil && caller != nil {
-			if roles, err := s.authz.Roles(c.Request.Context(), caller.identity); err == nil && roles.Suspended {
+			if roles, err := s.authz.RolesIn(c.Request.Context(), s.workspace(c), caller.identity); err == nil && roles.Suspended {
 				s.edgePage(c, http.StatusForbidden, "Your access is suspended", "An administrator switched your access off. Ask them to reactivate it.", map[string]string{"Sign in as someone else": edgePathPrefix + "logout"})
 				return
 			}
@@ -368,18 +459,23 @@ func (s *Server) edgeDenied(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": msg, "teams": teams})
 		return
 	}
-	links := map[string]string{"Sign in as someone else": edgePathPrefix + "logout", "Your apps": s.opts.Public.DashboardURL}
+	links := map[string]string{"Sign in as someone else": edgePathPrefix + "logout", "Your apps": s.dashboardURLFor(c)}
 	s.edgePage(c, http.StatusForbidden, msg, "Ask a project admin to grant your team access, or sign in with an account that has it.", links)
 }
 
-// foreignHost says whether a request arrived for a host that is neither the
-// dashboard's nor a local one (port-forwards, tests, health checks).
-func (s *Server) foreignHost(host string) bool {
-	h := hostOnly(host)
+// foreignHost says whether a request arrived for a host that is neither
+// its workspace's dashboard nor a local one (port-forwards, tests, health
+// checks): an app host, or a host nobody claims.
+func (s *Server) foreignHost(c *gin.Context) bool {
+	h := hostOnly(c.Request.Host)
 	if h == "" || h == "localhost" || net.ParseIP(h) != nil || !strings.Contains(h, ".") {
 		return false
 	}
-	return h != hostOnly(s.dashboardHost())
+	ws, err := s.tenant(c)
+	if err != nil {
+		return true
+	}
+	return h != hostOnly(s.dashboardHostOf(ws))
 }
 
 func wantsJSON(c *gin.Context) bool {
@@ -427,8 +523,8 @@ func (s *Server) edgePage(c *gin.Context, status int, title, text string, links 
 func (s *Server) customError(c *gin.Context) bool {
 	code := c.GetHeader("X-Code")
 	if code == "" {
-		if s.foreignHost(c.Request.Host) {
-			s.edgePage(c, http.StatusNotFound, "No app here", "There is no app at this address.", map[string]string{"Dashboard": s.opts.Public.DashboardURL})
+		if s.foreignHost(c) {
+			s.edgePage(c, http.StatusNotFound, "No app here", "There is no app at this address.", map[string]string{"Dashboard": s.dashboardURLFor(c)})
 			return true
 		}
 		return false
@@ -439,7 +535,7 @@ func (s *Server) customError(c *gin.Context) bool {
 	case "401":
 		c.Redirect(http.StatusFound, edgePathPrefix+"signin?rd="+url.QueryEscape(c.GetHeader("X-Original-URI")))
 	default:
-		s.edgePage(c, http.StatusBadGateway, "The app is not answering", "Try again in a moment. Its logs and status are in the dashboard.", map[string]string{"Dashboard": s.opts.Public.DashboardURL})
+		s.edgePage(c, http.StatusBadGateway, "The app is not answering", "Try again in a moment. Its logs and status are in the dashboard.", map[string]string{"Dashboard": s.dashboardURLFor(c)})
 	}
 	return true
 }
@@ -480,7 +576,8 @@ func (s *Server) previewApp(c *gin.Context) {
 			return
 		}
 	}
-	host := s.appPublicHost(app.Name)
+	ws, _ := s.tenant(c)
+	host := s.appPublicHostIn(ws, app.Name)
 	code, err := s.edgeCodes.Mint(c.Request.Context(), host, edge.CookieClaims{SessionID: sid, Project: app.Name, Preview: &edge.Preview{Teams: teams, Anonymous: req.Anonymous}})
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
@@ -521,8 +618,12 @@ func (s *Server) launcher(c *gin.Context) {
 		return
 	}
 	out := []LauncherApp{}
+	ws := s.workspace(c)
 	for i := range list.Items {
 		a := &list.Items[i]
+		if workspaceOf(a) != ws {
+			continue
+		}
 		access := a.EffectiveAccess()
 		if access == shpyrdv1.AccessAuthenticated && !roles.Can(authz.ProjectOpen, a.Name) {
 			continue
@@ -531,4 +632,13 @@ func (s *Server) launcher(c *gin.Context) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].DisplayName < out[j].DisplayName })
 	c.JSON(http.StatusOK, out)
+}
+
+// workspaceOf is the workspace an App belongs to, from its authoritative
+// label; Apps from before RFC-0033 carry none and are the implicit one.
+func workspaceOf(app *shpyrdv1.App) string {
+	if ws := app.Labels[shpyrdv1.LabelWorkspace]; ws != "" {
+		return ws
+	}
+	return store.DefaultWorkspace
 }

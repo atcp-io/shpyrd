@@ -73,7 +73,7 @@ type ResizeVolumeRequest struct {
 
 func (s *Server) listVolumes(c *gin.Context) {
 	var list shpyrdv1.VolumeList
-	if err := s.apps.List(c.Request.Context(), &list, client.InNamespace(projectNamespace(c))); err != nil {
+	if err := s.apps.List(c.Request.Context(), &list, client.InNamespace(s.projectNamespace(c))); err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
@@ -112,7 +112,7 @@ func (s *Server) createVolume(c *gin.Context) {
 		size, note = s.applyVolumeMinimum(size)
 	}
 	vol := &shpyrdv1.Volume{
-		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: projectNamespace(c), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
+		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: s.projectNamespace(c), Labels: map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}},
 		Spec:       shpyrdv1.VolumeSpec{Size: size, StorageClass: req.StorageClass, AccessMode: corev1.ReadWriteOnce, FromSnapshot: req.FromSnapshot},
 	}
 	if req.Shared {
@@ -202,7 +202,7 @@ func (s *Server) resizeVolume(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
-	key := types.NamespacedName{Namespace: projectNamespace(c), Name: c.Param("name")}
+	key := types.NamespacedName{Namespace: s.projectNamespace(c), Name: c.Param("name")}
 	vol := &shpyrdv1.Volume{}
 	if err := s.apps.Get(c.Request.Context(), key, vol); err != nil {
 		abortNotFound(c, err, "volume")
@@ -229,7 +229,7 @@ func (s *Server) resizeVolume(c *gin.Context) {
 // deleteVolume removes a volume and its data. Mounted volumes are refused
 // unless ?force=true.
 func (s *Server) deleteVolume(c *gin.Context) {
-	key := types.NamespacedName{Namespace: projectNamespace(c), Name: c.Param("name")}
+	key := types.NamespacedName{Namespace: s.projectNamespace(c), Name: c.Param("name")}
 	vol := &shpyrdv1.Volume{}
 	if err := s.apps.Get(c.Request.Context(), key, vol); err != nil {
 		abortNotFound(c, err, "volume")

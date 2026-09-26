@@ -264,21 +264,31 @@ func Load(ctx context.Context, st store.Store, workspace string) (*Snapshot, err
 	return snap, nil
 }
 
-// Resolver caches snapshots briefly: a request costs two queries at most
-// every TTL.
+// Resolver caches snapshots briefly, one per workspace: a request costs
+// three queries at most every TTL.
 type Resolver struct {
 	Store     store.Store
-	Workspace string // slug; empty means the implicit workspace
+	Workspace string // slug Snapshot and Roles use; empty means the implicit workspace
 	TTL       time.Duration
 
-	mu      sync.Mutex
-	snap    *Snapshot
-	fetched time.Time
-	now     func() time.Time
+	mu    sync.Mutex
+	snaps map[string]cached
+	now   func() time.Time
 }
 
-// Snapshot returns a recent membership snapshot.
+type cached struct {
+	snap    *Snapshot
+	fetched time.Time
+}
+
+// Snapshot returns a recent membership snapshot of the Resolver's
+// workspace (the implicit one by default).
 func (r *Resolver) Snapshot(ctx context.Context) (*Snapshot, error) {
+	return r.SnapshotFor(ctx, r.Workspace)
+}
+
+// SnapshotFor returns a recent membership snapshot of a workspace.
+func (r *Resolver) SnapshotFor(ctx context.Context, ws string) (*Snapshot, error) {
 	now := time.Now
 	if r.now != nil {
 		now = r.now
@@ -287,36 +297,44 @@ func (r *Resolver) Snapshot(ctx context.Context) (*Snapshot, error) {
 	if ttl == 0 {
 		ttl = 5 * time.Second
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.snap != nil && now().Sub(r.fetched) < ttl {
-		return r.snap, nil
-	}
-	ws := r.Workspace
 	if ws == "" {
 		ws = store.DefaultWorkspace
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if c, ok := r.snaps[ws]; ok && now().Sub(c.fetched) < ttl {
+		return c.snap, nil
+	}
 	snap, err := Load(ctx, r.Store, ws)
 	if err != nil {
-		if r.snap != nil {
-			return r.snap, nil // stale beats down
+		if c, ok := r.snaps[ws]; ok {
+			return c.snap, nil // stale beats down
 		}
 		return nil, err
 	}
-	r.snap, r.fetched = snap, now()
+	if r.snaps == nil {
+		r.snaps = map[string]cached{}
+	}
+	r.snaps[ws] = cached{snap: snap, fetched: now()}
 	return snap, nil
 }
 
-// Invalidate drops the cache (after membership changes through the API).
+// Invalidate drops every cached snapshot (after membership changes
+// through the API).
 func (r *Resolver) Invalidate() {
 	r.mu.Lock()
-	r.snap = nil
+	r.snaps = nil
 	r.mu.Unlock()
 }
 
-// Roles resolves an identity through the cache.
+// Roles resolves an identity in the Resolver's workspace through the cache.
 func (r *Resolver) Roles(ctx context.Context, id ext.Identity) (Roles, error) {
-	snap, err := r.Snapshot(ctx)
+	return r.RolesIn(ctx, r.Workspace, id)
+}
+
+// RolesIn resolves an identity's roles in a workspace through the cache.
+func (r *Resolver) RolesIn(ctx context.Context, ws string, id ext.Identity) (Roles, error) {
+	snap, err := r.SnapshotFor(ctx, ws)
 	if err != nil {
 		return Roles{}, err
 	}

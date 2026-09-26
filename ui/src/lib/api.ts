@@ -18,6 +18,8 @@ export type PublicConfig = {
     password?: { id: string; label: string };
   };
   extensions: string[];
+  /** What this server offers beyond the core ("workspaces", ...); empty on the open-source platform. */
+  capabilities?: string[];
   /** Storage rules of this cluster's profile (RFC-0060). */
   volumes?: { minSize?: string; snapshots: boolean };
 };
@@ -41,7 +43,13 @@ export type WorkspaceInfo = {
   slug: string;
   name: string;
   implicit: boolean;
+  /** Apps live one label under it. */
   domain?: string;
+  /** Host of an explicit workspace's dashboard; absent for the implicit one. */
+  address?: string;
+  /** Where this workspace's dashboard answers. */
+  url?: string;
+  status?: "active" | "suspended";
   joinPolicy: "open" | "company" | "listed";
   createdAt: string;
   updatedAt: string;

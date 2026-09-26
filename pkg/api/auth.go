@@ -495,7 +495,7 @@ func (s *Server) authPassword(c *gin.Context) {
 		abort(c, http.StatusBadGateway, errors.New("the sign-in service is not reachable; try again"))
 		return
 	}
-	if err := s.admitSignIn(c.Request.Context(), id); err != nil {
+	if err := s.admitSignIn(c.Request.Context(), s.workspace(c), id); err != nil {
 		s.auditFailure(c, "auth.refused", id.Email, err.Error())
 		abort(c, http.StatusForbidden, err)
 		return
@@ -522,7 +522,7 @@ func (s *Server) openSession(c *gin.Context, id ext.Identity, idToken, how strin
 	if p := s.rp.provider(id.Provider); p == nil || p.endSession == "" {
 		idToken = ""
 	}
-	sess, err := s.rp.sessions.create(c.Request.Context(), id, idToken)
+	sess, err := s.rp.sessions.create(c.Request.Context(), s.workspace(c), id, idToken)
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
 		return "", false
@@ -566,7 +566,7 @@ func (s *Server) authCallback(c *gin.Context) {
 		s.loginFailed(c, err)
 		return
 	}
-	if err := s.admitSignIn(c.Request.Context(), id); err != nil {
+	if err := s.admitSignIn(c.Request.Context(), s.workspace(c), id); err != nil {
 		s.auditFailure(c, "auth.refused", id.Email, err.Error())
 		s.loginFailed(c, err)
 		return
@@ -595,7 +595,7 @@ func (s *Server) authTicket(c *gin.Context) {
 		return
 	}
 	id := ext.Identity{Subject: "kubeconfig:" + actor, Name: actor, Provider: "kubeconfig", Admin: true}
-	sess, err := s.rp.sessions.create(c.Request.Context(), id, "")
+	sess, err := s.rp.sessions.create(c.Request.Context(), s.workspace(c), id, "")
 	if err != nil {
 		abort(c, http.StatusInternalServerError, err)
 		return
@@ -635,7 +635,7 @@ func (s *Server) authLogout(c *gin.Context) {
 	redirect := "/"
 	if s.rp != nil {
 		if sid, err := c.Cookie(sessionCookie); err == nil && sid != "" {
-			if sess, ok := s.rp.sessions.get(sid); ok {
+			if sess, ok := s.rp.sessions.getIn(sid, s.workspaceID(c)); ok {
 				if u := s.rp.endSessionURL(sess); u != "" {
 					redirect = u
 				}
@@ -694,7 +694,7 @@ func (s *Server) sessionAuth(c *gin.Context) (bool, error) {
 	if err != nil || sid == "" {
 		return false, nil
 	}
-	sess, ok := s.rp.sessions.get(sid)
+	sess, ok := s.rp.sessions.getIn(sid, s.workspaceID(c))
 	if !ok {
 		s.clearSessionCookies(c)
 		return false, nil

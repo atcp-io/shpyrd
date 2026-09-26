@@ -358,3 +358,63 @@ func TestGetIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkspaces(t *testing.T) {
+	for name, open := range implementations(t) {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s := open(t)
+			def, _ := s.Workspace(ctx, DefaultWorkspace)
+			if !def.Implicit() || def.Address != "" || def.Status != WorkspaceActive {
+				t.Fatalf("implicit workspace: %+v", def)
+			}
+			acme, err := s.CreateWorkspace(ctx, Workspace{Slug: "acme", Name: "Acme", Address: "Acme.shpyrd.app"})
+			if err != nil || acme.ID == "" || acme.Address != "acme.shpyrd.app" || acme.Status != WorkspaceActive || acme.Implicit() {
+				t.Fatalf("create: %+v %v", acme, err)
+			}
+			// Slug and address are unique.
+			if _, err := s.CreateWorkspace(ctx, Workspace{Slug: "acme", Name: "Other", Address: "other.shpyrd.app"}); !errors.Is(err, ErrConflict) {
+				t.Errorf("duplicate slug: %v", err)
+			}
+			if _, err := s.CreateWorkspace(ctx, Workspace{Slug: "other", Name: "Other", Address: "acme.shpyrd.app"}); !errors.Is(err, ErrConflict) {
+				t.Errorf("duplicate address: %v", err)
+			}
+			// Several workspaces may have no address.
+			if _, err := s.CreateWorkspace(ctx, Workspace{Slug: "beta", Name: "Beta"}); err != nil {
+				t.Errorf("second address-less workspace: %v", err)
+			}
+			// A new workspace has its built-in team.
+			teams, _ := s.ListTeams(ctx, "acme")
+			if len(teams) != 1 || !teams[0].Everyone {
+				t.Errorf("acme teams: %+v", teams)
+			}
+			// By address, case-insensitive; never the empty address.
+			if got, err := s.WorkspaceByAddress(ctx, "ACME.shpyrd.app"); err != nil || got.Slug != "acme" {
+				t.Errorf("by address: %+v %v", got, err)
+			}
+			if _, err := s.WorkspaceByAddress(ctx, ""); !errors.Is(err, ErrNotFound) {
+				t.Errorf("empty address: %v", err)
+			}
+			if _, err := s.WorkspaceByAddress(ctx, "nobody.shpyrd.app"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("unknown address: %v", err)
+			}
+			all, err := s.ListWorkspaces(ctx)
+			if err != nil || len(all) != 3 || all[0].Slug != DefaultWorkspace {
+				t.Errorf("list: %d %v %+v", len(all), err, all)
+			}
+			if w, err := s.SetWorkspaceStatus(ctx, "acme", WorkspaceSuspended); err != nil || w.Status != WorkspaceSuspended {
+				t.Errorf("suspend: %+v %v", w, err)
+			}
+			if _, err := s.SetWorkspaceStatus(ctx, "nope", WorkspaceSuspended); !errors.Is(err, ErrNotFound) {
+				t.Errorf("suspend unknown: %v", err)
+			}
+			// Objects of one workspace are invisible from another.
+			if _, err := s.TouchIdentity(ctx, "acme", Identity{Email: "ana@acme.test"}); err != nil {
+				t.Fatal(err)
+			}
+			if people, _ := s.ListIdentities(ctx, DefaultWorkspace); len(people) != 0 {
+				t.Errorf("acme's person leaked into default: %+v", people)
+			}
+		})
+	}
+}

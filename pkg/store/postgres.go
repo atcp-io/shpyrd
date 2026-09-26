@@ -128,11 +128,12 @@ func (p *Postgres) wsID(ctx context.Context, q interface {
 	return id, err
 }
 
-func (p *Postgres) Workspace(ctx context.Context, slug string) (*Workspace, error) {
+const workspaceColumns = `id, slug, name, address, status, settings, created_at, updated_at`
+
+func scanWorkspace(row pgx.Row) (*Workspace, error) {
 	var w Workspace
 	var settings []byte
-	err := p.pool.QueryRow(ctx, `SELECT id, slug, name, settings, created_at, updated_at FROM workspaces WHERE slug = $1`, slug).
-		Scan(&w.ID, &w.Slug, &w.Name, &settings, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.ID, &w.Slug, &w.Name, &w.Address, &w.Status, &settings, &w.CreatedAt, &w.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -141,6 +142,76 @@ func (p *Postgres) Workspace(ctx context.Context, slug string) (*Workspace, erro
 	}
 	_ = json.Unmarshal(settings, &w.Settings)
 	return &w, nil
+}
+
+func (p *Postgres) Workspace(ctx context.Context, slug string) (*Workspace, error) {
+	return scanWorkspace(p.pool.QueryRow(ctx, `SELECT `+workspaceColumns+` FROM workspaces WHERE slug = $1`, slug))
+}
+
+func (p *Postgres) WorkspaceByAddress(ctx context.Context, address string) (*Workspace, error) {
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return nil, ErrNotFound
+	}
+	return scanWorkspace(p.pool.QueryRow(ctx, `SELECT `+workspaceColumns+` FROM workspaces WHERE address = $1`, address))
+}
+
+func (p *Postgres) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	rows, err := p.pool.Query(ctx, `SELECT `+workspaceColumns+` FROM workspaces ORDER BY created_at, slug`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Workspace
+	for rows.Next() {
+		w, err := scanWorkspace(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *w)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) CreateWorkspace(ctx context.Context, w Workspace) (*Workspace, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	settings, _ := json.Marshal(w.Settings)
+	status := w.Status
+	if status == "" {
+		status = WorkspaceActive
+	}
+	id := newID()
+	if _, err := tx.Exec(ctx, `INSERT INTO workspaces (id, slug, name, address, status, settings) VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, w.Slug, w.Name, strings.ToLower(strings.TrimSpace(w.Address)), status, settings); err != nil {
+		if isUnique(err) {
+			return nil, ErrConflict
+		}
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO teams (id, workspace_id, name, description, kind) VALUES ($1, $2, $3, 'Everyone who has signed in', 'everyone')`,
+		newID(), id, TeamEveryone); err != nil {
+		return nil, err
+	}
+	out, err := scanWorkspace(tx.QueryRow(ctx, `SELECT `+workspaceColumns+` FROM workspaces WHERE id = $1`, id))
+	if err != nil {
+		return nil, err
+	}
+	return out, tx.Commit(ctx)
+}
+
+func (p *Postgres) SetWorkspaceStatus(ctx context.Context, slug, status string) (*Workspace, error) {
+	tag, err := p.pool.Exec(ctx, `UPDATE workspaces SET status = $2, updated_at = now() WHERE slug = $1`, slug, status)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return p.Workspace(ctx, slug)
 }
 
 func (p *Postgres) UpdateWorkspaceSettings(ctx context.Context, slug string, settings WorkspaceSettings) (*Workspace, error) {

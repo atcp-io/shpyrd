@@ -17,13 +17,19 @@ import (
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/project"
 	"shpyrd/pkg/sizes"
 )
 
 // Config carries cluster-level settings the controller needs.
 type Config struct {
-	// Domain is the wildcard domain apps are published under.
+	// Domain is the wildcard domain apps of the implicit workspace are
+	// published under.
 	Domain string
+	// WorkspaceDomain answers the domain the apps of an explicit workspace
+	// live one label under (its address, RFC-0033 phase 6); "" when the
+	// workspace is unknown, which falls back to Domain. Nil: one workspace.
+	WorkspaceDomain func(slug string) string
 	// HTTPSPort is the port users reach ingress on (443 unless kind maps another).
 	HTTPSPort string
 	// RegistryHost is where built images are pushed (host:port).
@@ -191,11 +197,37 @@ func workloadName(app *shpyrdv1.App, process string) string {
 }
 
 func commonLabels(app *shpyrdv1.App) map[string]string {
-	return map[string]string{
+	l := map[string]string{
 		"app.kubernetes.io/name": app.Name,
 		shpyrdv1.LabelManagedBy:  "shpyrd",
 		shpyrdv1.LabelApp:        app.Name,
 	}
+	// Apps of explicit workspaces carry their workspace on everything they
+	// own; the implicit one adds nothing, so upgrading changes no labels.
+	if ws := app.Labels[shpyrdv1.LabelWorkspace]; ws != "" && ws != project.DefaultWorkspace {
+		l[shpyrdv1.LabelWorkspace] = ws
+	}
+	return l
+}
+
+// workspaceOf is the workspace an App belongs to, from its authoritative
+// label; Apps from before RFC-0033 carry none and are the implicit one.
+func workspaceOf(app *shpyrdv1.App) string {
+	if ws := app.Labels[shpyrdv1.LabelWorkspace]; ws != "" {
+		return ws
+	}
+	return project.DefaultWorkspace
+}
+
+// appsDomain is the domain the app's default host sits one label under:
+// the platform domain, or the address of the app's explicit workspace.
+func (c Config) appsDomain(app *shpyrdv1.App) string {
+	if ws := workspaceOf(app); ws != project.DefaultWorkspace && c.WorkspaceDomain != nil {
+		if d := c.WorkspaceDomain(ws); d != "" {
+			return d
+		}
+	}
+	return c.Domain
 }
 
 func processLabels(app *shpyrdv1.App, process string) map[string]string {
@@ -529,6 +561,9 @@ func (c Config) edgeAnnotations(app *shpyrdv1.App) map[string]string {
 	// Fully qualified: nginx resolves the name itself, without the pod's
 	// search domains.
 	server := fmt.Sprintf("http://shpyrd-server.%s.svc.cluster.local/edge/auth?project=%s&mode=%s", c.SystemNamespace, app.Name, mode)
+	if ws := workspaceOf(app); ws != project.DefaultWorkspace {
+		server += "&workspace=" + ws
+	}
 	ann := map[string]string{
 		"nginx.ingress.kubernetes.io/auth-url":              server,
 		"nginx.ingress.kubernetes.io/auth-response-headers": "Authorization,X-Shpyrd-User,X-Shpyrd-Email,X-Shpyrd-Name,X-Shpyrd-Teams,X-Shpyrd-Roles",

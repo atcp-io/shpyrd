@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
-	"shpyrd/pkg/project"
 )
 
 // Log drains (RFC-0023). Every LogDrain, whatever its namespace, ends up as
@@ -345,7 +344,9 @@ body = to_string(.msg) ?? to_string(.message) ?? ""
 func drainCondition(d renderedDrain) string {
 	var parts []string
 	if !d.Cluster {
-		parts = append(parts, fmt.Sprintf(".project == %q", project.FromNamespace(d.Namespace)))
+		// The namespace, not the project name: two workspaces may both have
+		// a project called shop (RFC-0033).
+		parts = append(parts, fmt.Sprintf(".namespace == %q", d.Namespace))
 	}
 	if len(d.Processes) > 0 {
 		quoted := make([]string, 0, len(d.Processes))

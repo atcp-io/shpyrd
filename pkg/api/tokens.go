@@ -85,7 +85,7 @@ func (s *Server) identifyWithToken(c *gin.Context) bool {
 	// with them. The owner is resolved as the person the workspace knows
 	// (email, provider and last groups claim); a token whose owner the
 	// workspace has never seen carries nothing.
-	snap, err := s.authz.Snapshot(c.Request.Context())
+	snap, err := s.authz.SnapshotFor(c.Request.Context(), s.workspace(c))
 	if err != nil {
 		return false
 	}

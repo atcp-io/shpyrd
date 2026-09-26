@@ -86,7 +86,7 @@ func snapshotView(u unstructured.Unstructured) SnapshotView {
 }
 
 func (s *Server) getVolume(c *gin.Context) (*shpyrdv1.Volume, bool) {
-	key := types.NamespacedName{Namespace: projectNamespace(c), Name: c.Param("name")}
+	key := types.NamespacedName{Namespace: s.projectNamespace(c), Name: c.Param("name")}
 	vol := &shpyrdv1.Volume{}
 	if err := s.apps.Get(c.Request.Context(), key, vol); err != nil {
 		abortNotFound(c, err, "volume")

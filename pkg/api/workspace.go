@@ -27,7 +27,15 @@ type WorkspaceView struct {
 	Slug     string `json:"slug"`
 	Name     string `json:"name"`
 	Implicit bool   `json:"implicit"`
-	Domain   string `json:"domain,omitempty"`
+	// Domain is where the workspace's apps live, one label under it.
+	Domain string `json:"domain,omitempty"`
+	// Address is the host of an explicit workspace's dashboard (RFC-0033
+	// phase 6); empty for the implicit workspace, which answers at the
+	// platform's dashboard URL.
+	Address string `json:"address,omitempty"`
+	// URL is where this workspace's dashboard answers.
+	URL    string `json:"url"`
+	Status string `json:"status"`
 	// JoinPolicy says who becomes a person on first sign-in: open,
 	// company (through a claimed domain's method) or listed (already named
 	// in a team or a grant).
@@ -57,7 +65,11 @@ func personView(id store.Identity) PersonView {
 }
 
 func (s *Server) workspaceView(w *store.Workspace) WorkspaceView {
-	return WorkspaceView{Slug: w.Slug, Name: w.Name, Implicit: w.Slug == store.DefaultWorkspace, Domain: s.opts.Public.Domain, JoinPolicy: firstNonEmpty(w.Settings.JoinPolicy, store.JoinOpen), CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt}
+	return WorkspaceView{
+		Slug: w.Slug, Name: w.Name, Implicit: w.Implicit(),
+		Domain: s.appsDomainOf(w), Address: w.Address, URL: s.dashboardURLOf(w), Status: firstNonEmpty(w.Status, store.WorkspaceActive),
+		JoinPolicy: firstNonEmpty(w.Settings.JoinPolicy, store.JoinOpen), CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
+	}
 }
 
 func (s *Server) getWorkspace(c *gin.Context) {
@@ -234,12 +246,14 @@ func (s *Server) deleteDomainClaim(c *gin.Context) {
 // connector must arrive through that connector; someone signing in for the
 // first time must satisfy the workspace's join policy. Operators (token,
 // kubeconfig) are not people and always pass.
-func (s *Server) admitSignIn(ctx context.Context, id ext.Identity) error {
+func (s *Server) admitSignIn(ctx context.Context, ws string, id ext.Identity) error {
 	if id.Email == "" || id.Provider == "token" || id.Provider == "kubeconfig" {
 		return nil
 	}
 	email := strings.ToLower(id.Email)
-	ws := store.DefaultWorkspace
+	if ws == "" {
+		ws = store.DefaultWorkspace
+	}
 	people, err := s.store.ListIdentities(ctx, ws)
 	if err != nil {
 		return nil // the store is down: sign-in must not depend on it
@@ -286,7 +300,7 @@ func (s *Server) admitSignIn(ctx context.Context, id ext.Identity) error {
 			return fmt.Errorf("only accounts of the company's domain can join; ask an administrator to add you")
 		}
 	case store.JoinListed:
-		snap, err := s.authz.Snapshot(ctx)
+		snap, err := s.authz.SnapshotFor(ctx, ws)
 		if err != nil {
 			return nil
 		}

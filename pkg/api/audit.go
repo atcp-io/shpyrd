@@ -9,6 +9,7 @@ import (
 
 	"shpyrd/pkg/audit"
 	"shpyrd/pkg/ext"
+	projectpkg "shpyrd/pkg/project"
 )
 
 // audit records a mutation performed through the API. project is "" for
@@ -31,7 +32,7 @@ func (s *Server) audit(c *gin.Context, project, action, target, detail string) {
 	}
 	ref := audit.ClusterRef(s.deps().SystemNamespace)
 	if project != "" {
-		ref = audit.AppRef(project)
+		ref = audit.AppRefIn(projectpkg.NamespaceIn(s.workspace(c), project), project)
 	}
 	entry := audit.Entry{Actor: actor, Action: action, Target: target, Detail: detail, From: c.ClientIP(), Via: "api"}
 	if err := audit.Record(c.Request.Context(), s.kube.Kube, ref, entry); err != nil {
@@ -60,7 +61,7 @@ func (s *Server) auditFailure(c *gin.Context, action, target, detail string) {
 func (s *Server) appAudit(c *gin.Context) {
 	project := c.Param("slug")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	entries, err := audit.List(c.Request.Context(), s.kube.Kube, audit.AppRef(project), limit)
+	entries, err := audit.List(c.Request.Context(), s.kube.Kube, audit.AppRefIn(projectpkg.NamespaceIn(s.workspace(c), project), project), limit)
 	if err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return

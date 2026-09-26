@@ -15,6 +15,7 @@ import (
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/internal/controller"
 	"shpyrd/pkg/install"
+	"shpyrd/pkg/store"
 )
 
 // Custom domains (RFC-0034): POST adds a hostname the owner points at the
@@ -72,8 +73,18 @@ func (s *Server) addDomain(c *gin.Context) {
 		abort(c, http.StatusBadRequest, fmt.Errorf("%s belongs to the platform", host))
 		return
 	}
-	if host == slug+"."+domain {
+	ws, _ := s.tenant(c)
+	if ws != nil && ws.Address != "" && (host == ws.Address || host == hostOnly(s.dashboardHostOf(ws))) {
+		abort(c, http.StatusBadRequest, fmt.Errorf("%s is the workspace's own address", host))
+		return
+	}
+	if host == slug+"."+s.appsDomainOf(ws) {
 		abort(c, http.StatusBadRequest, fmt.Errorf("%s is already the project's hostname", host))
+		return
+	}
+	// A host under another workspace's address is theirs to give.
+	if owner, err := s.tenancy.Resolve(c.Request.Context(), host); err == nil && ws != nil && owner.ID != ws.ID {
+		abort(c, http.StatusConflict, fmt.Errorf("%s belongs to another workspace", host))
 		return
 	}
 	if owner := s.hostOwner(c.Request.Context(), host); owner != "" && owner != slug {
@@ -136,9 +147,15 @@ func (s *Server) listDomains(c *gin.Context) {
 // domainsResult builds the answer: the CNAME target is the project's own
 // hostname, the A target the front door's address.
 func (s *Server) domainsResult(ctx context.Context, app *shpyrdv1.App, host string) DomainsResult {
+	target := app.Name + "." + s.opts.Public.Domain
+	if slug := workspaceOf(app); slug != store.DefaultWorkspace {
+		if ws, err := s.store.Workspace(ctx, slug); err == nil {
+			target = app.Name + "." + s.appsDomainOf(ws)
+		}
+	}
 	res := DomainsResult{
 		Host:    host,
-		Target:  app.Name + "." + s.opts.Public.Domain,
+		Target:  target,
 		Address: s.frontDoorAddress(ctx, app),
 		Domains: app.Status.Domains,
 		App:     summarize(app),

@@ -37,11 +37,15 @@ const (
 )
 
 type session struct {
-	ID        string       `json:"id"`
-	CSRF      string       `json:"csrf"`
-	Identity  ext.Identity `json:"identity"`
-	CreatedAt time.Time    `json:"createdAt"`
-	LastSeen  time.Time    `json:"lastSeen"`
+	ID string `json:"id"`
+	// WorkspaceID is the workspace the session was opened in: a cookie is
+	// bound to its host, and the host to a workspace, so a session never
+	// answers for another workspace (RFC-0033 phase 6).
+	WorkspaceID string       `json:"workspaceId,omitempty"`
+	CSRF        string       `json:"csrf"`
+	Identity    ext.Identity `json:"identity"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	LastSeen    time.Time    `json:"lastSeen"`
 	// IDToken is kept only when the issuer supports RP-initiated logout,
 	// to pass as id_token_hint when the session ends (RFC-0012).
 	IDToken string `json:"idToken,omitempty"`
@@ -61,7 +65,7 @@ type sessionStore struct {
 	mu    sync.Mutex
 	cache map[string]*cachedSession
 	store store.Store
-	ws    string
+	ws    string               // the implicit workspace: where the legacy mirror is imported
 	kube  kubernetes.Interface // nil: no Secret to import from (tests)
 	ns    string
 	log   *slog.Logger
@@ -115,12 +119,13 @@ func toStoreSession(s *session) store.Session {
 }
 
 func fromStoreSession(s *store.Session) *session {
-	out := &session{ID: s.ID, CSRF: s.CSRF, IDToken: s.IDToken, CreatedAt: s.CreatedAt, LastSeen: s.LastSeenAt}
+	out := &session{ID: s.ID, WorkspaceID: s.WorkspaceID, CSRF: s.CSRF, IDToken: s.IDToken, CreatedAt: s.CreatedAt, LastSeen: s.LastSeenAt}
 	_ = json.Unmarshal(s.Identity, &out.Identity)
 	return out
 }
 
-func (st *sessionStore) create(ctx context.Context, id ext.Identity, idToken string) (*session, error) {
+// create opens a session in a workspace (slug; "" means the implicit one).
+func (st *sessionStore) create(ctx context.Context, ws string, id ext.Identity, idToken string) (*session, error) {
 	sid, err := randomToken(32)
 	if err != nil {
 		return nil, err
@@ -129,10 +134,16 @@ func (st *sessionStore) create(ctx context.Context, id ext.Identity, idToken str
 	if err != nil {
 		return nil, err
 	}
+	if ws == "" {
+		ws = st.ws
+	}
 	now := st.now()
 	s := &session{ID: sid, CSRF: csrf, Identity: id, CreatedAt: now, LastSeen: now, IDToken: idToken}
-	if err := st.store.PutSession(ctx, st.ws, toStoreSession(s)); err != nil {
+	if err := st.store.PutSession(ctx, ws, toStoreSession(s)); err != nil {
 		return nil, fmt.Errorf("store session: %w", err)
+	}
+	if stored, err := st.store.GetSession(ctx, sid); err == nil {
+		s.WorkspaceID = stored.WorkspaceID
 	}
 	st.mu.Lock()
 	st.cache[sid] = &cachedSession{s: s, checkedAt: now, touchedAt: now}
@@ -144,6 +155,16 @@ func (st *sessionStore) create(ctx context.Context, id ext.Identity, idToken str
 		_, _ = st.store.PurgeSessions(pctx, now.Add(-sessionAbsolute), now.Add(-sessionIdle))
 	}()
 	return s, nil
+}
+
+// getIn is get restricted to sessions of one workspace (by id): a cookie
+// presented at the wrong host is no session at all.
+func (st *sessionStore) getIn(id, workspaceID string) (*session, bool) {
+	s, ok := st.get(id)
+	if !ok || (workspaceID != "" && s.WorkspaceID != "" && s.WorkspaceID != workspaceID) {
+		return nil, false
+	}
+	return s, true
 }
 
 // get returns a live session and marks it seen. The cache answers within

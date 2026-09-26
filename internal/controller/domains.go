@@ -44,9 +44,10 @@ const (
 	CertWildcard = "wildcard"
 )
 
-// defaultHost is the hostname every project is served at.
+// defaultHost is the hostname every project is served at: one label under
+// its workspace's apps domain.
 func (c Config) defaultHost(app *shpyrdv1.App) string {
-	return app.Name + "." + c.Domain
+	return app.Name + "." + c.appsDomain(app)
 }
 
 // customDomains are the hosts the project added, normalised and without the

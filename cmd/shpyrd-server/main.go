@@ -33,6 +33,7 @@ import (
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
 	"shpyrd/pkg/store"
+	"shpyrd/pkg/tenancy"
 	"shpyrd/pkg/version"
 	"shpyrd/ui"
 )
@@ -293,6 +294,7 @@ func newManager(k *kube.Client, o runOptions, memberships *controller.Membership
 		Recorder:      mgr.GetEventRecorderFor("shpyrd"),
 		Config: controller.Config{
 			Domain:               os.Getenv("SHPYRD_DOMAIN"),
+			WorkspaceDomain:      (&tenancy.Addresses{Store: memberships.Store}).Address,
 			HTTPSPort:            os.Getenv("SHPYRD_HTTPS_PORT"),
 			RegistryHost:         os.Getenv("SHPYRD_REGISTRY_HOST"),
 			ClusterIssuer:        os.Getenv("SHPYRD_CLUSTER_ISSUER"),

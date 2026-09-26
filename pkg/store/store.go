@@ -20,15 +20,29 @@ var (
 	ErrConflict = errors.New("already exists")
 )
 
-// Workspace is the tenant. The OSS has exactly one.
+// Workspace is the tenant. The OSS has exactly one, the implicit
+// workspace, which answers at the platform domain. Explicit workspaces
+// (RFC-0033 phase 6) answer at an Address of their own: the dashboard and
+// sign-in at <Address>, apps at <app>.<Address>.
 type Workspace struct {
 	ID        string            `json:"id"`
 	Slug      string            `json:"slug"`
 	Name      string            `json:"name"`
+	Address   string            `json:"address,omitempty"`
+	Status    string            `json:"status"` // WorkspaceActive or WorkspaceSuspended
 	Settings  WorkspaceSettings `json:"settings"`
 	CreatedAt time.Time         `json:"createdAt"`
 	UpdatedAt time.Time         `json:"updatedAt"`
 }
+
+// Workspace statuses.
+const (
+	WorkspaceActive    = "active"
+	WorkspaceSuspended = "suspended" // answers nothing but the "suspended" page
+)
+
+// Implicit reports whether this is the one workspace every install has.
+func (w *Workspace) Implicit() bool { return w.Slug == DefaultWorkspace }
 
 // Join policies: who becomes a person on first sign-in.
 const (
@@ -146,8 +160,18 @@ type Store interface {
 	Close()
 
 	Workspace(ctx context.Context, slug string) (*Workspace, error)
+	// WorkspaceByAddress finds the workspace answering at a host (exact
+	// match on Address, case-insensitive); ErrNotFound otherwise.
+	WorkspaceByAddress(ctx context.Context, address string) (*Workspace, error)
+	ListWorkspaces(ctx context.Context) ([]Workspace, error)
+	// CreateWorkspace adds an explicit workspace with its built-in team;
+	// ErrConflict when the slug or the address is taken. The OSS server
+	// never calls it: only the cloud layer creates workspaces.
+	CreateWorkspace(ctx context.Context, w Workspace) (*Workspace, error)
 	UpdateWorkspace(ctx context.Context, slug, name string) (*Workspace, error)
 	UpdateWorkspaceSettings(ctx context.Context, slug string, settings WorkspaceSettings) (*Workspace, error)
+	// SetWorkspaceStatus suspends or reactivates a workspace.
+	SetWorkspaceStatus(ctx context.Context, slug, status string) (*Workspace, error)
 
 	// Domain claims: PutDomainClaim creates one (with a fresh token) or
 	// updates its connector; MarkDomainVerified records the DNS check.

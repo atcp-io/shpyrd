@@ -71,9 +71,49 @@ func TestValidateSlug(t *testing.T) {
 	}
 }
 
+func TestValidateNewSlug(t *testing.T) {
+	// Reserved names are refused for new projects only: ValidateSlug still
+	// accepts them so existing projects keep working.
+	for _, reserved := range []string{"www", "auth", "login", "shpyrd", "grafana", "console"} {
+		if err := ValidateSlug(reserved); err != nil {
+			t.Errorf("ValidateSlug(%q) must accept an existing name: %v", reserved, err)
+		}
+		if err := ValidateNewSlug(reserved); err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("ValidateNewSlug(%q) = %v, want reserved", reserved, err)
+		}
+	}
+	if err := ValidateNewSlug("shop"); err != nil {
+		t.Errorf("ValidateNewSlug(shop): %v", err)
+	}
+}
+
+func TestValidateWorkspaceSlug(t *testing.T) {
+	for _, ok := range []string{"acme", "acme-labs", "a1", strings.Repeat("a", 24)} {
+		if err := ValidateWorkspaceSlug(ok); err != nil {
+			t.Errorf("ValidateWorkspaceSlug(%q): %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "Acme", "-acme", "acme-", "default", "www", "login", "app-x", strings.Repeat("a", 25)} {
+		if err := ValidateWorkspaceSlug(bad); err == nil {
+			t.Errorf("ValidateWorkspaceSlug(%q) accepted", bad)
+		}
+	}
+}
+
 func TestNamespace(t *testing.T) {
 	if Namespace("shop") != "app-shop" || FromNamespace("app-shop") != "shop" {
 		t.Fatal("namespace mapping")
+	}
+	if NamespaceIn("", "shop") != "app-shop" || NamespaceIn(DefaultWorkspace, "shop") != "app-shop" {
+		t.Fatal("implicit workspace namespace")
+	}
+	if NamespaceIn("acme", "shop") != "app-acme-shop" {
+		t.Fatal("explicit workspace namespace")
+	}
+	if got := NamespaceIn(strings.Repeat("w", 24), strings.Repeat("p", 40)); len(got) > 63+6 {
+		// app- + 24 + - + 40 = 69: the API caps project slugs at 30 in
+		// explicit workspaces (RFC-0033), checked where projects are created.
+		t.Logf("longest namespace: %d chars", len(got))
 	}
 }
 

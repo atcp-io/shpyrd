@@ -44,7 +44,7 @@ func (m *Memory) Migrate(_ context.Context, defaultName string) error {
 	defer m.mu.Unlock()
 	if _, ok := m.workspaces[DefaultWorkspace]; !ok {
 		t := m.now()
-		m.workspaces[DefaultWorkspace] = &Workspace{ID: newID(), Slug: DefaultWorkspace, Name: defaultName, CreatedAt: t, UpdatedAt: t}
+		m.workspaces[DefaultWorkspace] = &Workspace{ID: newID(), Slug: DefaultWorkspace, Name: defaultName, Status: WorkspaceActive, CreatedAt: t, UpdatedAt: t}
 	}
 	w := m.workspaces[DefaultWorkspace]
 	found := false
@@ -77,6 +77,74 @@ func (m *Memory) Workspace(_ context.Context, slug string) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
+	c := *w
+	return &c, nil
+}
+
+func (m *Memory) WorkspaceByAddress(_ context.Context, address string) (*Workspace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return nil, ErrNotFound
+	}
+	for _, w := range m.workspaces {
+		if w.Address == address {
+			c := *w
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Memory) ListWorkspaces(_ context.Context) ([]Workspace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Workspace, 0, len(m.workspaces))
+	for _, w := range m.workspaces {
+		out = append(out, *w)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].Slug < out[j].Slug
+	})
+	return out, nil
+}
+
+func (m *Memory) CreateWorkspace(_ context.Context, w Workspace) (*Workspace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w.Address = strings.ToLower(strings.TrimSpace(w.Address))
+	if _, taken := m.workspaces[w.Slug]; taken {
+		return nil, ErrConflict
+	}
+	for _, have := range m.workspaces {
+		if w.Address != "" && have.Address == w.Address {
+			return nil, ErrConflict
+		}
+	}
+	t := m.now()
+	w.ID, w.CreatedAt, w.UpdatedAt = newID(), t, t
+	if w.Status == "" {
+		w.Status = WorkspaceActive
+	}
+	c := w
+	m.workspaces[w.Slug] = &c
+	m.teams = append(m.teams, Team{ID: newID(), WorkspaceID: c.ID, Name: TeamEveryone, Description: "Everyone who has signed in", Members: []string{}, Groups: []string{}, Everyone: true, CreatedAt: t, UpdatedAt: t})
+	out := c
+	return &out, nil
+}
+
+func (m *Memory) SetWorkspaceStatus(_ context.Context, slug, status string) (*Workspace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(slug)
+	if err != nil {
+		return nil, err
+	}
+	w.Status, w.UpdatedAt = status, m.now()
 	c := *w
 	return &c, nil
 }

@@ -15,6 +15,7 @@ import (
 	"shpyrd/pkg/ext"
 	project_ "shpyrd/pkg/project"
 	"shpyrd/pkg/store"
+	"shpyrd/pkg/tenancy"
 )
 
 // Authorization (RFC-0008): every protected route names the action it
@@ -34,7 +35,7 @@ func (s *Server) rolesOf(c *gin.Context) (authz.Roles, error) {
 		// Authentication disabled: everything is allowed.
 		id = ext.Identity{Subject: "admin-token", Provider: "token", Admin: true}
 	}
-	roles, err := s.authz.Roles(c.Request.Context(), id)
+	roles, err := s.authz.RolesIn(c.Request.Context(), s.workspace(c), id)
 	if err != nil {
 		return authz.Roles{}, err
 	}
@@ -125,9 +126,75 @@ type TeamRequest struct {
 
 var dnsName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
-// workspace is the slug the request is scoped to: the implicit one until
-// hosts resolve to workspaces (RFC-0033).
-func (s *Server) workspace(*gin.Context) string { return store.DefaultWorkspace }
+// ctxWorkspace is the gin context key of the resolved workspace.
+const ctxWorkspace = "shpyrd.workspace"
+
+// tenant is the workspace the request's host belongs to (RFC-0033 phase
+// 6), resolved once per request. The open-source platform resolves every
+// host to the implicit workspace; a multi-workspace resolver may answer
+// tenancy.ErrUnknownHost.
+func (s *Server) tenant(c *gin.Context) (*store.Workspace, error) {
+	if v, ok := c.Get(ctxWorkspace); ok {
+		return v.(*store.Workspace), nil
+	}
+	ws, err := s.tenancy.Resolve(c.Request.Context(), c.Request.Host)
+	if err != nil {
+		return nil, err
+	}
+	c.Set(ctxWorkspace, ws)
+	return ws, nil
+}
+
+// workspace is the slug the request is scoped to. Routes behind
+// requireTenant always have one; elsewhere an unresolvable host yields ""
+// and every store call answers not found.
+func (s *Server) workspace(c *gin.Context) string {
+	ws, err := s.tenant(c)
+	if err != nil {
+		return ""
+	}
+	return ws.Slug
+}
+
+// workspaceID is the id of the request's workspace, "" when unresolved.
+func (s *Server) workspaceID(c *gin.Context) string {
+	ws, err := s.tenant(c)
+	if err != nil {
+		return ""
+	}
+	return ws.ID
+}
+
+// requireTenant answers for hosts no workspace claims and for suspended
+// workspaces, so handlers behind it can count on s.tenant(c).
+func (s *Server) requireTenant() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ws, err := s.tenant(c)
+		asJSON := strings.HasPrefix(c.Request.URL.Path, "/api/") || wantsJSON(c)
+		switch {
+		case errors.Is(err, tenancy.ErrUnknownHost):
+			if asJSON {
+				abort(c, http.StatusNotFound, fmt.Errorf("no workspace answers at %s", tenancy.Host(c.Request.Host)))
+			} else {
+				s.edgePage(c, http.StatusNotFound, "Nothing here", "No workspace answers at this address.", nil)
+				c.Abort()
+			}
+			return
+		case err != nil:
+			abort(c, http.StatusBadGateway, fmt.Errorf("resolve workspace: %w", err))
+			return
+		case ws.Status == store.WorkspaceSuspended:
+			if asJSON {
+				abort(c, http.StatusForbidden, errors.New("this workspace is suspended"))
+			} else {
+				s.edgePage(c, http.StatusForbidden, "Workspace suspended", "This workspace has been switched off by the platform operator.", nil)
+				c.Abort()
+			}
+			return
+		}
+		c.Next()
+	}
+}
 
 // storeErr maps store errors to HTTP statuses.
 func storeErr(c *gin.Context, err error, what string) {

@@ -224,8 +224,9 @@ func (s *Server) listApps(c *gin.Context) {
 		return
 	}
 	out := make([]AppSummary, 0, len(list.Items))
+	ws := s.workspace(c)
 	for i := range list.Items {
-		if !s.canView(c, list.Items[i].Name) {
+		if workspaceOf(&list.Items[i]) != ws || !s.canView(c, list.Items[i].Name) {
 			continue
 		}
 		out = append(out, summarize(&list.Items[i]))
@@ -239,18 +240,21 @@ func (s *Server) listApps(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// projectKey locates the App of the project named in the path.
-func projectKey(c *gin.Context) types.NamespacedName {
+// projectKey locates the App of the project named in the path, in the
+// request's workspace (RFC-0033: the namespace carries the workspace).
+func (s *Server) projectKey(c *gin.Context) types.NamespacedName {
 	slug := c.Param("slug")
-	return types.NamespacedName{Namespace: project.Namespace(slug), Name: slug}
+	return types.NamespacedName{Namespace: s.projectNamespace(c), Name: slug}
 }
 
 // projectNamespace is the namespace of the project named in the path.
-func projectNamespace(c *gin.Context) string { return project.Namespace(c.Param("slug")) }
+func (s *Server) projectNamespace(c *gin.Context) string {
+	return project.NamespaceIn(s.workspace(c), c.Param("slug"))
+}
 
 func (s *Server) loadApp(c *gin.Context) (*shpyrdv1.App, bool) {
 	app := &shpyrdv1.App{}
-	err := s.apps.Get(c.Request.Context(), projectKey(c), app)
+	err := s.apps.Get(c.Request.Context(), s.projectKey(c), app)
 	if apierrors.IsNotFound(err) {
 		abort(c, http.StatusNotFound, errors.New("project not found"))
 		return nil, false
@@ -302,10 +306,24 @@ func (s *Server) createApp(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
+	if project.Reserved(slug) {
+		abort(c, http.StatusBadRequest, fmt.Errorf("%q is reserved for the platform; pick another name", slug))
+		return
+	}
+	ws, err := s.tenant(c)
+	if err != nil {
+		abort(c, http.StatusBadGateway, err)
+		return
+	}
+	// app-<workspace>-<project> must stay a DNS label (63 characters).
+	if !ws.Implicit() && len(project.NamespaceIn(ws.Slug, slug)) > 63 {
+		abort(c, http.StatusBadRequest, fmt.Errorf("slug %q is too long for this workspace: at most %d characters", slug, 63-len("app-"+ws.Slug+"-")))
+		return
+	}
 	ctx := c.Request.Context()
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-		Name:   project.NamespaceIn(s.workspace(c), slug),
-		Labels: project.NamespaceLabels(s.workspace(c), slug),
+		Name:   project.NamespaceIn(ws.Slug, slug),
+		Labels: project.NamespaceLabels(ws.Slug, slug),
 	}}
 	if err := s.apps.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		abort(c, http.StatusBadGateway, fmt.Errorf("create namespace: %w", err))
@@ -320,7 +338,7 @@ func (s *Server) createApp(c *gin.Context) {
 		return
 	}
 	app := &shpyrdv1.App{
-		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns.Name},
+		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns.Name, Labels: project.NamespaceLabels(ws.Slug, slug)},
 		Spec:       shpyrdv1.AppSpec{Domains: req.Domains, Processes: req.Processes, Access: access},
 	}
 	project.SetDisplayName(app, req.Name)
@@ -689,7 +707,7 @@ func restoreSizes(a *shpyrdv1.App, rel *shpyrdv1.Release) {
 // mutateApp applies a read-modify-write with conflict retries and writes the
 // HTTP error itself; callers only check err != nil.
 func (s *Server) mutateApp(c *gin.Context, mutate func(*shpyrdv1.App) error) (*shpyrdv1.App, error) {
-	key := projectKey(c)
+	key := s.projectKey(c)
 	for attempt := 0; attempt < 5; attempt++ {
 		app := &shpyrdv1.App{}
 		if err := s.apps.Get(c.Request.Context(), key, app); err != nil {

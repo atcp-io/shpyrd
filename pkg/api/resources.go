@@ -42,7 +42,7 @@ type ResourceView struct {
 
 // listProjectResources returns every resource of the project namespace.
 func (s *Server) listProjectResources(c *gin.Context) {
-	ns := projectNamespace(c)
+	ns := s.projectNamespace(c)
 	ctx := c.Request.Context()
 	var apps shpyrdv1.AppList
 	if err := s.apps.List(ctx, &apps, client.InNamespace(ns)); err != nil {
@@ -211,7 +211,7 @@ func (s *Server) createResource(c *gin.Context) {
 		abort(c, http.StatusBadRequest, errors.New("name must be lowercase letters, digits and dashes (max 40 chars)"))
 		return
 	}
-	ns := projectNamespace(c)
+	ns := s.projectNamespace(c)
 	u := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": t.Group + "/" + t.Version,
 		"kind":       t.Kind,
@@ -246,7 +246,7 @@ func (s *Server) deleteResource(c *gin.Context) {
 		abort(c, http.StatusNotFound, errors.New("unknown resource kind"))
 		return
 	}
-	ns, name := projectNamespace(c), c.Param("name")
+	ns, name := s.projectNamespace(c), c.Param("name")
 	var apps shpyrdv1.AppList
 	_ = s.apps.List(c.Request.Context(), &apps, client.InNamespace(ns))
 	var bound []string
@@ -300,7 +300,7 @@ func (s *Server) attachResource(c *gin.Context) {
 		abort(c, http.StatusBadRequest, errors.New("prefix must be letters, digits and underscores"))
 		return
 	}
-	ns := projectNamespace(c)
+	ns := s.projectNamespace(c)
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{Group: t.Group, Version: t.Version, Kind: t.Kind})
 	if err := s.apps.Get(c.Request.Context(), types.NamespacedName{Namespace: ns, Name: req.Name}, u); err != nil {

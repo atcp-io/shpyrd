@@ -24,6 +24,7 @@ import (
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
 	"shpyrd/pkg/store"
+	"shpyrd/pkg/tenancy"
 )
 
 // Options configures the server.
@@ -67,6 +68,14 @@ type Options struct {
 	// MembershipChanged is called after every team or grant write so the
 	// RBAC mirror runs at once; nil when this replica does not run it.
 	MembershipChanged func()
+	// Tenancy maps request hosts to workspaces (RFC-0033 phase 6). Defaults
+	// to tenancy.Single: every host is the implicit workspace. The cloud
+	// layer supplies a resolver that knows many.
+	Tenancy tenancy.Resolver
+	// Capabilities names what this server offers beyond the core
+	// ("workspaces", "billing", ...), returned by GET /api/config so one
+	// dashboard and one CLI adapt. The core adds nothing.
+	Capabilities []string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -84,6 +93,9 @@ type PublicConfig struct {
 	Auth AuthConfig `json:"auth"`
 	// Extensions enabled on this cluster (RFC-0002).
 	Extensions []string `json:"extensions"`
+	// Capabilities beyond the core this server offers (RFC-0033): empty on
+	// the open-source platform.
+	Capabilities []string `json:"capabilities"`
 	// Volumes describes the profile's storage rules (RFC-0060).
 	Volumes VolumesConfig `json:"volumes"`
 }
@@ -109,6 +121,7 @@ type Server struct {
 	rp      *relyingParty
 	authz   *authz.Resolver
 	store   store.Store
+	tenancy tenancy.Resolver
 	// The edge (RFC-0033): signing keys, one-time codes, host index.
 	edgeKeys  *edge.Keys
 	edgeCodes *edge.Codes
@@ -175,7 +188,13 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	if opts.Store == nil {
 		opts.Store = store.NewMemory()
 	}
-	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus, store: opts.Store}
+	if opts.Tenancy == nil {
+		opts.Tenancy = &tenancy.Single{Store: opts.Store}
+	}
+	if opts.Public.Capabilities == nil {
+		opts.Public.Capabilities = append([]string{}, opts.Capabilities...)
+	}
+	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus, store: opts.Store, tenancy: opts.Tenancy}
 	s.authz = &authz.Resolver{Store: opts.Store}
 	s.tokenFailures = newRateLimiter(20)
 	s.passwordFailures = newRateLimiter(10)
@@ -273,15 +292,19 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) routes() error {
 	// The edge (RFC-0033): what ingress-nginx and app hosts call.
+	// /edge/auth arrives from ingress-nginx at the service name and names
+	// its workspace in the query; the JWKS is the platform's, whatever the
+	// host. Everything else is scoped to the workspace of its host.
 	s.engine.GET("/edge/auth", s.edgeAuth)
 	s.engine.GET("/.well-known/jwks.json", s.jwks)
-	s.engine.GET(edgePathPrefix+"signin", s.edgeSignin)
-	s.engine.GET(edgePathPrefix+"start", s.edgeStart)
-	s.engine.GET(edgePathPrefix+"callback", s.edgeCallback)
-	s.engine.GET(edgePathPrefix+"logout", s.edgeLogout)
+	tenant := s.requireTenant()
+	s.engine.GET(edgePathPrefix+"signin", tenant, s.edgeSignin)
+	s.engine.GET(edgePathPrefix+"start", tenant, s.edgeStart)
+	s.engine.GET(edgePathPrefix+"callback", tenant, s.edgeCallback)
+	s.engine.GET(edgePathPrefix+"logout", tenant, s.edgeLogout)
 
-	pub := s.engine.Group("/api")
-	pub.GET("/healthz", s.healthz)
+	s.engine.GET("/api/healthz", s.healthz)
+	pub := s.engine.Group("/api", tenant)
 	pub.GET("/config", s.config)
 	// Archives are content addressed (SHA-256) and fetched by build
 	// instances, which cannot present the admin token.
@@ -297,7 +320,7 @@ func (s *Server) routes() error {
 
 	// Every protected route names the action it performs (RFC-0008); the
 	// caller's roles decide.
-	api := s.engine.Group("/api", s.auth())
+	api := s.engine.Group("/api", tenant, s.auth())
 	api.GET("/me", s.me)
 	api.POST("/auth/logout", s.authLogout)
 	api.GET("/namespaces", s.require(authz.ClusterView), s.listNamespaces)

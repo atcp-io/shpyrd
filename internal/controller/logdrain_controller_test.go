@@ -38,7 +38,7 @@ func TestRenderDrains(t *testing.T) {
 	}
 	// Project drain: filtered by project and process; header via env var only.
 	dd := doc.Transforms["drain_app_shop_datadog"]
-	if dd["type"] != "filter" || dd["condition"] != `.project == "shop" && includes(["web"], .process)` {
+	if dd["type"] != "filter" || dd["condition"] != `.namespace == "app-shop" && includes(["web"], .process)` {
 		t.Errorf("datadog filter = %v", dd)
 	}
 	sink := doc.Sinks["drain_app_shop_datadog_sink"]

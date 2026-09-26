@@ -109,6 +109,12 @@ func (r *MembershipReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 		if ns.DeletionTimestamp != nil {
 			continue
 		}
+		// The mirror serves kubectl users of this cluster: people of the
+		// implicit workspace. Explicit workspaces (RFC-0033 phase 6) reach
+		// their projects through the API only and get no RBAC.
+		if nsWS := ns.Labels[shpyrdv1.LabelWorkspace]; nsWS != "" && nsWS != ws {
+			continue
+		}
 		project := ns.Labels[shpyrdv1.LabelProject]
 		for role, clusterRole := range projectClusterRoles {
 			subjects := projectSubjects(snap, project, role)

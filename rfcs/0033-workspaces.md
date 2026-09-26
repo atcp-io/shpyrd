@@ -81,7 +81,31 @@ Shipped in v0.6.0:
   verified by DNS TXT, routing the domain's accounts to one method.
 - The built-in `everyone` team; suspending a person.
 
-The rest of the model (many workspaces, identity realms and collaborators, OAuth for
+Shipped in v0.7.0 and v0.8.0:
+
+- Network allow lists (`allow:` on the project; the Connections card), default closed
+  between projects.
+- `shpyrd login`, API transport for project commands, the `shpyrd-ctl` operator binary.
+
+Shipped in v0.9.1 — the platform resolves the workspace from the request host:
+
+- `pkg/tenancy`: the `Resolver` interface (host → workspace) with the open-source
+  implementation (every host is the one implicit workspace) and a host-based one for
+  installs that carry several workspaces, each at an address of its own (`<address>` for
+  its dashboard, `<app>.<address>` for its apps). Hosts nobody claims answer "nothing
+  here"; suspended workspaces answer so.
+- Everything the server does is scoped to the request's workspace: projects (namespace
+  `app-<workspace>-<project>` for explicit workspaces, `app-<project>` unchanged for the
+  implicit one), teams and grants, sessions (a cookie replayed at another workspace's host
+  is anonymous), the edge's JWT (`iss` is the workspace's dashboard URL, `ws` its slug),
+  personal tokens, audit, log drains (selected by namespace).
+- Reserved names (`www`, `api`, `auth`, `login`, `console`, `shpyrd`, `grafana`, …) are
+  refused for new projects; the `capabilities` list in `GET /api/config` tells the
+  dashboard and CLI what a server offers beyond the core (empty here).
+- Self-hosted installs see no change: one workspace, the same names, the same objects.
+  Creating further workspaces is not part of the open-source platform.
+
+The rest of the model (sign-in at a workspace's own host, quotas per plan, OAuth for
 agents) follows in later releases; the full text is published when it settles.
 
 ## Implementation History
@@ -93,3 +117,5 @@ agents) follows in later releases; the full text is published when it settles.
   in v0.5.0.
 - 2026-09-26: phase 3 (sessions in the database, login methods, join policy, domain claims,
   the `everyone` team, suspension) shipped in v0.6.0.
+- 2026-09-26: phase 5 (allow lists) shipped in v0.7.0; phase 4 (CLIs) in v0.8.0; phase 6's
+  first slice (the workspace resolved from the host) in v0.9.1.
