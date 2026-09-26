@@ -45,14 +45,12 @@ export function AppsPage() {
     queryFn: api.apps,
     refetchInterval: 5000,
   });
-  const cluster = useQuery({
-    queryKey: ["cluster"],
-    queryFn: api.cluster,
-    refetchInterval: 30_000,
-  });
-
-  const counts = cluster.data?.phases ?? {};
-  const total = cluster.data?.apps ?? apps.data?.length ?? 0;
+  // Counts come from the visible projects: the cluster summary is the
+  // operator's and counts every workspace's (RFC-0033 phase 6).
+  const counts: Record<string, number> = {};
+  for (const a of apps.data ?? [])
+    counts[a.phase || "Pending"] = (counts[a.phase || "Pending"] ?? 0) + 1;
+  const total = apps.data?.length ?? 0;
   const perms = usePerms();
   const config = useQuery({
     queryKey: ["config"],

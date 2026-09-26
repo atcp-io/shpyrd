@@ -220,14 +220,36 @@ type Codes struct {
 // NewCodes returns a code store on top of the control-plane store.
 func NewCodes(st store.Sessions) *Codes { return &Codes{store: st, now: time.Now} }
 
+// Kinds of one-time codes: what a code may be redeemed as. A code minted
+// for one purpose is worthless for another.
+const (
+	KindEdge    = "edge"    // dashboard host → app host: an app cookie
+	KindSession = "session" // console host → workspace host: a session (RFC-0033 phase 6)
+)
+
+// envelope wraps the claims of a code with their kind.
+type envelope struct {
+	Kind   string          `json:"kind"`
+	Claims json.RawMessage `json:"claims"`
+}
+
 // Mint stores the claims for the host and returns the code.
 func (c *Codes) Mint(ctx context.Context, host string, claims CookieClaims) (string, error) {
+	return c.MintJSON(ctx, host, KindEdge, claims)
+}
+
+// MintJSON stores any claims of a kind for the host and returns the code.
+func (c *Codes) MintJSON(ctx context.Context, host, kind string, claims any) (string, error) {
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	code := base64.RawURLEncoding.EncodeToString(raw)
-	body, err := json.Marshal(claims)
+	inner, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	body, err := json.Marshal(envelope{Kind: kind, Claims: inner})
 	if err != nil {
 		return "", err
 	}
@@ -240,16 +262,33 @@ func (c *Codes) Mint(ctx context.Context, host string, claims CookieClaims) (str
 // Redeem returns the claims once, for the right host. Any attempt burns
 // the code.
 func (c *Codes) Redeem(ctx context.Context, code, host string) (*CookieClaims, error) {
-	e, err := c.store.TakeCode(ctx, code)
-	if err != nil {
-		return nil, errors.New("unknown, used or expired code")
-	}
-	if e.Host != strings.ToLower(host) {
-		return nil, fmt.Errorf("code is for %s", e.Host)
-	}
 	var claims CookieClaims
-	if err := json.Unmarshal(e.Claims, &claims); err != nil {
+	if err := c.RedeemJSON(ctx, code, host, KindEdge, &claims); err != nil {
 		return nil, err
 	}
 	return &claims, nil
+}
+
+// RedeemJSON returns the claims once, for the right host and kind. Any
+// attempt burns the code.
+func (c *Codes) RedeemJSON(ctx context.Context, code, host, kind string, into any) error {
+	e, err := c.store.TakeCode(ctx, code)
+	if err != nil {
+		return errors.New("unknown, used or expired code")
+	}
+	if e.Host != strings.ToLower(host) {
+		return fmt.Errorf("code is for %s", e.Host)
+	}
+	var env envelope
+	if err := json.Unmarshal(e.Claims, &env); err != nil || env.Kind == "" {
+		// Codes minted before kinds existed carry bare claims of the edge kind.
+		if kind != KindEdge {
+			return errors.New("code is of another kind")
+		}
+		return json.Unmarshal(e.Claims, into)
+	}
+	if env.Kind != kind {
+		return errors.New("code is of another kind")
+	}
+	return json.Unmarshal(env.Claims, into)
 }

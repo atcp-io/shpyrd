@@ -61,7 +61,7 @@ declare what they depend on.
 | [0030](0030-notifications.md) | Notifications (webhook, Slack, email) | provisional | 0013 (email) |
 | [0031](0031-api-tokens.md) | Per-user API tokens | implemented (v0.9.0); gaps: CLI minting needs a person session or the admin token | 0008 |
 | [0032](0032-mcp-connector.md) | MCP connector | provisional | 0031 (remote) |
-| [0033](0033-workspaces.md) | Workspaces | in progress (control-plane database v0.4.0; the edge v0.5.0; login methods, join policy, domain claims v0.6.0; allow lists v0.7.0; CLIs v0.8.0; workspace from the host v0.9.1) | 0008, 0016 |
+| [0033](0033-workspaces.md) | Workspaces | in progress (control-plane database v0.4.0; the edge v0.5.0; login methods, join policy, domain claims v0.6.0; allow lists v0.7.0; CLIs v0.8.0; workspace from the host v0.9.1; sign-in at the workspace host v0.9.2) | 0008, 0016 |
 | [0034](0034-domains-and-certificates.md) | Custom domains | implemented | 0036, 0061 |
 | [0035](0035-cloud-profiles.md) | Cloud profiles: Oracle Cloud (OKE) and AWS (EKS) | implemented (`oci`, network policy); AWS provisional | 0045 |
 | [0036](0036-load-balancer-exposure.md) | Load balancer exposure: internal and external front doors | implemented, gaps | 0035, 0061 |

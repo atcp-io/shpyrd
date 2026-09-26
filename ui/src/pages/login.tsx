@@ -57,8 +57,10 @@ export function LoginPage() {
           <CardDescription>
             {accounts ? (
               <>
-                Sign in to shpyrd
-                {config.data?.domain ? ` on ${config.data.domain}` : ""}.
+                {config.data?.workspace && !config.data.workspace.implicit
+                  ? `Sign in to ${config.data.workspace.name}`
+                  : `Sign in to shpyrd${config.data?.domain ? ` on ${config.data.domain}` : ""}`}
+                .
               </>
             ) : (
               <>

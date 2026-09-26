@@ -49,8 +49,13 @@ export function WorkspacePage() {
     staleTime: 60_000,
   });
   const ws = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  // The console is the implicit workspace's dashboard: accounts and login
+  // methods are managed there, for the whole platform (RFC-0033 phase 6).
+  const console = config.data?.workspace?.implicit !== false;
   const usersEnabled =
-    config.data?.extensions?.includes("auth-local") && perms.clusterAdmin;
+    config.data?.extensions?.includes("auth-local") &&
+    perms.clusterAdmin &&
+    console;
   const current = tab ?? "overview";
 
   return (
@@ -115,6 +120,7 @@ export function WorkspacePage() {
         <TabsContent value="signin" className="mt-4">
           <SignInSettings
             authLocal={!!config.data?.extensions?.includes("auth-local")}
+            console={console}
           />
         </TabsContent>
         <TabsContent value="tokens" className="mt-4">

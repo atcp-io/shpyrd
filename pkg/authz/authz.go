@@ -130,11 +130,21 @@ type Snapshot struct {
 	Grants []store.Grant
 	// Suspended lists the emails of people whose access is switched off.
 	Suspended map[string]bool
+	// Explicit marks a workspace other than the implicit one (RFC-0033
+	// phase 6): it is enforced from birth. Bootstrap mode, where everyone
+	// who signs in is an admin, exists so a fresh self-hosted cluster is
+	// usable; in a fresh explicit workspace it would hand the workspace to
+	// whoever signs in first. Its creator names the owner instead.
+	Explicit bool
 }
 
 // Enforced reports whether any team (other than the built-in one) or any
-// grant exists: until then a fresh cluster is in bootstrap mode.
+// grant exists: until then a fresh cluster is in bootstrap mode. Explicit
+// workspaces are always enforced.
 func (s *Snapshot) Enforced() bool {
+	if s.Explicit {
+		return true
+	}
 	for _, t := range s.Teams {
 		if !t.Everyone {
 			return true
@@ -253,7 +263,7 @@ func Load(ctx context.Context, st store.Store, workspace string) (*Snapshot, err
 	if err != nil {
 		return nil, err
 	}
-	snap := &Snapshot{Teams: teams, Grants: grants, Suspended: map[string]bool{}}
+	snap := &Snapshot{Teams: teams, Grants: grants, Suspended: map[string]bool{}, Explicit: workspace != "" && workspace != store.DefaultWorkspace}
 	if people, err := st.ListIdentities(ctx, workspace); err == nil {
 		for _, p := range people {
 			if p.Status == store.StatusSuspended {

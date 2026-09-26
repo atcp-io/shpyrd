@@ -20,6 +20,8 @@ export type PublicConfig = {
   extensions: string[];
   /** What this server offers beyond the core ("workspaces", ...); empty on the open-source platform. */
   capabilities?: string[];
+  /** The workspace answering at this host. */
+  workspace?: { slug: string; name: string; implicit: boolean };
   /** Storage rules of this cluster's profile (RFC-0060). */
   volumes?: { minSize?: string; snapshots: boolean };
 };

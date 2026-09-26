@@ -72,6 +72,10 @@ type Options struct {
 	// to tenancy.Single: every host is the implicit workspace. The cloud
 	// layer supplies a resolver that knows many.
 	Tenancy tenancy.Resolver
+	// Realms decides which login methods each workspace offers (RFC-0033's
+	// RealmProvider). Defaults to every configured method for every
+	// workspace.
+	Realms Realms
 	// Capabilities names what this server offers beyond the core
 	// ("workspaces", "billing", ...), returned by GET /api/config so one
 	// dashboard and one CLI adapt. The core adds nothing.
@@ -96,6 +100,9 @@ type PublicConfig struct {
 	// Capabilities beyond the core this server offers (RFC-0033): empty on
 	// the open-source platform.
 	Capabilities []string `json:"capabilities"`
+	// Workspace is the one answering at this host: its slug and name, for
+	// the sign-in page.
+	Workspace *WorkspaceRef `json:"workspace,omitempty"`
 	// Volumes describes the profile's storage rules (RFC-0060).
 	Volumes VolumesConfig `json:"volumes"`
 }
@@ -109,6 +116,13 @@ type VolumesConfig struct {
 }
 
 // Server is the shpyrd API server.
+// WorkspaceRef names a workspace in public payloads.
+type WorkspaceRef struct {
+	Slug     string `json:"slug"`
+	Name     string `json:"name"`
+	Implicit bool   `json:"implicit"`
+}
+
 type Server struct {
 	opts    Options
 	log     *slog.Logger
@@ -122,6 +136,7 @@ type Server struct {
 	authz   *authz.Resolver
 	store   store.Store
 	tenancy tenancy.Resolver
+	realms  Realms
 	// The edge (RFC-0033): signing keys, one-time codes, host index.
 	edgeKeys  *edge.Keys
 	edgeCodes *edge.Codes
@@ -191,10 +206,13 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	if opts.Tenancy == nil {
 		opts.Tenancy = &tenancy.Single{Store: opts.Store}
 	}
+	if opts.Realms == nil {
+		opts.Realms = allMethods{}
+	}
 	if opts.Public.Capabilities == nil {
 		opts.Public.Capabilities = append([]string{}, opts.Capabilities...)
 	}
-	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus, store: opts.Store, tenancy: opts.Tenancy}
+	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus, store: opts.Store, tenancy: opts.Tenancy, realms: opts.Realms}
 	s.authz = &authz.Resolver{Store: opts.Store}
 	s.tokenFailures = newRateLimiter(20)
 	s.passwordFailures = newRateLimiter(10)
@@ -302,6 +320,7 @@ func (s *Server) routes() error {
 	s.engine.GET(edgePathPrefix+"start", tenant, s.edgeStart)
 	s.engine.GET(edgePathPrefix+"callback", tenant, s.edgeCallback)
 	s.engine.GET(edgePathPrefix+"logout", tenant, s.edgeLogout)
+	s.engine.GET(edgePathPrefix+"session", tenant, s.edgeSession) // console → workspace sign-in handoff
 
 	s.engine.GET("/api/healthz", s.healthz)
 	pub := s.engine.Group("/api", tenant)
@@ -323,22 +342,26 @@ func (s *Server) routes() error {
 	api := s.engine.Group("/api", tenant, s.auth())
 	api.GET("/me", s.me)
 	api.POST("/auth/logout", s.authLogout)
-	api.GET("/namespaces", s.require(authz.ClusterView), s.listNamespaces)
-	api.GET("/helm/releases", s.require(authz.ClusterView), s.listHelmReleases)
-	api.GET("/cluster", s.require(authz.ClusterView), s.clusterSummary)
-	api.GET("/cluster/metrics", s.require(authz.ClusterView), s.clusterMetrics)
-	api.GET("/cluster/registry", s.require(authz.ClusterAdmin), s.registryInfo) // RFC-0059
-	api.POST("/cluster/registry/gc", s.require(authz.ClusterAdmin), s.registryGC)
-	api.GET("/cluster/backups", s.require(authz.ClusterAdmin), s.listBackups) // RFC-0037
-	api.POST("/cluster/backups", s.require(authz.ClusterAdmin), s.runBackup)
+	// The cluster is the operator's (RFC-0033 phase 6): a workspace's
+	// platform admin runs their workspace, not the machines under it. These
+	// routes answer at the console (the implicit workspace) only.
+	console := s.requireConsole()
+	api.GET("/namespaces", console, s.require(authz.ClusterView), s.listNamespaces)
+	api.GET("/helm/releases", console, s.require(authz.ClusterView), s.listHelmReleases)
+	api.GET("/cluster", console, s.require(authz.ClusterView), s.clusterSummary)
+	api.GET("/cluster/metrics", console, s.require(authz.ClusterView), s.clusterMetrics)
+	api.GET("/cluster/registry", console, s.require(authz.ClusterAdmin), s.registryInfo) // RFC-0059
+	api.POST("/cluster/registry/gc", console, s.require(authz.ClusterAdmin), s.registryGC)
+	api.GET("/cluster/backups", console, s.require(authz.ClusterAdmin), s.listBackups) // RFC-0037
+	api.POST("/cluster/backups", console, s.require(authz.ClusterAdmin), s.runBackup)
 	api.GET("/sizes", s.getSizes) // any signed-in user: the size selector needs it
-	api.PUT("/sizes", s.require(authz.ClusterAdmin), s.putSizes)
-	api.GET("/globals", s.require(authz.ClusterAdmin), s.getGlobals) // RFC-0016
-	api.PUT("/globals", s.require(authz.ClusterAdmin), s.putGlobals)
+	api.PUT("/sizes", console, s.require(authz.ClusterAdmin), s.putSizes)
+	api.GET("/globals", console, s.require(authz.ClusterAdmin), s.getGlobals) // RFC-0016
+	api.PUT("/globals", console, s.require(authz.ClusterAdmin), s.putGlobals)
 	// Cluster log drains: every project's lines (RFC-0023).
-	api.GET("/drains", s.require(authz.ClusterAdmin), s.listClusterDrains)
-	api.POST("/drains", s.require(authz.ClusterAdmin), s.createClusterDrain)
-	api.DELETE("/drains/:name", s.require(authz.ClusterAdmin), s.deleteClusterDrain)
+	api.GET("/drains", console, s.require(authz.ClusterAdmin), s.listClusterDrains)
+	api.POST("/drains", console, s.require(authz.ClusterAdmin), s.createClusterDrain)
+	api.DELETE("/drains/:name", console, s.require(authz.ClusterAdmin), s.deleteClusterDrain)
 	api.POST("/sources", s.uploadSource) // deploys check the project right when the App is updated
 	// The workspace (RFC-0033): its name and the people it has seen.
 	api.GET("/workspace", s.getWorkspace) // any signed-in user: the dashboard shows the name
@@ -415,7 +438,9 @@ func (s *Server) routes() error {
 	// Extensions mount their routes and register login providers.
 	deps := s.deps()
 	for _, x := range s.opts.Extensions {
-		if err := x.Routes(routeGroups{pub: pub, api: api, admin: api.Group("", s.require(authz.ClusterAdmin))}, deps); err != nil {
+		// Extensions manage cluster-level things (accounts, connectors,
+		// storage): the operator's, so the console's.
+		if err := x.Routes(routeGroups{pub: pub, api: api, admin: api.Group("", console, s.require(authz.ClusterAdmin))}, deps); err != nil {
 			return fmt.Errorf("extension %s: %w", x.Name(), err)
 		}
 	}
@@ -495,7 +520,12 @@ func (s *Server) auth() gin.HandlerFunc {
 
 func (s *Server) config(c *gin.Context) {
 	pub := s.opts.Public
-	pub.Auth = s.authConfig()
+	pub.Auth = s.authConfigFor(c)
+	if ws, err := s.tenant(c); err == nil {
+		pub.Workspace = &WorkspaceRef{Slug: ws.Slug, Name: ws.Name, Implicit: ws.Implicit()}
+		pub.Domain = s.appsDomainOf(ws)
+		pub.DashboardURL = s.dashboardURLOf(ws)
+	}
 	pub.Volumes = VolumesConfig{MinSize: s.vars(install.VarVolumeMinSize), Snapshots: s.vars(install.VarSnapshotClass) != ""}
 	c.JSON(http.StatusOK, pub)
 }

@@ -25,6 +25,7 @@ import (
 	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/install"
+	"shpyrd/pkg/store"
 )
 
 // The server is an OpenID Connect relying party (RFC-0007): extensions
@@ -82,7 +83,11 @@ type pendingLogin struct {
 	nonce    string
 	verifier string
 	next     string
-	created  time.Time
+	// workspace is the slug the login is on behalf of when the console
+	// signs someone in for an explicit workspace (RFC-0033 phase 6); ""
+	// for the console's own.
+	workspace string
+	created   time.Time
 }
 
 // relyingParty holds providers, in-flight logins and sessions.
@@ -323,7 +328,8 @@ func (rp *relyingParty) endSessionURL(sess *session) string {
 }
 
 // begin starts the authorization code flow and returns the issuer URL.
-func (rp *relyingParty) begin(providerID, next string) (string, error) {
+// workspace names the explicit workspace the login is for, or "".
+func (rp *relyingParty) begin(providerID, next, workspace string) (string, error) {
 	rp.mu.Lock()
 	p, ok := rp.providers[providerID]
 	if !ok && providerID == "" && len(rp.order) == 1 {
@@ -350,7 +356,7 @@ func (rp *relyingParty) begin(providerID, next string) (string, error) {
 			delete(rp.pending, k)
 		}
 	}
-	rp.pending[state] = pendingLogin{provider: providerID, nonce: nonce, verifier: verifier, next: safeNext(next), created: now}
+	rp.pending[state] = pendingLogin{provider: providerID, nonce: nonce, verifier: verifier, next: safeNext(next), workspace: workspace, created: now}
 	rp.mu.Unlock()
 	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
 	if p.ConnectorID != "" {
@@ -361,29 +367,29 @@ func (rp *relyingParty) begin(providerID, next string) (string, error) {
 }
 
 // complete exchanges the callback code for an identity, the raw id_token
-// and the post-login destination.
-func (rp *relyingParty) complete(ctx context.Context, state, code string) (ext.Identity, string, string, error) {
+// and the pending login it answers (destination, workspace).
+func (rp *relyingParty) complete(ctx context.Context, state, code string) (ext.Identity, string, pendingLogin, error) {
 	rp.mu.Lock()
 	pl, ok := rp.pending[state]
 	delete(rp.pending, state)
 	p := rp.providers[pl.provider]
 	rp.mu.Unlock()
 	if !ok || p == nil || rp.now().Sub(pl.created) > loginTTL {
-		return ext.Identity{}, "", "", errors.New("login expired or unknown; start again")
+		return ext.Identity{}, "", pl, errors.New("login expired or unknown; start again")
 	}
 	tok, err := p.oauth.Exchange(oidc.ClientContext(ctx, p.client), code, oauth2.VerifierOption(pl.verifier))
 	if err != nil {
-		return ext.Identity{}, "", "", fmt.Errorf("token exchange: %w", err)
+		return ext.Identity{}, "", pl, fmt.Errorf("token exchange: %w", err)
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	if raw == "" {
-		return ext.Identity{}, "", "", errors.New("issuer returned no id_token")
+		return ext.Identity{}, "", pl, errors.New("issuer returned no id_token")
 	}
 	id, err := rp.identity(ctx, p, raw, pl.nonce)
 	if err != nil {
-		return ext.Identity{}, "", "", err
+		return ext.Identity{}, "", pl, err
 	}
-	return id, raw, pl.next, nil
+	return id, raw, pl, nil
 }
 
 // safeNext only allows same-origin paths as post-login destinations.
@@ -401,7 +407,7 @@ func safeNext(next string) string {
 
 // authProviders is the public list of login options.
 func (s *Server) authProviders(c *gin.Context) {
-	c.JSON(http.StatusOK, s.authConfig())
+	c.JSON(http.StatusOK, s.authConfigFor(c))
 }
 
 func (s *Server) authConfig() AuthConfig {
@@ -477,6 +483,12 @@ func (s *Server) authPassword(c *gin.Context) {
 		abort(c, http.StatusNotFound, errors.New("password sign-in is not enabled"))
 		return
 	}
+	// The password grant needs no browser round trip, so it works at any
+	// workspace host directly, when the workspace offers it.
+	if ws, err := s.tenant(c); err == nil && !s.offers(c.Request.Context(), ws, s.rp.passwordProvider().ID) {
+		abort(c, http.StatusNotFound, errors.New("this workspace does not offer password sign-in"))
+		return
+	}
 	if s.passwordFailures.exhausted(email) {
 		c.Header("Retry-After", "60")
 		abort(c, http.StatusTooManyRequests, errors.New("too many failed attempts for this account; try again in a minute"))
@@ -535,13 +547,43 @@ func (s *Server) openSession(c *gin.Context, id ext.Identity, idToken, how strin
 	return "/", true
 }
 
-// authLogin redirects the browser to the issuer.
+// authLogin redirects the browser to the issuer. At an explicit
+// workspace's host it goes through the console first (RFC-0033 phase 6):
+// the console is the issuer's one relying party and hands the sign-in
+// back with a one-time code.
 func (s *Server) authLogin(c *gin.Context) {
 	if s.rp == nil {
 		abort(c, http.StatusNotFound, errors.New("no login provider configured"))
 		return
 	}
-	u, err := s.rp.begin(c.Query("provider"), c.Query("next"))
+	provider, next := c.Query("provider"), c.Query("next")
+	here, err := s.tenant(c)
+	if err != nil {
+		abort(c, http.StatusNotFound, err)
+		return
+	}
+	if !s.atConsole(c) {
+		if !s.offers(c.Request.Context(), here, provider) {
+			abort(c, http.StatusBadRequest, fmt.Errorf("this workspace does not offer login method %q", provider))
+			return
+		}
+		c.Redirect(http.StatusFound, s.consoleLoginURL(provider, here, next))
+		return
+	}
+	target := ""
+	if slug := c.Query("workspace"); slug != "" && slug != consoleWorkspace {
+		ws, err := s.handoffTarget(c.Request.Context(), slug)
+		if err != nil {
+			abort(c, http.StatusBadRequest, err)
+			return
+		}
+		if !s.offers(c.Request.Context(), ws, provider) {
+			abort(c, http.StatusBadRequest, fmt.Errorf("workspace %s does not offer login method %q", ws.Slug, provider))
+			return
+		}
+		target = ws.Slug
+	}
+	u, err := s.rp.begin(provider, next, target)
 	if err != nil {
 		abort(c, http.StatusBadRequest, err)
 		return
@@ -559,11 +601,21 @@ func (s *Server) authCallback(c *gin.Context) {
 		s.loginFailed(c, fmt.Errorf("%s: %s", e, c.Query("error_description")))
 		return
 	}
-	id, idToken, next, err := s.rp.complete(c.Request.Context(), c.Query("state"), c.Query("code"))
+	id, idToken, pl, err := s.rp.complete(c.Request.Context(), c.Query("state"), c.Query("code"))
 	if err != nil {
 		s.log.Warn("login failed", "error", err, "remote", c.ClientIP())
 		s.auditAnonymous(c, "auth.login_failed", err.Error())
 		s.loginFailed(c, err)
+		return
+	}
+	if pl.workspace != "" && pl.workspace != consoleWorkspace {
+		// On behalf of an explicit workspace: no session here, a code there.
+		target, err := s.handoffTarget(c.Request.Context(), pl.workspace)
+		if err != nil {
+			s.loginFailed(c, err)
+			return
+		}
+		s.handoff(c, target, id, idToken, pl.next)
 		return
 	}
 	if err := s.admitSignIn(c.Request.Context(), s.workspace(c), id); err != nil {
@@ -574,7 +626,7 @@ func (s *Server) authCallback(c *gin.Context) {
 	if _, ok := s.openSession(c, id, idToken, "redirect"); !ok {
 		return
 	}
-	c.Redirect(http.StatusFound, next)
+	c.Redirect(http.StatusFound, pl.next)
 }
 
 // authTicket signs a browser in with a one-time login ticket minted by the
@@ -609,6 +661,12 @@ func (s *Server) authTicket(c *gin.Context) {
 // loginFailed sends the browser back to the login page with the reason.
 func (s *Server) loginFailed(c *gin.Context, err error) {
 	c.Redirect(http.StatusFound, "/?login_error="+url.QueryEscape(err.Error()))
+}
+
+// loginFailedAt sends the browser to a workspace's own login page with the
+// error: a sign-in the console handled on its behalf fails where it began.
+func (s *Server) loginFailedAt(c *gin.Context, ws *store.Workspace, err error) {
+	c.Redirect(http.StatusFound, s.dashboardURLOf(ws)+"/?login_error="+url.QueryEscape(err.Error()))
 }
 
 func (s *Server) secureCookies() bool {

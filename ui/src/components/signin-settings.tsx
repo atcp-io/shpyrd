@@ -46,10 +46,17 @@ import {
  * methods, who may join on first sign-in, and the email domains the company
  * owns.
  */
-export function SignInSettings({ authLocal }: { authLocal: boolean }) {
+export function SignInSettings({
+  authLocal,
+  console = true,
+}: {
+  authLocal: boolean;
+  /** False at an explicit workspace: login methods are the platform operator's. */
+  console?: boolean;
+}) {
   return (
     <div className="grid gap-6">
-      {authLocal ? (
+      {!console ? null : authLocal ? (
         <LoginMethodsCard />
       ) : (
         <Card>

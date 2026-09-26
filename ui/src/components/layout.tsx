@@ -33,6 +33,9 @@ export function Layout() {
     staleTime: 60_000,
   });
   const perms = usePerms();
+  // The cluster is the operator's: only the console (the implicit
+  // workspace's dashboard) shows it (RFC-0033 phase 6).
+  const console = config.data?.workspace?.implicit !== false;
   const usersEnabled =
     config.data?.extensions?.includes("auth-local") && perms.clusterAdmin;
 
@@ -46,13 +49,15 @@ export function Layout() {
           </Link>
           <nav className="flex items-center gap-1 text-sm">
             <NavItem to="/">Projects</NavItem>
-            {perms.clusterView && <NavItem to="/cluster">Cluster</NavItem>}
+            {perms.clusterView && console && (
+              <NavItem to="/cluster">Cluster</NavItem>
+            )}
             {(perms.clusterAdmin || usersEnabled) && (
               <NavItem to="/workspace">Workspace</NavItem>
             )}
           </nav>
           <div className="ml-auto flex items-center gap-1 text-sm text-muted-foreground">
-            {config.data?.grafanaUrl && (
+            {config.data?.grafanaUrl && console && (
               <Button variant="ghost" size="sm" asChild>
                 <a
                   href={config.data.grafanaUrl}

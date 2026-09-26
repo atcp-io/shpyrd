@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"flag"
@@ -146,9 +147,24 @@ func run(o runOptions, logger *slog.Logger) error {
 	// after every team or grant write.
 	memberships := &controller.MembershipReconciler{Store: st}
 
+	// The open-source platform resolves every host to its one workspace.
+	// SHPYRD_DEV_TENANCY=address switches to host-based resolution for
+	// developing the seam: nothing in this binary creates a second
+	// workspace, so it changes nothing on an install (RFC-0033 phase 6).
+	var resolver tenancy.Resolver
+	if os.Getenv("SHPYRD_DEV_TENANCY") == "address" {
+		dashboardHost := dashboard
+		if u, err := url.Parse(dashboard); err == nil && u.Host != "" {
+			dashboardHost = u.Host
+		}
+		resolver = &tenancy.ByAddress{Store: st, Domain: domain, DashboardHost: dashboardHost}
+		logger.Info("tenancy: workspaces resolved from the request host (development switch)")
+	}
+
 	srv, err := api.New(k, api.Options{
-		Addr:  o.addr,
-		Store: st,
+		Addr:    o.addr,
+		Store:   st,
+		Tenancy: resolver,
 		MembershipChanged: func() {
 			if o.controller {
 				memberships.Notify()
@@ -334,6 +350,15 @@ func newManager(k *kube.Client, o runOptions, memberships *controller.Membership
 	memberships.Client, memberships.Scheme = mgr.GetClient(), mgr.GetScheme()
 	if err := memberships.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("membership controller: %w", err)
+	}
+	// Front doors of explicit workspaces (RFC-0033 phase 6); nothing to do
+	// while there is one workspace.
+	workspaces := &controller.WorkspaceReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Store: memberships.Store, Config: rec.Config}
+	if err := workspaces.SetupWithManager(mgr); err != nil {
+		return nil, fmt.Errorf("workspace controller: %w", err)
+	}
+	if err := mgr.Add(workspaces); err != nil {
+		return nil, fmt.Errorf("workspace controller: %w", err)
 	}
 	deps := ext.Deps{Kube: k, Client: mgr.GetClient(), SystemNamespace: k.Namespace, Vars: os.Getenv}
 	for _, x := range enabledExts {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -256,5 +257,113 @@ func TestTenancyIsolation(t *testing.T) {
 	s.Handler().ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusUnauthorized {
 		t.Errorf("foreign session at acme's app = %d, want 401 (anonymous)", rec2.Code)
+	}
+}
+
+// TestConsoleHandoff walks the sign-in of an explicit workspace: its host
+// sends the browser to the console, the console completes OpenID Connect,
+// applies the workspace's admission and hands a one-time code back; the
+// workspace host mints its own session. The console keeps no session.
+func TestConsoleHandoff(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	s, _, st := newTenantServer(t)
+	if err := s.rp.AddOIDC(context.Background(), ext.OIDCProvider{ID: "test", Label: "Test login", Issuer: issuer.srv.URL, ClientID: "shpyrd", ClientSecret: "sekret"}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(host, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "https://"+host+path, nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. At acme, login goes to the console naming the workspace.
+	rec := get("acme.shpyrd.test", "/api/auth/login?provider=test&next=/projects")
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || loc.Host != "shpyrd.example.test" || loc.Path != "/api/auth/login" || loc.Query().Get("workspace") != "acme" || loc.Query().Get("next") != "/projects" {
+		t.Fatalf("acme login -> %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	// 2. The console starts the flow with the issuer.
+	rec = get("shpyrd.example.test", loc.RequestURI())
+	authURL, _ := url.Parse(rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || !strings.HasPrefix(authURL.String(), issuer.srv.URL+"/auth?") {
+		t.Fatalf("console login -> %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	resp, err := http.DefaultTransport.RoundTrip(mustRequest(t, "GET", authURL.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	back, _ := url.Parse(resp.Header.Get("Location"))
+	// 3. The console's callback hands off to acme with a code; no console cookie.
+	rec = get("shpyrd.example.test", back.RequestURI())
+	hand, _ := url.Parse(rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || hand.Host != "acme.shpyrd.test" || hand.Path != "/.shpyrd/session" || hand.Query().Get("code") == "" || hand.Query().Get("rd") != "/projects" {
+		t.Fatalf("callback -> %d %s %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
+	if cookieValue(rec, sessionCookie) != "" {
+		t.Error("the console must not open a session for a workspace sign-in")
+	}
+	// 4. acme redeems the code into its own session, for its own host only.
+	if rec := get("shpyrd.example.test", hand.RequestURI()); rec.Code != http.StatusNotFound {
+		t.Errorf("session code at the console = %d", rec.Code)
+	}
+	rec = get("acme.shpyrd.test", hand.RequestURI())
+	sid := cookieValue(rec, sessionCookie)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/projects" || sid == "" {
+		t.Fatalf("session handoff -> %d %s cookies=%v", rec.Code, rec.Header().Get("Location"), rec.Result().Cookies())
+	}
+	me := func(host string) (int, string) {
+		req := httptest.NewRequest("GET", "https://"+host+"/api/me", nil)
+		req.Host = host
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: sid})
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
+	}
+	if code, body := me("acme.shpyrd.test"); code != 200 || !strings.Contains(body, "ada@example.test") {
+		t.Errorf("me at acme = %d %s", code, body)
+	}
+	if code, _ := me("shpyrd.example.test"); code != http.StatusUnauthorized {
+		t.Errorf("acme's session at the console = %d, want 401", code)
+	}
+	// A fresh explicit workspace is enforced from birth: Ada, its first
+	// person, is nobody there until the workspace's creator names owners.
+	if code, body := me("acme.shpyrd.test"); code != 200 || strings.Contains(body, "platform-admin") || !strings.Contains(body, `"enforced":true`) {
+		t.Errorf("first person in a fresh explicit workspace = %d %s (bootstrap mode must not apply)", code, body)
+	}
+	// Ada is a person of acme now, and of no other workspace.
+	if people, _ := st.ListIdentities(context.Background(), "acme"); len(people) != 1 || people[0].Email != "ada@example.test" {
+		t.Errorf("acme people = %+v", people)
+	}
+	if people, _ := st.ListIdentities(context.Background(), store.DefaultWorkspace); len(people) != 0 {
+		t.Errorf("console people = %+v (the console must not record workspace sign-ins)", people)
+	}
+	// The code was single use.
+	if rec := get("acme.shpyrd.test", hand.RequestURI()); rec.Code != http.StatusBadRequest {
+		t.Errorf("replayed session code = %d", rec.Code)
+	}
+
+	// 5. The workspace's admission applies at the console: a listed-only
+	// workspace refuses strangers before any code is minted.
+	if _, err := st.UpdateWorkspaceSettings(context.Background(), "acme", store.WorkspaceSettings{JoinPolicy: store.JoinListed}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteIdentity(context.Background(), "acme", "ada@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	rec = get("shpyrd.example.test", "/api/auth/login?provider=test&workspace=acme&next=/")
+	authURL, _ = url.Parse(rec.Header().Get("Location"))
+	resp, _ = http.DefaultTransport.RoundTrip(mustRequest(t, "GET", authURL.String()))
+	resp.Body.Close()
+	back, _ = url.Parse(resp.Header.Get("Location"))
+	rec = get("shpyrd.example.test", back.RequestURI())
+	if rec.Code != http.StatusFound || !strings.HasPrefix(rec.Header().Get("Location"), "https://acme.shpyrd.test/?login_error=") {
+		t.Errorf("stranger at a listed-only workspace = %d %s (must land on acme's login page)", rec.Code, rec.Header().Get("Location"))
+	}
+	// A suspended workspace cannot be signed into at all.
+	if rec := get("shpyrd.example.test", "/api/auth/login?provider=test&workspace=closed"); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "suspended") {
+		t.Errorf("login for a suspended workspace = %d %s", rec.Code, rec.Body.String())
 	}
 }

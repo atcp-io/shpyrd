@@ -16,6 +16,7 @@ import (
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/configvars"
+	"shpyrd/pkg/store"
 )
 
 // Global config vars (RFC-0016): set once by a platform admin, injected into
@@ -125,7 +126,8 @@ func (s *Server) projectsReceivingGlobals(ctx context.Context) int {
 	}
 	n := 0
 	for _, a := range list.Items {
-		if a.Spec.Globals == nil || !a.Spec.Globals.Disabled {
+		// Only the operator's own projects receive globals (RFC-0033).
+		if workspaceOf(&a) == store.DefaultWorkspace && (a.Spec.Globals == nil || !a.Spec.Globals.Disabled) {
 			n++
 		}
 	}

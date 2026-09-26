@@ -350,13 +350,14 @@ func (s *Server) jwks(c *gin.Context) {
 // dashboard host, which knows the session.
 func (s *Server) edgeSignin(c *gin.Context) {
 	app, err := s.appByHost(c, c.Request.Host)
-	if err != nil {
+	if err != nil || workspaceOf(app) != s.workspace(c) {
 		s.edgePage(c, http.StatusNotFound, "No app here", "There is no app at this address.", nil)
 		return
 	}
+	// The app's workspace's dashboard signs its visitors in.
+	ws, _ := s.tenant(c)
 	q := url.Values{"app": {c.Request.Host}, "rd": {safeNext(c.Query("rd"))}}
-	c.Redirect(http.StatusFound, "https://"+s.dashboardHost()+edgePathPrefix+"start?"+q.Encode())
-	_ = app
+	c.Redirect(http.StatusFound, "https://"+s.dashboardHostOf(ws)+edgePathPrefix+"start?"+q.Encode())
 }
 
 // edgeStart is GET /.shpyrd/start?app=<host>&rd=<uri> on the dashboard host.

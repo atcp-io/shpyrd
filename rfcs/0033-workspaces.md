@@ -105,8 +105,19 @@ Shipped in v0.9.1 — the platform resolves the workspace from the request host:
 - Self-hosted installs see no change: one workspace, the same names, the same objects.
   Creating further workspaces is not part of the open-source platform.
 
-The rest of the model (sign-in at a workspace's own host, quotas per plan, OAuth for
-agents) follows in later releases; the full text is published when it settles.
+Shipped in v0.9.2 — sign-in at a workspace's own host:
+
+- The platform's dashboard is the bundled issuer's one relying party; a workspace at its
+  own address sends the browser there to sign in and receives a one-time code back, which
+  becomes the workspace's own session (the platform's dashboard keeps none). The
+  workspace's join policy and domain claims decide who may enter.
+- A reconciler publishes each explicit workspace at its address (Ingress and certificate);
+  cluster-level routes and pages (cluster, extensions, global config vars, accounts) belong
+  to the operator and do not answer at a workspace's host.
+- Explicit workspaces are enforced from birth: no bootstrap mode for them.
+
+The rest of the model (quotas per plan, OAuth for agents) follows in later releases; the
+full text is published when it settles.
 
 ## Implementation History
 
@@ -118,4 +129,5 @@ agents) follows in later releases; the full text is published when it settles.
 - 2026-09-26: phase 3 (sessions in the database, login methods, join policy, domain claims,
   the `everyone` team, suspension) shipped in v0.6.0.
 - 2026-09-26: phase 5 (allow lists) shipped in v0.7.0; phase 4 (CLIs) in v0.8.0; phase 6's
-  first slice (the workspace resolved from the host) in v0.9.1.
+  first slice (the workspace resolved from the host) in v0.9.1, its second (sign-in at the
+  workspace host through the platform's dashboard) in v0.9.2.
