@@ -77,5 +77,12 @@ read and the viewer's level highlighting misses it.
     DOM; `pkg/logfmt` carries 18 and the CLI helpers 10, over the same case table, so the two
     parsers cannot drift. Rendering real zap, logrus, pino, bunyan and structlog lines is
     what turned up the numeric levels and the escaped nested values.
+  - Verified on kind against `examples/blog` (which logs JSON): rendered on a terminal and
+    untouched when piped, `--pretty` and `--json` forcing either, and `--json` byte-identical
+    to the container's own lines. Lines written straight into the container's stdout covered
+    the rest: a plain line and a `panic:` line pass through, pino's `"level":50` reads as
+    ERROR with its `time` not printed twice, logrus's `"warning"` keeps its spelling in the
+    warn bucket, a nested object and an array print unescaped, and a truncated object stays
+    plain text.
   - Not built, and not promised by this RFC: a `--level` filter for the CLI, and `key=value`
     queries in the filter box (it matches field keys and values as substrings).
