@@ -6,6 +6,7 @@ package authz
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ const (
 	ProjectResource Action = "project.resource" // volumes and other resources, attach/detach
 	ProjectMembers  Action = "project.members"  // manage members
 	ProjectDestroy  Action = "project.destroy"
+	ProjectOpen     Action = "project.open" // open the app through the edge (RFC-0033)
 
 	ClusterView   Action = "cluster.view"   // cluster page, list projects
 	ClusterAdmin  Action = "cluster.admin"  // size catalog, extensions, users, teams, create projects
@@ -37,13 +39,16 @@ const (
 
 // roleActions is the static table: what each role may do.
 var roleActions = map[string][]Action{
-	shpyrdv1.RoleViewer:    {ProjectView},
-	shpyrdv1.RoleDeveloper: {ProjectView, ProjectDeploy, ProjectScale, ProjectConfig, ProjectExec},
-	shpyrdv1.RoleAdmin:     {ProjectView, ProjectDeploy, ProjectScale, ProjectConfig, ProjectExec, ProjectResource, ProjectMembers, ProjectDestroy},
+	// Every operating role opens the app too: its holders read the app's
+	// logs and configuration already.
+	shpyrdv1.RoleUser:      {ProjectOpen},
+	shpyrdv1.RoleViewer:    {ProjectOpen, ProjectView},
+	shpyrdv1.RoleDeveloper: {ProjectOpen, ProjectView, ProjectDeploy, ProjectScale, ProjectConfig, ProjectExec},
+	shpyrdv1.RoleAdmin:     {ProjectOpen, ProjectView, ProjectDeploy, ProjectScale, ProjectConfig, ProjectExec, ProjectResource, ProjectMembers, ProjectDestroy},
 	// Platform roles imply a project role on every project.
-	shpyrdv1.RolePlatformViewer: {ClusterView, ProjectView},
+	shpyrdv1.RolePlatformViewer: {ClusterView, ProjectOpen, ProjectView},
 	shpyrdv1.RolePlatformAdmin: {ClusterView, ClusterAdmin, ClusterCreate,
-		ProjectView, ProjectDeploy, ProjectScale, ProjectConfig, ProjectExec, ProjectResource, ProjectMembers, ProjectDestroy},
+		ProjectOpen, ProjectView, ProjectDeploy, ProjectScale, ProjectConfig, ProjectExec, ProjectResource, ProjectMembers, ProjectDestroy},
 }
 
 // Roles of an identity: a platform role (or "") and a role per project.
@@ -96,10 +101,12 @@ func allows(role string, action Action) bool {
 func rank(role string) int {
 	switch role {
 	case shpyrdv1.RoleAdmin:
-		return 3
+		return 4
 	case shpyrdv1.RoleDeveloper:
-		return 2
+		return 3
 	case shpyrdv1.RoleViewer:
+		return 2
+	case shpyrdv1.RoleUser:
 		return 1
 	}
 	return 0
@@ -180,6 +187,33 @@ func (s *Snapshot) RolesFor(id ext.Identity) Roles {
 		}
 	}
 	return r
+}
+
+// TeamNames lists the teams an identity belongs to, sorted.
+func (s *Snapshot) TeamNames(id ext.Identity) []string {
+	teams := s.teamsOf(id)
+	out := make([]string, 0, len(teams))
+	for name := range teams {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// RoleForTeams is the strongest role the given teams hold on a project —
+// what "Open as team X" pretends (RFC-0033).
+func (s *Snapshot) RoleForTeams(project string, teams []string) string {
+	want := map[string]bool{}
+	for _, t := range teams {
+		want[t] = true
+	}
+	role := ""
+	for _, g := range s.Grants {
+		if g.Project == project && g.Team != "" && want[g.Team] && rank(g.Role) > rank(role) {
+			role = g.Role
+		}
+	}
+	return role
 }
 
 // Load reads the teams and grants of the workspace.

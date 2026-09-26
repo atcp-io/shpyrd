@@ -61,11 +61,23 @@ and behaves as before. The first pieces shipped in v0.4.0:
 - A Workspace page in the dashboard (name, people, teams, accounts); the labels
   `shpyrd.io/workspace` on new project namespaces.
 
-The rest of the model (many workspaces, identity per workspace, the `user` role and the
-edge) follows in later releases; the full text is published when it settles.
+Shipped in v0.5.0:
+
+- The `user` role (opens the app; nothing in the builder dashboard) and `spec.access`
+  (`public`, `authenticated` — the default for new projects —, `identified`).
+- The edge: ingress-nginx `auth_request` to the server for non-public apps; a cookie per
+  app host (never the dashboard's session cookie), obtained through a one-time code from
+  the dashboard host; `X-Shpyrd-*` headers and an EdDSA JWT (`/.well-known/jwks.json`);
+  the "available to team X" page; `Open as` previews; the launcher for `user`-only people;
+  `shpyrd access`, `projects create --public`; the admin token as a browser session.
+
+The rest of the model (many workspaces, identity per workspace, collaborators, OAuth for
+agents) follows in later releases; the full text is published when it settles.
 
 ## Implementation History
 
 - 2026-09-22: RFC written; blocked on the definition.
 - 2026-09-26: definition settled internally; phase 1 (control-plane database, implicit
   workspace, Workspace page) shipped in v0.4.0.
+- 2026-09-26: phase 2 (the `user` role, access modes, the edge, previews, launcher) shipped
+  in v0.5.0.

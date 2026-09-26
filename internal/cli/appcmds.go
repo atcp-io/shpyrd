@@ -21,6 +21,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/api"
 	"shpyrd/pkg/configvars"
 )
 
@@ -683,6 +684,110 @@ covered by the platform's wildcard.`,
 			return nil
 		},
 	}
+	appFlag(cmd, &appName)
+	return cmd
+}
+
+// shpyrd access [set public|authenticated|identified] (RFC-0033): who may
+// open the app.
+func newAccessCmd(g *globalFlags) *cobra.Command {
+	var appName string
+	cmd := &cobra.Command{
+		Use:   "access",
+		Short: "Who may open the app: sign-in required, public, or public with signed-in visitors identified",
+		Long: `Access is decided at the edge, before a request reaches the app:
+
+  authenticated  visitors sign in; only people with a role on the project
+                 (teams with the user role, its developers and admins) get in,
+                 and the app receives who they are (X-Shpyrd-* headers and a
+                 signed JWT). The default for new projects.
+  public         anyone can open it: a site, a landing page.
+  identified     anyone can open it, and signed-in people are identified to
+                 the app (a site with a signed-in state).
+
+  shpyrd access --project shop
+  shpyrd access set public --project shop
+  shpyrd members add shop --team finance --role user`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			name, err := resolveAppName(appName)
+			if err != nil {
+				return err
+			}
+			ac, err := newAppClient(g, cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			raw, err := serverRequest(ctx, ac.k, "GET", "api/projects/"+name, nil, "")
+			if err != nil {
+				return err
+			}
+			var detail struct {
+				Access string `json:"access"`
+				URL    string `json:"url"`
+			}
+			_ = json.Unmarshal(raw, &detail)
+			out := cmd.OutOrStdout()
+			switch detail.Access {
+			case shpyrdv1.AccessPublic:
+				fmt.Fprintf(out, "%s is public: anyone can open %s\n", name, firstNonEmpty(detail.URL, "it"))
+			case shpyrdv1.AccessIdentified:
+				fmt.Fprintf(out, "%s is public; signed-in visitors are identified to the app\n", name)
+			default:
+				fmt.Fprintf(out, "%s asks visitors to sign in; these roles open it:\n", name)
+			}
+			members, err := serverRequest(ctx, ac.k, "GET", "api/projects/"+name+"/members", nil, "")
+			if err != nil {
+				return err
+			}
+			var grants []api.MemberView
+			_ = json.Unmarshal(members, &grants)
+			if len(grants) == 0 {
+				fmt.Fprintln(out, "  (no roles granted: only platform admins and the admin token can open it)")
+			}
+			for _, m := range grants {
+				fmt.Fprintf(out, "  %-10s %s\n", m.Role, firstNonEmpty(m.User, "team "+m.Team))
+			}
+			return nil
+		},
+	}
+	set := &cobra.Command{
+		Use:   "set public|authenticated|identified",
+		Short: "Change who may open the app",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			access := strings.ToLower(args[0])
+			switch access {
+			case shpyrdv1.AccessPublic, shpyrdv1.AccessAuthenticated, shpyrdv1.AccessIdentified:
+			default:
+				return fmt.Errorf("access must be public, authenticated or identified")
+			}
+			name, err := resolveAppName(appName)
+			if err != nil {
+				return err
+			}
+			ac, err := newAppClient(g, cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			body, _ := json.Marshal(map[string]string{"access": access})
+			if _, err := serverRequest(ctx, ac.k, "PUT", "api/projects/"+name+"/access", body, "application/json"); err != nil {
+				return err
+			}
+			switch access {
+			case shpyrdv1.AccessPublic:
+				fmt.Fprintf(cmd.OutOrStdout(), "%s is public now: anyone on the internet can open it.\n", name)
+			case shpyrdv1.AccessIdentified:
+				fmt.Fprintf(cmd.OutOrStdout(), "%s is public now; signed-in visitors are identified to the app.\n", name)
+			default:
+				fmt.Fprintf(cmd.OutOrStdout(), "%s asks visitors to sign in now; grant roles with `shpyrd members add`.\n", name)
+			}
+			return nil
+		},
+	}
+	appFlag(set, &appName)
+	cmd.AddCommand(set)
 	appFlag(cmd, &appName)
 	return cmd
 }

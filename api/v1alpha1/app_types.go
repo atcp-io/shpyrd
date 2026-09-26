@@ -17,6 +17,11 @@ const (
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	// LabelProject marks the namespace of a project (value: project slug).
 	LabelProject = "shpyrd.io/project"
+	// Access values (RFC-0033).
+	AccessPublic        = "public"
+	AccessAuthenticated = "authenticated"
+	AccessIdentified    = "identified"
+
 	// LabelWorkspace names the workspace a project belongs to (RFC-0033);
 	// the open-source platform has one, "default".
 	LabelWorkspace = "shpyrd.io/workspace"
@@ -127,6 +132,15 @@ type AppSpec struct {
 	// +optional
 	// +kubebuilder:validation:Enum=external;internal
 	Exposure string `json:"exposure,omitempty"`
+
+	// Access says who may open the app (RFC-0033): "public" (anyone, the
+	// value of apps created before access existed), "authenticated" (people
+	// with a role on the project: the edge asks them to sign in and hands
+	// the app a signed identity) or "identified" (anyone, but signed-in
+	// people are identified to the app). New projects start authenticated.
+	// +optional
+	// +kubebuilder:validation:Enum=public;authenticated;identified
+	Access string `json:"access,omitempty"`
 
 	// Globals controls the cluster-wide config vars a platform admin sets
 	// with `shpyrd globals` (RFC-0016). Nil injects all of them.
@@ -516,4 +530,13 @@ func (h *HealthCheck) GetStr(field string) string {
 		return h.ShutdownDelay
 	}
 	return ""
+}
+
+// EffectiveAccess is the app's access mode, "public" for apps that predate
+// the field.
+func (a *App) EffectiveAccess() string {
+	if a == nil || a.Spec.Access == "" {
+		return AccessPublic
+	}
+	return a.Spec.Access
 }

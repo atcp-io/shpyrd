@@ -141,3 +141,6 @@ Audited on 2026-09-25 against the code. What the text promises but the platform 
   marks them `shpyrd.io/migrated` (they are removed in a later release). The workspace
   they belong to is RFC-0033's; the dashboard gained a Workspace page (name, people seen
   at sign-in, teams, accounts).
+- **Changed (v0.5.0):** a fourth project role, `user`, opens the app through the edge
+  (action `project.open`) and nothing in the builder dashboard beyond the launcher; every
+  operating role opens the app too. See RFC-0033.

@@ -407,6 +407,46 @@ type PasswordLoginRequest struct {
 	Next     string `json:"next"`
 }
 
+// tokenLoginRequest is POST /api/auth/token.
+type tokenLoginRequest struct {
+	Token string `json:"token" binding:"required"`
+	Next  string `json:"next"`
+}
+
+// authToken turns the admin token into a browser session, so the token's
+// holder gets the same cookie-based identity as accounts: the edge
+// (RFC-0033) and every page work the same way. Throttled per address like
+// the header form of the token.
+func (s *Server) authToken(c *gin.Context) {
+	var req tokenLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	if s.opts.Token == "" || s.opts.TokenDisabled {
+		abort(c, http.StatusUnauthorized, errors.New("the admin token is disabled on this platform"))
+		return
+	}
+	if s.tokenFailures.exhausted(c.ClientIP()) {
+		abort(c, http.StatusTooManyRequests, errors.New("too many attempts; wait a minute"))
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(req.Token)), []byte(s.opts.Token)) != 1 {
+		s.tokenFailures.allow(c.ClientIP()) // a failure spends a token
+		s.auditAnonymous(c, "auth.login_failed", "admin token")
+		abort(c, http.StatusUnauthorized, errors.New("that is not the admin token"))
+		return
+	}
+	if s.rp == nil {
+		abort(c, http.StatusNotImplemented, errors.New("sessions are not available: no login provider is configured"))
+		return
+	}
+	if _, ok := s.openSession(c, ext.Identity{Subject: "admin-token", Provider: "token", Admin: true}, "", "token"); !ok {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"next": firstNonEmpty(safeNextOrEmpty(req.Next), "/")})
+}
+
 // authPassword signs in with email and password through the issuer's
 // password grant and opens a session. Wrong credentials are 401 with a
 // message the page shows in place; failures per account are throttled and

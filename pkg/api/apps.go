@@ -39,11 +39,15 @@ type AppSummary struct {
 	// Exposure is "external" (public LB, default) or "internal" (private LB,
 	// RFC-0036). Empty means external.
 	Exposure string `json:"exposure,omitempty"`
+	// Access is who may open the app: public, authenticated or identified
+	// (RFC-0033). Apps created before the field exist are public.
+	Access string `json:"access"`
 }
 
 func summarize(a *shpyrdv1.App) AppSummary {
 	s := AppSummary{
 		Exposure:    a.Spec.Exposure,
+		Access:      a.EffectiveAccess(),
 		Slug:        a.Name,
 		DisplayName: project.DisplayName(a),
 		Namespace:   a.Namespace,
@@ -104,6 +108,7 @@ type AppDetailSpec struct {
 	Build       *shpyrdv1.Build             `json:"build,omitempty"`
 	Bindings    []shpyrdv1.Binding          `json:"bindings,omitempty"`
 	Exposure    string                      `json:"exposure,omitempty"`
+	Access      string                      `json:"access"` // who may open the app (RFC-0033)
 }
 
 type AppDetailStatus struct {
@@ -161,6 +166,7 @@ func detail(a *shpyrdv1.App, buildByDigest map[string]int) AppDetail {
 			Build:       a.Spec.Build,
 			Bindings:    a.Spec.Bindings,
 			Exposure:    a.Spec.Exposure,
+			Access:      a.EffectiveAccess(),
 		},
 		Status: AppDetailStatus{
 			Phase:       firstNonEmpty(a.Status.Phase, shpyrdv1.PhasePending),
@@ -273,6 +279,9 @@ type CreateAppRequest struct {
 	Processes map[string]shpyrdv1.Process `json:"processes,omitempty"`
 	Git       *shpyrdv1.GitSource         `json:"git,omitempty"`
 	SubPath   string                      `json:"subPath,omitempty"`
+	// Access is who may open the app (RFC-0033); new projects start
+	// authenticated unless asked to be public.
+	Access string `json:"access,omitempty"`
 }
 
 func (s *Server) createApp(c *gin.Context) {
@@ -302,9 +311,17 @@ func (s *Server) createApp(c *gin.Context) {
 		abort(c, http.StatusBadGateway, fmt.Errorf("create namespace: %w", err))
 		return
 	}
+	access := req.Access
+	if access == "" {
+		access = shpyrdv1.AccessAuthenticated
+	}
+	if !validAccess(access) {
+		abort(c, http.StatusBadRequest, fmt.Errorf("access must be public, authenticated or identified"))
+		return
+	}
 	app := &shpyrdv1.App{
 		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns.Name},
-		Spec:       shpyrdv1.AppSpec{Domains: req.Domains, Processes: req.Processes},
+		Spec:       shpyrdv1.AppSpec{Domains: req.Domains, Processes: req.Processes, Access: access},
 	}
 	project.SetDisplayName(app, req.Name)
 	if req.Git != nil && req.Git.URL != "" {
@@ -560,6 +577,36 @@ func (s *Server) setExposure(c *gin.Context) {
 		return
 	}
 	s.audit(c, app.Name, "exposure", app.Name, req.Exposure)
+	c.JSON(http.StatusOK, summarize(app))
+}
+
+func validAccess(a string) bool {
+	return a == shpyrdv1.AccessPublic || a == shpyrdv1.AccessAuthenticated || a == shpyrdv1.AccessIdentified
+}
+
+// accessRequest changes who may open the app (RFC-0033).
+type accessRequest struct {
+	Access string `json:"access" binding:"required"`
+}
+
+func (s *Server) setAccess(c *gin.Context) {
+	var req accessRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, err)
+		return
+	}
+	if !validAccess(req.Access) {
+		abort(c, http.StatusBadRequest, fmt.Errorf("access must be public, authenticated or identified"))
+		return
+	}
+	app, err := s.mutateApp(c, func(a *shpyrdv1.App) error {
+		a.Spec.Access = req.Access
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	s.audit(c, app.Name, "access", app.Name, req.Access)
 	c.JSON(http.StatusOK, summarize(app))
 }
 

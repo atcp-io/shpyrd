@@ -101,7 +101,8 @@ jobs:
         run: |
           set -euo pipefail
           export SHPYRD_CONTEXT=kind-ci
-          ./bin/shpyrd projects create "Hello World" --context kind-ci
+          # hello-world is a public site; api keeps the default: sign-in required (RFC-0033).
+          ./bin/shpyrd projects create "Hello World" --public --context kind-ci
           (cd examples/hello && ../../bin/shpyrd deploy --project hello-world --context kind-ci)
           ./bin/shpyrd projects create api --context kind-ci
           (cd examples/api && ../../bin/shpyrd deploy --project api --context kind-ci)
@@ -109,15 +110,31 @@ jobs:
       - name: The projects answer on their URLs
         run: |
           set -euo pipefail
-          for host in hello-world api; do
-            for i in $(seq 1 30); do
-              if curl -fsk --max-time 5 "https://$host.127.0.0.1.nip.io:8443/" >/tmp/$host.html; then break; fi
-              sleep 5
-            done
-            head -c 300 /tmp/$host.html; echo
+          TOKEN=$(./bin/shpyrd cluster token --context kind-ci | tail -1)
+          for i in $(seq 1 30); do
+            if curl -fsk --max-time 5 "https://hello-world.127.0.0.1.nip.io:8443/" >/tmp/hello-world.html; then break; fi
+            sleep 5
           done
+          head -c 300 /tmp/hello-world.html; echo
           grep -qi "hello world" /tmp/hello-world.html
+          # The edge: anonymous visitors of api are sent to sign in; the admin token opens it.
+          for i in $(seq 1 30); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "https://api.127.0.0.1.nip.io:8443/" || true)
+            [ "$code" = "302" ] && break
+            sleep 5
+          done
+          echo "anonymous api: $code"; [ "$code" = "302" ]
+          curl -fsk --max-time 10 -H "Authorization: Bearer $TOKEN" "https://api.127.0.0.1.nip.io:8443/" >/tmp/api.html
+          head -c 300 /tmp/api.html; echo
           grep -q '"service"' /tmp/api.html
+          curl -fsk --max-time 10 "https://shpyrd.127.0.0.1.nip.io:8443/.well-known/jwks.json" | grep -q Ed25519
+          ./bin/shpyrd access --project api --context kind-ci
+          ./bin/shpyrd access set public --project api --context kind-ci
+          for i in $(seq 1 30); do
+            if curl -fsk --max-time 5 "https://api.127.0.0.1.nip.io:8443/" >/dev/null; then break; fi
+            sleep 5
+          done
+          curl -fsk --max-time 10 "https://api.127.0.0.1.nip.io:8443/" | grep -q '"service"'
       - name: Scale, logs, volumes, roles
         run: |
           set -euo pipefail
@@ -127,6 +144,7 @@ jobs:
           ./bin/shpyrd volumes list --project api --context kind-ci
           ./bin/shpyrd teams create platform --platform-role platform-admin --member ci@example.com --context kind-ci
           ./bin/shpyrd members add hello-world --user dev@example.com --role developer --context kind-ci
+          ./bin/shpyrd members add hello-world --team platform --role user --context kind-ci
           ./bin/shpyrd members list hello-world --context kind-ci | grep -q "dev@example.com"
           ./bin/shpyrd teams list --context kind-ci | grep -q platform
           # Teams and grants live in the control-plane database and survive a server restart (RFC-0033).

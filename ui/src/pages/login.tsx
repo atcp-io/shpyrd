@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, KeyRound, Loader2, LogIn } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { setToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,11 +34,16 @@ export function LoginPage() {
 
   const params = new URLSearchParams(window.location.search);
   const redirectError = params.get("login_error");
-  // After signing in, come back to the page the user asked for.
+  // After signing in, come back to the page the user asked for — or where
+  // the edge sent us from (?next=/.shpyrd/start?..., an app asking for a
+  // sign-in). Same-origin paths only; the server checks again.
+  const requested = params.get("next");
   const next =
-    window.location.pathname === "/"
-      ? "/"
-      : window.location.pathname + window.location.search;
+    requested && requested.startsWith("/") && !requested.startsWith("//")
+      ? requested
+      : window.location.pathname === "/"
+        ? "/"
+        : window.location.pathname + window.location.search;
 
   if (config.isLoading) return null;
 
@@ -100,7 +105,7 @@ export function LoginPage() {
               Use the admin token instead
             </button>
           )}
-          {tokenForm && <TokenForm secondary={accounts} />}
+          {tokenForm && <TokenForm secondary={accounts} next={next} />}
           {config.data && !config.data.authRequired && (
             <p className="text-xs text-muted-foreground">
               This server does not require a token.
@@ -129,7 +134,11 @@ function PasswordForm({ next }: { next: string }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.passwordLogin({ email: email.trim(), password: pw, next });
+      const r = await api.passwordLogin({
+        email: email.trim(),
+        password: pw,
+        next,
+      });
       window.location.assign(r.next || "/");
     } catch (err) {
       setError((err as Error).message);
@@ -180,16 +189,35 @@ function PasswordForm({ next }: { next: string }) {
   );
 }
 
-function TokenForm({ secondary }: { secondary: boolean }) {
+function TokenForm({ secondary, next }: { secondary: boolean; next: string }) {
   const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
   return (
     <form
       className="grid gap-4"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        if (value.trim()) setToken(value.trim());
+        const token = value.trim();
+        if (!token) return;
+        setError(null);
+        try {
+          // A session for the token's holder: pages and apps behind the
+          // edge see one identity, the same way accounts do.
+          const r = await api.tokenLogin({ token, next });
+          setToken(token);
+          window.location.assign(r.next || "/");
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 501) {
+            // No login provider: the token works as a header alone.
+            setToken(token);
+            window.location.assign(next);
+            return;
+          }
+          setError(err instanceof Error ? err.message : String(err));
+        }
       }}
     >
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="grid gap-2">
         <Label htmlFor="token">Admin token</Label>
         <Input

@@ -7,6 +7,9 @@ import (
 // Roles (RFC-0008). Project roles are granted per project; platform roles
 // apply to the whole cluster.
 const (
+	// RoleUser opens the app (the edge, RFC-0033) and nothing in the
+	// builder dashboard beyond the launcher.
+	RoleUser      = "user"
 	RoleViewer    = "viewer"
 	RoleDeveloper = "developer"
 	RoleAdmin     = "admin"

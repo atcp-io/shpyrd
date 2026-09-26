@@ -34,13 +34,19 @@ func newAppsCreateCmd(g *globalFlags) *cobra.Command {
 		domains []string
 		save    bool
 		slug    string
+		public  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a project",
 		Long: `Create a project. The name is free text ("My Shop"); its slug (my-shop) is
 derived from it and identifies the project in the CLI, in URLs and in the
-hostname <slug>.<cluster domain>. Pass --slug to choose it.`,
+hostname <slug>.<cluster domain>. Pass --slug to choose it.
+
+New projects ask visitors to sign in: only people with a role on the project
+(teams with the user role, its developers and admins) can open the app, and
+the app receives who they are. --public makes it a site anyone can open;
+` + "`shpyrd access`" + ` changes it later.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := strings.TrimSpace(args[0])
@@ -64,9 +70,13 @@ hostname <slug>.<cluster domain>. Pass --slug to choose it.`,
 			if err := ac.c.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 				return fmt.Errorf("create namespace: %w", err)
 			}
+			access := shpyrdv1.AccessAuthenticated
+			if public {
+				access = shpyrdv1.AccessPublic
+			}
 			app := &shpyrdv1.App{
 				ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns.Name},
-				Spec:       shpyrdv1.AppSpec{Domains: domains},
+				Spec:       shpyrdv1.AppSpec{Domains: domains, Access: access},
 			}
 			project.SetDisplayName(app, name)
 			if err := ac.c.Create(ctx, app); err != nil {
@@ -78,6 +88,11 @@ hostname <slug>.<cluster domain>. Pass --slug to choose it.`,
 			ac.audit(ctx, slug, "project.create", project.Label(app), "")
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "Created project %s\n", project.Label(app))
+			if public {
+				fmt.Fprintln(out, "Anyone on the internet can open it (public). `shpyrd access set authenticated` closes it.")
+			} else {
+				fmt.Fprintln(out, "Visitors must sign in; grant a team the user role to let it in (`shpyrd members add`), or `shpyrd access set public` for a site.")
+			}
 			if save {
 				if err := os.WriteFile("shpyrd.yaml", []byte("project: "+slug+"\n"), 0o644); err != nil {
 					return err
@@ -93,6 +108,7 @@ hostname <slug>.<cluster domain>. Pass --slug to choose it.`,
 	cmd.Flags().StringVar(&slug, "slug", "", "identifier to use instead of the one derived from the name")
 	cmd.Flags().StringSliceVar(&domains, "domain", nil, "custom domains served in addition to <slug>.<cluster domain> (see `shpyrd domains`)")
 	cmd.Flags().BoolVar(&save, "save", false, "write shpyrd.yaml in the current directory")
+	cmd.Flags().BoolVar(&public, "public", false, "anyone can open the app (a site); the default asks visitors to sign in")
 	return cmd
 }
 

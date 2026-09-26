@@ -151,3 +151,7 @@ Audited on 2026-09-25 against the code. What the text promises but the platform 
 - **Not implemented:** `SHPYRD_INTERNAL_LB=auto|true|false` is declared but not read: the internal controller is always installed on cloud profiles and `false` refuses nothing.
 - **Not implemented:** Internal projects without a DNS-provider wildcard still get HTTP-01 certificates, which cannot validate behind a private load balancer (`SHPYRD_INTERNAL_ISSUER` / platform CA).
 - **Not implemented:** `App.status.exposure`; hosts served and certificate source on the cluster page; configurable OCI flexible-shape bandwidth.
+- **Extended (v0.5.0):** access is an axis of its own next to exposure — `spec.access`:
+  `public`, `authenticated` (the default for new projects: visitors sign in and the app
+  receives who they are) or `identified` — so an internal front door and sign-in compose.
+  Defined by RFC-0033.

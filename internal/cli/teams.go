@@ -315,9 +315,9 @@ func newMembersCmd(g *globalFlags) *cobra.Command {
 		Use:     "members",
 		Aliases: []string{"member"},
 		Short:   "Who has which role on a project",
-		Long: `Project roles (RFC-0008): viewer (read), developer (deploy, scale, config
-vars, shells) and admin (everything, including members and destroy). A role is
-granted to a user by email or to a team.
+		Long: `Project roles (RFC-0008): user (opens the app), viewer (read), developer
+(deploy, scale, config vars, shells) and admin (everything, including members
+and destroy). A role is granted to a user by email or to a team.
 
   shpyrd members add shop --user ada@example.com --role developer
   shpyrd members add shop --team web --role developer
@@ -331,16 +331,16 @@ granted to a user by email or to a team.
 func newMembersAddCmd(g *globalFlags) *cobra.Command {
 	var user, team, role string
 	cmd := &cobra.Command{
-		Use:   "add <project> (--user <email> | --team <name>) --role viewer|developer|admin",
+		Use:   "add <project> (--user <email> | --team <name>) --role user|viewer|developer|admin",
 		Short: "Grant a role on a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			project := args[0]
 			switch role {
-			case shpyrdv1.RoleViewer, shpyrdv1.RoleDeveloper, shpyrdv1.RoleAdmin:
+			case shpyrdv1.RoleUser, shpyrdv1.RoleViewer, shpyrdv1.RoleDeveloper, shpyrdv1.RoleAdmin:
 			default:
-				return errors.New("--role must be viewer, developer or admin")
+				return errors.New("--role must be user, viewer, developer or admin")
 			}
 			if (user == "") == (team == "") {
 				return errors.New("give exactly one of --user or --team")
@@ -370,7 +370,7 @@ func newMembersAddCmd(g *globalFlags) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&user, "user", "", "user email")
 	cmd.Flags().StringVar(&team, "team", "", "team name")
-	cmd.Flags().StringVar(&role, "role", "", "viewer, developer or admin (required)")
+	cmd.Flags().StringVar(&role, "role", "", "user (opens the app), viewer, developer or admin (required)")
 	return cmd
 }
 

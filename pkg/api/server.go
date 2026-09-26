@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"shpyrd/pkg/authz"
+	"shpyrd/pkg/edge"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
@@ -108,6 +109,10 @@ type Server struct {
 	rp      *relyingParty
 	authz   *authz.Resolver
 	store   store.Store
+	// The edge (RFC-0033): signing keys, one-time codes, host index.
+	edgeKeys  *edge.Keys
+	edgeCodes *edge.Codes
+	hostCache hostCache
 	// tokenFailures throttles clients presenting wrong admin tokens.
 	tokenFailures *rateLimiter
 	// passwordFailures throttles wrong passwords per account (RFC-0012).
@@ -187,6 +192,22 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	}
 	sessions := newSessionStore(kubeIface, systemNS, opts.Logger)
 	sessions.load(context.Background())
+	// The edge's signing key lives in the cluster; tests and clusterless
+	// runs get a fresh one.
+	if kubeIface != nil {
+		keys, err := edge.LoadOrCreateKeys(context.Background(), kubeIface, systemNS)
+		if err != nil {
+			return nil, fmt.Errorf("edge keys: %w", err)
+		}
+		s.edgeKeys = keys
+	} else {
+		keys, err := edge.GenerateKeys()
+		if err != nil {
+			return nil, err
+		}
+		s.edgeKeys = keys
+	}
+	s.edgeCodes = edge.NewCodes()
 	s.rp = newRelyingParty(sessions, opts.Public.DashboardURL, opts.Public.Domain, opts.IngressService, opts.Logger)
 	s.rp.SetClusterCA(s.clusterCA(context.Background()))
 
@@ -248,6 +269,14 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) routes() error {
+	// The edge (RFC-0033): what ingress-nginx and app hosts call.
+	s.engine.GET("/edge/auth", s.edgeAuth)
+	s.engine.GET("/.well-known/jwks.json", s.jwks)
+	s.engine.GET(edgePathPrefix+"signin", s.edgeSignin)
+	s.engine.GET(edgePathPrefix+"start", s.edgeStart)
+	s.engine.GET(edgePathPrefix+"callback", s.edgeCallback)
+	s.engine.GET(edgePathPrefix+"logout", s.edgeLogout)
+
 	pub := s.engine.Group("/api")
 	pub.GET("/healthz", s.healthz)
 	pub.GET("/config", s.config)
@@ -261,6 +290,7 @@ func (s *Server) routes() error {
 	pub.GET("/auth/callback", login, s.authCallback)
 	pub.GET("/auth/ticket", login, s.authTicket)
 	pub.POST("/auth/password", login, s.authPassword) // RFC-0012
+	pub.POST("/auth/token", login, s.authToken)       // the admin token as a session (RFC-0033)
 
 	// Every protected route names the action it performs (RFC-0008); the
 	// caller's roles decide.
@@ -317,7 +347,10 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/rollback", s.require(authz.ProjectDeploy), s.rollbackApp)
 	api.POST("/projects/:slug/redeploy", s.require(authz.ProjectDeploy), s.redeployApp)
 	api.PUT("/projects/:slug/exposure", s.require(authz.ProjectDeploy), s.setExposure)
-	api.GET("/projects/:slug/domains", s.require(authz.ProjectView), s.listDomains) // RFC-0034
+	api.PUT("/projects/:slug/access", s.require(authz.ProjectMembers), s.setAccess)   // RFC-0033: who may open the app
+	api.POST("/projects/:slug/preview", s.require(authz.ProjectDeploy), s.previewApp) // "Open as"
+	api.GET("/launcher", s.launcher)                                                  // the apps the caller may open
+	api.GET("/projects/:slug/domains", s.require(authz.ProjectView), s.listDomains)   // RFC-0034
 	api.POST("/projects/:slug/domains", s.require(authz.ProjectConfig), s.addDomain)
 	api.DELETE("/projects/:slug/domains/:host", s.require(authz.ProjectConfig), s.removeDomain)
 	api.GET("/projects/:slug/audit", s.require(authz.ProjectView), s.appAudit)
@@ -355,6 +388,9 @@ func (s *Server) routes() error {
 		s.engine.NoRoute(s.serveUI())
 	} else {
 		s.engine.NoRoute(func(c *gin.Context) {
+			if s.customError(c) {
+				return
+			}
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		})
 	}
@@ -427,6 +463,9 @@ func (s *Server) config(c *gin.Context) {
 func (s *Server) serveUI() gin.HandlerFunc {
 	fileServer := http.FileServer(http.FS(s.opts.UI))
 	return func(c *gin.Context) {
+		if s.customError(c) { // ingress-nginx's error backend for app hosts
+			return
+		}
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return

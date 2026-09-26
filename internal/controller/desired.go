@@ -480,6 +480,15 @@ func (c Config) mutateIngress(app *shpyrdv1.App, ing *networkingv1.Ingress) {
 	// Certificates are explicit objects (reconcileCertificates), one per host
 	// that needs one, so the Ingress carries no cert-manager annotation.
 	delete(ing.Annotations, "cert-manager.io/cluster-issuer")
+	// Who may open the app (RFC-0033): the edge decides for non-public apps.
+	for _, k := range edgeAnnotationKeys {
+		delete(ing.Annotations, k)
+	}
+	if app.EffectiveAccess() != shpyrdv1.AccessPublic {
+		for k, v := range c.edgeAnnotations(app) {
+			ing.Annotations[k] = v
+		}
+	}
 	ing.Spec.TLS = c.ingressTLS(app)
 	pathType := networkingv1.PathTypePrefix
 	rules := make([]networkingv1.IngressRule, 0, len(hosts))
@@ -499,6 +508,96 @@ func (c Config) mutateIngress(app *shpyrdv1.App, ing *networkingv1.Ingress) {
 		})
 	}
 	ing.Spec.Rules = rules
+}
+
+// Edge (RFC-0033): apps whose access is not public get the ingress-nginx
+// auth_request annotations pointing at the server, a companion Ingress for
+// the /.shpyrd/ paths (sign-in, callback, denied page; no auth on those,
+// which is why they cannot live on the app's own Ingress), and an
+// ExternalName Service so that companion can name the server from the
+// app's namespace.
+
+// EdgeServiceName is the per-namespace alias of the server.
+const EdgeServiceName = "shpyrd-edge"
+
+// edgeName is the companion Ingress of an app.
+func edgeName(app *shpyrdv1.App) string { return app.Name + "-edge" }
+
+// edgeAnnotations are the auth_request annotations for the app's Ingress.
+func (c Config) edgeAnnotations(app *shpyrdv1.App) map[string]string {
+	mode := app.EffectiveAccess()
+	// Fully qualified: nginx resolves the name itself, without the pod's
+	// search domains.
+	server := fmt.Sprintf("http://shpyrd-server.%s.svc.cluster.local/edge/auth?project=%s&mode=%s", c.SystemNamespace, app.Name, mode)
+	ann := map[string]string{
+		"nginx.ingress.kubernetes.io/auth-url":              server,
+		"nginx.ingress.kubernetes.io/auth-response-headers": "Authorization,X-Shpyrd-User,X-Shpyrd-Email,X-Shpyrd-Name,X-Shpyrd-Teams,X-Shpyrd-Roles",
+		"nginx.ingress.kubernetes.io/auth-cache-key":        "$http_cookie$http_authorization$http_x_shpyrd_token",
+		"nginx.ingress.kubernetes.io/auth-cache-duration":   "200 20s, 401 5s, 403 5s",
+		// The 403 goes to the controller's default backend — the server —
+		// which renders the "available to team X" page. (A per-Ingress
+		// default-backend cannot be an ExternalName.)
+		"nginx.ingress.kubernetes.io/custom-http-errors": "403",
+	}
+	if mode == shpyrdv1.AccessAuthenticated {
+		// $http_host keeps the port (kind maps 8443); $host would drop it.
+		ann["nginx.ingress.kubernetes.io/auth-signin"] = "https://$http_host/.shpyrd/signin?rd=$escaped_request_uri"
+	}
+	return ann
+}
+
+var edgeAnnotationKeys = []string{
+	"nginx.ingress.kubernetes.io/auth-url", "nginx.ingress.kubernetes.io/auth-signin",
+	"nginx.ingress.kubernetes.io/auth-response-headers", "nginx.ingress.kubernetes.io/auth-cache-key",
+	"nginx.ingress.kubernetes.io/auth-cache-duration", "nginx.ingress.kubernetes.io/custom-http-errors",
+	"nginx.ingress.kubernetes.io/default-backend", // from earlier versions
+}
+
+// mutateEdgeIngress builds the companion Ingress: the same hosts, class and
+// TLS as the app's, paths under /.shpyrd/ to the server.
+func (c Config) mutateEdgeIngress(app *shpyrdv1.App, ing *networkingv1.Ingress) {
+	ing.Labels = mergeMaps(ing.Labels, processLabels(app, "web"))
+	ing.Annotations = mergeMaps(ing.Annotations, map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+	})
+	class := c.IngressClass
+	if app.Spec.Exposure == "internal" && c.IngressClassInternal != "" {
+		class = c.IngressClassInternal
+		if c.InternalLBAddress != "" {
+			ing.Annotations["external-dns.kubernetes.io/target"] = c.InternalLBAddress
+		}
+	}
+	ing.Spec.IngressClassName = ptr.To(class)
+	ing.Spec.TLS = c.ingressTLS(app)
+	pathType := networkingv1.PathTypePrefix
+	hosts := c.domains(app)
+	rules := make([]networkingv1.IngressRule, 0, len(hosts))
+	for _, h := range hosts {
+		rules = append(rules, networkingv1.IngressRule{
+			Host: h,
+			IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{
+				Paths: []networkingv1.HTTPIngressPath{{
+					Path:     "/.shpyrd/",
+					PathType: &pathType,
+					Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+						Name: EdgeServiceName,
+						Port: networkingv1.ServiceBackendPort{Name: "http"},
+					}},
+				}},
+			}},
+		})
+	}
+	ing.Spec.Rules = rules
+}
+
+// mutateEdgeService is the ExternalName alias of the server.
+func (c Config) mutateEdgeService(app *shpyrdv1.App, svc *corev1.Service) {
+	svc.Labels = mergeMaps(svc.Labels, processLabels(app, "web"))
+	svc.Spec.Type = corev1.ServiceTypeExternalName
+	svc.Spec.ExternalName = "shpyrd-server." + c.SystemNamespace + ".svc.cluster.local"
+	svc.Spec.Ports = []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromInt32(80)}}
+	svc.Spec.Selector = nil
+	svc.Spec.ClusterIP = ""
 }
 
 func mergeMaps(dst, src map[string]string) map[string]string {

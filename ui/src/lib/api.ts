@@ -31,7 +31,7 @@ export type Identity = {
   admin: boolean;
   roles?: {
     platform?: "platform-admin" | "platform-viewer" | "";
-    projects?: Record<string, "viewer" | "developer" | "admin">;
+    projects?: Record<string, "user" | "viewer" | "developer" | "admin">;
     enforced: boolean;
   };
 };
@@ -68,7 +68,7 @@ export type Team = {
 export type Member = {
   name: string;
   project: string;
-  role: "viewer" | "developer" | "admin";
+  role: "user" | "viewer" | "developer" | "admin";
   user?: string;
   team?: string;
 };
@@ -161,6 +161,8 @@ export type AppSummary = {
   createdAt: string;
   /** "external" (public LB, default) or "internal" (private LB, RFC-0036). */
   exposure?: "external" | "internal";
+  /** Who may open the app (RFC-0033). */
+  access: "public" | "authenticated" | "identified";
 };
 
 export type Release = {
@@ -208,6 +210,7 @@ export type AppDetail = {
     domains?: string[];
     bindings?: { kind: string; name: string; prefix?: string }[];
     exposure?: "external" | "internal";
+    access?: "public" | "authenticated" | "identified";
     build?: {
       strategy?: "buildpacks" | "dockerfile";
       env?: { name: string; value?: string }[];
@@ -369,6 +372,16 @@ export type ClusterMetrics = {
 
 // The image registry (RFC-0059).
 /** The platform's object store (RFC-0046). */
+/** One tile of the launcher: an app the caller may open (RFC-0033). */
+export type LauncherApp = {
+  slug: string;
+  displayName: string;
+  url?: string;
+  access: "public" | "authenticated" | "identified";
+  phase: string;
+  role?: string;
+};
+
 /** Platform backups (RFC-0037): the target, the schedule, the archives. */
 export type BackupInfo = {
   enabled: boolean;
@@ -554,6 +567,23 @@ export const api = {
     next?: string;
   }): Promise<{ next: string }> => {
     const res = await fetch("/api/auth/password", json("POST", body));
+    if (!res.ok) {
+      let msg = `${res.status} ${res.statusText}`;
+      try {
+        const b = await res.json();
+        if (b?.error) msg = b.error;
+      } catch {
+        // not json
+      }
+      throw new ApiError(res.status, msg);
+    }
+    return (await res.json()) as { next: string };
+  },
+  tokenLogin: async (body: {
+    token: string;
+    next?: string;
+  }): Promise<{ next: string }> => {
+    const res = await fetch("/api/auth/token", json("POST", body));
     if (!res.ok) {
       let msg = `${res.status} ${res.statusText}`;
       try {
@@ -790,6 +820,11 @@ export const api = {
   registry: () => request<RegistryInfo>("/api/cluster/registry"),
   objectStorage: () =>
     request<ObjectStorageSummary>("/api/cluster/object-storage"),
+  setAccess: (slug: string, access: string) =>
+    request<AppSummary>(`${project(slug)}/access`, json("PUT", { access })),
+  preview: (slug: string, body: { teams: string[]; anonymous?: boolean }) =>
+    request<{ url: string }>(`${project(slug)}/preview`, json("POST", body)),
+  launcher: () => request<LauncherApp[]>("/api/launcher"),
   backups: () => request<BackupInfo>("/api/cluster/backups"),
   runBackup: () =>
     request<{ job: string; status: string }>("/api/cluster/backups", {

@@ -13,6 +13,12 @@ controller:
     # Per-host metrics power the shpyrd "web app" dashboards.
     enable-metrics: "true"
 
+  # The platform's server answers for what no app answers: the edge's
+  # "available to team X" page for a 403 from auth_request (RFC-0033), and
+  # unknown hosts (a branded "no app here" instead of nginx's 404).
+  extraArgs:
+    default-backend-service: shpyrd-system/shpyrd-server
+
   metrics:
     enabled: true
     serviceMonitor:

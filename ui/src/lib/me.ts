@@ -16,6 +16,7 @@ export type Action =
   | "cluster.create";
 
 const roleActions: Record<string, Action[]> = {
+  user: [], // opens the app; nothing in this dashboard
   viewer: ["project.view"],
   developer: [
     "project.view",
@@ -61,7 +62,7 @@ export function can(
   if (platform && roleActions[platform]?.includes(action)) return true;
   if (!project) return false;
   const role = me.roles?.projects?.[project];
-  return !!role && roleActions[role].includes(action);
+  return !!role && (roleActions[role] ?? []).includes(action);
 }
 
 export function useMe() {

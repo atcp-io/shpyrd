@@ -38,10 +38,20 @@ func main() {
 			greeting = "Hello world"
 		}
 		log.Printf("%s %s from %s (request #%d)", r.Method, r.URL.Path, r.RemoteAddr, n)
+		// Behind shpyrd's edge the visitor arrives identified: no sign-in
+		// code in the app, just headers (or the Authorization JWT).
+		who := "an anonymous visitor"
+		if u := r.Header.Get("X-Shpyrd-User"); u != "" {
+			who = u
+			if teams := r.Header.Get("X-Shpyrd-Teams"); teams != "" {
+				who += " (teams: " + teams + ")"
+			}
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, page,
 			html.EscapeString(greeting),
 			html.EscapeString(greeting),
+			html.EscapeString(who),
 			html.EscapeString(host),
 			n,
 			time.Since(started).Round(time.Second),
@@ -74,6 +84,7 @@ const page = `<!doctype html>
 <body>
   <main>
     <h1>%s</h1>
+    <p>You are <code>%s</code></p>
     <p>Served by instance <code>%s</code></p>
     <p>Request #%d on this instance &middot; up for %s</p>
     <p>%s</p>

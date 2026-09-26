@@ -135,16 +135,23 @@ spec:
             - name: auth
               mountPath: /etc/registry/auth
               readOnly: true
+          # Generous timeouts: while the registry streams large layers on a
+          # loaded node, a one-second probe kills it mid-pull and every build
+          # restarts from scratch.
           readinessProbe:
             httpGet:
               path: /debug/health
               port: debug
             periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /debug/health
               port: debug
             periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 20m

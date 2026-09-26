@@ -2,11 +2,13 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -442,5 +444,77 @@ func TestKpackImageRecreatedWhenRegistryChanges(t *testing.T) {
 	}
 	if img.GetUID() == firstUID && firstUID != "" {
 		t.Error("kpack Image must be recreated, not updated, when the tag changes")
+	}
+}
+
+// The edge (RFC-0033): a non-public app's Ingress carries the auth_request
+// annotations and gets a companion Ingress for /.shpyrd/ plus the server
+// alias; a public app has none of it.
+func TestEdgeObjects(t *testing.T) {
+	app := &shpyrdv1.App{
+		ObjectMeta: metav1.ObjectMeta{Name: "expenses", Namespace: "app-expenses"},
+		Spec: shpyrdv1.AppSpec{
+			Image:     "ghcr.io/acme/expenses:1",
+			Access:    shpyrdv1.AccessAuthenticated,
+			Processes: map[string]shpyrdv1.Process{"web": {Port: ptr.To[int32](8080)}},
+		},
+	}
+	r, c := newTestReconciler(t, app)
+	r.Config.SystemNamespace = "shpyrd-system"
+	runReconcile(t, r, app)
+
+	ing := &networkingv1.Ingress{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: "expenses"}, ing); err != nil {
+		t.Fatal(err)
+	}
+	if got := ing.Annotations["nginx.ingress.kubernetes.io/auth-url"]; got != "http://shpyrd-server.shpyrd-system.svc.cluster.local/edge/auth?project=expenses&mode=authenticated" {
+		t.Errorf("auth-url = %q", got)
+	}
+	if ing.Annotations["nginx.ingress.kubernetes.io/auth-signin"] == "" || ing.Annotations["nginx.ingress.kubernetes.io/custom-http-errors"] != "403" {
+		t.Errorf("edge annotations = %v", ing.Annotations)
+	}
+	edgeIng := &networkingv1.Ingress{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: "expenses-edge"}, edgeIng); err != nil {
+		t.Fatalf("edge ingress: %v", err)
+	}
+	if p := edgeIng.Spec.Rules[0].HTTP.Paths[0]; p.Path != "/.shpyrd/" || p.Backend.Service.Name != EdgeServiceName || edgeIng.Annotations["nginx.ingress.kubernetes.io/auth-url"] != "" {
+		t.Errorf("edge ingress rule = %+v", p)
+	}
+	svc := &corev1.Service{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: EdgeServiceName}, svc); err != nil || svc.Spec.Type != corev1.ServiceTypeExternalName || svc.Spec.ExternalName != "shpyrd-server.shpyrd-system.svc.cluster.local" {
+		t.Errorf("edge service: %v %+v", err, svc.Spec)
+	}
+
+	// Identified: no sign-in redirect, anonymous passes.
+	setAccess := func(access string) {
+		t.Helper()
+		cur := &shpyrdv1.App{}
+		if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: "expenses"}, cur); err != nil {
+			t.Fatal(err)
+		}
+		cur.Spec.Access = access
+		if err := c.Update(context.Background(), cur); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setAccess(shpyrdv1.AccessIdentified)
+	runReconcile(t, r, app)
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: "expenses"}, ing)
+	if ing.Annotations["nginx.ingress.kubernetes.io/auth-signin"] != "" || !strings.Contains(ing.Annotations["nginx.ingress.kubernetes.io/auth-url"], "mode=identified") {
+		t.Errorf("identified annotations = %v", ing.Annotations)
+	}
+
+	// Public: everything of the edge goes away.
+	setAccess(shpyrdv1.AccessPublic)
+	runReconcile(t, r, app)
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: "expenses"}, ing)
+	if ing.Annotations["nginx.ingress.kubernetes.io/auth-url"] != "" {
+		t.Errorf("public app must carry no auth-url: %v", ing.Annotations)
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: "expenses-edge"}, edgeIng); !kerrors.IsNotFound(err) {
+		t.Errorf("edge ingress should be gone: %v", err)
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "app-expenses", Name: EdgeServiceName}, svc); !kerrors.IsNotFound(err) {
+		t.Errorf("edge service should be gone: %v", err)
 	}
 }

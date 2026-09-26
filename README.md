@@ -146,6 +146,17 @@ to the provider's minimum and say so (Oracle Cloud block volumes start at
 restore data --from <snapshot> [--to <new-volume>]` restores into a new volume
 or in place (the mounting process stops while the disk is swapped).
 
+## Sign-in for your app
+
+New projects ask visitors to sign in. Who may open an app is decided at the
+edge, before a request reaches it: grant a team the `user` role (`shpyrd members
+add expenses --team finance --role user`) and its members get in; everyone else
+is asked to sign in or told which team the app is available to. The app receives
+who they are on every request (`X-Shpyrd-User`, `X-Shpyrd-Teams`, `X-Shpyrd-Roles`
+and a signed JWT verifiable at `/.well-known/jwks.json`) and needs no sign-in code
+of its own. `shpyrd access set public` makes a site anyone can open; `Open as` on the
+project page shows builders the app the way a team sees it (RFC-0033).
+
 ## Platform backups
 
 On cloud profiles the platform backs itself up every night: an archive of every

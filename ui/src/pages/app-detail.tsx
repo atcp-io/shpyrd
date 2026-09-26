@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ExternalLink,
+  ShieldCheck,
   Hammer,
   KeyRound,
   HardDrive,
@@ -671,6 +672,7 @@ function Overview({
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {perms.view && <AccessModeCard app={app} />}
         {perms.members && <MembersCard app={app} />}
         <AuditCard app={app} />
       </div>
@@ -2261,8 +2263,8 @@ function VolumeDialog({
               />
               {minSize && (
                 <p className="text-xs text-muted-foreground">
-                  Volumes here start at {minSize}; smaller requests are
-                  rounded up.
+                  Volumes here start at {minSize}; smaller requests are rounded
+                  up.
                 </p>
               )}
             </div>
@@ -2320,10 +2322,159 @@ function VolumeDialog({
 // ---- members and audit -----------------------------------------------------
 
 const roleHelp: Record<string, string> = {
-  viewer: "sees everything, changes nothing",
+  user: "opens the app; sees nothing in this dashboard beyond the launcher",
+  viewer: "sees everything here, changes nothing; opens the app",
   developer: "deploys, rolls back, scales, edits config vars, opens shells",
-  admin: "also manages members and resources, and can destroy the project",
+  admin: "also manages access and resources, and can destroy the project",
 };
+
+const accessHelp: Record<string, { label: string; text: string }> = {
+  authenticated: {
+    label: "Sign-in required",
+    text: "Visitors sign in; only people with a role here get in, and the app receives who they are.",
+  },
+  public: {
+    label: "Public",
+    text: "Anyone on the internet can open it: a site, a landing page.",
+  },
+  identified: {
+    label: "Public, signed-in visitors identified",
+    text: "Anyone can open it; people who are signed in are identified to the app.",
+  },
+};
+
+/** Who may open the app (RFC-0033) and how; "Open as" previews. */
+function AccessModeCard({ app }: { app: AppDetail }) {
+  const qc = useQueryClient();
+  const perms = usePerms(app.slug);
+  const teams = useQuery({
+    queryKey: ["teams"],
+    queryFn: api.teams,
+    retry: false,
+  });
+  const [previewTeams, setPreviewTeams] = useState<string[]>([]);
+  const access = app.spec.access ?? "public";
+  const setAccess = useMutation({
+    mutationFn: (a: string) => api.setAccess(app.slug, a),
+    onSuccess: (_, a) => {
+      toast.success(`Access: ${accessHelp[a]?.label ?? a}`);
+      qc.invalidateQueries({ queryKey: ["app", app.slug] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const preview = useMutation({
+    mutationFn: (body: { teams: string[]; anonymous?: boolean }) =>
+      api.preview(app.slug, body),
+    onSuccess: (r) => window.open(r.url, "_blank", "noopener"),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <ShieldCheck className="size-4" /> Access
+        </CardTitle>
+        <CardDescription>{accessHelp[access]?.text}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={access}
+            disabled={!perms.members || setAccess.isPending}
+            onValueChange={(v) => {
+              if (
+                v === "public" &&
+                !window.confirm(
+                  "Anyone on the internet will be able to open this app. Make it public?",
+                )
+              )
+                return;
+              setAccess.mutate(v);
+            }}
+          >
+            <SelectTrigger className="h-8 w-72 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(accessHelp).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {access === "public" && (
+            <Badge
+              variant="outline"
+              className="text-amber-600 dark:text-amber-400"
+            >
+              Anyone can open this app
+            </Badge>
+          )}
+        </div>
+        {access !== "public" && perms.deploy && (
+          <div className="grid gap-2 rounded-md border p-3">
+            <p className="text-xs text-muted-foreground">
+              <strong className="font-medium text-foreground">Open as</strong> —
+              see the app the way a team does. The app gets a preview identity (
+              <code className="text-[11px]">preview: true</code> in the token);
+              previews are audited.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {(teams.data ?? []).map((t) => {
+                const on = previewTeams.includes(t.name);
+                return (
+                  <Button
+                    key={t.name}
+                    size="xs"
+                    variant={on ? "default" : "outline"}
+                    onClick={() =>
+                      setPreviewTeams(
+                        on
+                          ? previewTeams.filter((n) => n !== t.name)
+                          : [...previewTeams, t.name],
+                      )
+                    }
+                  >
+                    {t.name}
+                  </Button>
+                );
+              })}
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={preview.isPending}
+                onClick={() => preview.mutate({ teams: previewTeams })}
+              >
+                <ExternalLink data-icon="inline-start" /> Open as{" "}
+                {previewTeams.length
+                  ? previewTeams.join(", ")
+                  : "a member of no team"}
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={preview.isPending}
+                onClick={() => preview.mutate({ teams: [], anonymous: true })}
+              >
+                Open as anonymous
+              </Button>
+            </div>
+          </div>
+        )}
+        {access !== "public" && (
+          <p className="text-[11px] text-muted-foreground">
+            Your app reads the visitor from the <code>X-Shpyrd-User</code>,{" "}
+            <code>X-Shpyrd-Teams</code> and <code>X-Shpyrd-Roles</code> headers,
+            or verifies the <code>Authorization: Bearer</code> JWT against{" "}
+            <code>/.well-known/jwks.json</code>.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function MembersCard({ app }: { app: AppDetail }) {
   const qc = useQueryClient();
@@ -2340,7 +2491,7 @@ function MembersCard({ app }: { app: AppDetail }) {
   });
   const [kind, setKind] = useState<"user" | "team">("user");
   const [subject, setSubject] = useState("");
-  const [role, setRole] = useState<"viewer" | "developer" | "admin">(
+  const [role, setRole] = useState<"user" | "viewer" | "developer" | "admin">(
     "developer",
   );
   const refresh = () => {
@@ -2370,11 +2521,11 @@ function MembersCard({ app }: { app: AppDetail }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm">
-          <UsersRound className="size-4" /> Members
+          <UsersRound className="size-4" /> Roles
         </CardTitle>
         <CardDescription>
-          Who can do what on this project. Platform admins have access
-          everywhere; roles here add to that.
+          Who can open the app (user) and who can operate the project. Platform
+          admins have access everywhere; roles here add to that.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -2475,6 +2626,7 @@ function MembersCard({ app }: { app: AppDetail }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="user">user</SelectItem>
               <SelectItem value="viewer">viewer</SelectItem>
               <SelectItem value="developer">developer</SelectItem>
               <SelectItem value="admin">admin</SelectItem>
@@ -2663,7 +2815,8 @@ function ResourceDialog({
         spec.version = version.trim();
         spec.storage = storage.trim();
         spec.instances = Number(instances) || 1;
-        if (backups) spec.backups = { retention: `${Number(retention) || 14}d` };
+        if (backups)
+          spec.backups = { retention: `${Number(retention) || 14}d` };
       } else {
         spec.engine = engine;
         spec.persistent = persistent;

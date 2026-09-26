@@ -58,6 +58,18 @@ spec:
           spec:
             description: AppSpec is the desired state of an application.
             properties:
+              access:
+                description: |-
+                  Access says who may open the app (RFC-0033): "public" (anyone, the
+                  value of apps created before access existed), "authenticated" (people
+                  with a role on the project: the edge asks them to sign in and hands
+                  the app a signed identity) or "identified" (anyone, but signed-in
+                  people are identified to the app). New projects start authenticated.
+                enum:
+                - public
+                - authenticated
+                - identified
+                type: string
               bindings:
                 description: |-
                   Bindings attach project resources (Postgres, Redis, ...) to the app:

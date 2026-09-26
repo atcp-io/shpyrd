@@ -640,6 +640,30 @@ func (r *AppReconciler) reconcileWorkloads(ctx context.Context, app *shpyrdv1.Ap
 	} else if err := r.deleteIfExists(ctx, ing); err != nil {
 		return nil, err
 	}
+	// The edge's companions (RFC-0033): only for apps that are not public.
+	edgeIng := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: edgeName(app), Namespace: app.Namespace}}
+	edgeSvc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: EdgeServiceName, Namespace: app.Namespace}}
+	if hasWeb(app) && app.EffectiveAccess() != shpyrdv1.AccessPublic {
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, edgeSvc, func() error {
+			r.Config.mutateEdgeService(app, edgeSvc)
+			return controllerutil.SetControllerReference(app, edgeSvc, r.Scheme)
+		}); err != nil {
+			return nil, fmt.Errorf("edge service: %w", err)
+		}
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, edgeIng, func() error {
+			r.Config.mutateEdgeIngress(app, edgeIng)
+			return controllerutil.SetControllerReference(app, edgeIng, r.Scheme)
+		}); err != nil {
+			return nil, fmt.Errorf("edge ingress: %w", err)
+		}
+	} else {
+		if err := r.deleteIfExists(ctx, edgeIng); err != nil {
+			return nil, err
+		}
+		if err := r.deleteIfExists(ctx, edgeSvc); err != nil {
+			return nil, err
+		}
+	}
 	if err := r.reconcileCertificates(ctx, app); err != nil {
 		return nil, err
 	}

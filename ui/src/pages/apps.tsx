@@ -65,6 +65,15 @@ export function AppsPage() {
     !perms.enforced &&
     perms.me?.provider !== "token" &&
     (config.data?.auth?.providers?.length ?? 0) > 0;
+  // Someone whose only roles are "user" (or none) is here to open apps, not
+  // to operate projects: the launcher is their page (RFC-0033).
+  const projectRoles = Object.values(perms.me?.roles?.projects ?? {});
+  const userOnly =
+    perms.loaded &&
+    perms.enforced &&
+    !perms.clusterView &&
+    projectRoles.every((r) => r === "user");
+  if (userOnly) return <Launcher />;
 
   return (
     <div className="grid gap-6">
@@ -400,4 +409,62 @@ function slugify(name: string): string {
     .slice(0, 40)
     .replace(/-+$/, "")
     .replace(/^app-+/, "");
+}
+
+/** The apps the signed-in person may open, as tiles (RFC-0033). */
+function Launcher() {
+  const apps = useQuery({
+    queryKey: ["launcher"],
+    queryFn: api.launcher,
+    refetchInterval: 30_000,
+  });
+  return (
+    <div className="grid gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Your apps</h1>
+        <p className="text-sm text-muted-foreground">
+          The apps you can open. Ask a project admin if one you need is missing.
+        </p>
+      </div>
+      {apps.isLoading && <Skeleton className="h-24 w-full" />}
+      {apps.data && apps.data.length === 0 && (
+        <p className="text-sm text-muted-foreground">No apps yet.</p>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {apps.data?.map((a) => (
+          <a
+            key={a.slug}
+            href={a.url || "#"}
+            target="_blank"
+            rel="noopener"
+            className="group rounded-lg border bg-card p-4 transition-colors hover:border-primary"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-medium">{a.displayName}</div>
+              {a.access === "public" ? (
+                <Globe2
+                  className="size-4 text-muted-foreground"
+                  aria-label="public"
+                />
+              ) : (
+                <Lock
+                  className="size-4 text-muted-foreground"
+                  aria-label="sign-in required"
+                />
+              )}
+            </div>
+            <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+              {a.url?.replace(/^https?:\/\//, "") ?? "not published yet"}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+              <PhaseBadge phase={a.phase} />
+              <span className="inline-flex items-center gap-1 group-hover:text-foreground">
+                Open <ExternalLink className="size-3" />
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
 }

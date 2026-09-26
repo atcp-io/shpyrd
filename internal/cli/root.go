@@ -77,6 +77,7 @@ func New() *cobra.Command {
 	root.AddCommand(newReleasesCmd(g))
 	root.AddCommand(newRollbackCmd(g))
 	root.AddCommand(newExposureCmd(g))
+	root.AddCommand(newAccessCmd(g))
 	root.AddCommand(newDomainsCmd(g))
 	root.AddCommand(newRedeployCmd(g))
 	root.AddCommand(newOpenCmd(g))

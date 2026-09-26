@@ -282,9 +282,9 @@ func (s *Server) addMember(c *gin.Context) {
 	}
 	project := c.Param("slug")
 	switch req.Role {
-	case shpyrdv1.RoleViewer, shpyrdv1.RoleDeveloper, shpyrdv1.RoleAdmin:
+	case shpyrdv1.RoleUser, shpyrdv1.RoleViewer, shpyrdv1.RoleDeveloper, shpyrdv1.RoleAdmin:
 	default:
-		abort(c, http.StatusBadRequest, errors.New("role must be viewer, developer or admin"))
+		abort(c, http.StatusBadRequest, errors.New("role must be user, viewer, developer or admin"))
 		return
 	}
 	if (req.User == "") == (req.Team == "") {
