@@ -107,9 +107,23 @@ export function ShellView({ slug }: { slug: string }) {
     t.reset();
     setStatus({ kind: "connecting", instance });
     t.writeln(`Connecting to ${instance}...`);
+    // Disconnect-then-Connect can outrun the server's release of the previous
+    // session: the slot is freed only once the old exec stream unwinds, which is
+    // a cluster round trip away, so a quick reconnect can meet its own 409. One
+    // retry covers that without hiding a real conflict — a shell genuinely open
+    // in another tab still refuses the second time.
+    const mint = async () => {
+      try {
+        return await api.shellTicket(slug, instance);
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 409) throw e;
+        await new Promise((done) => setTimeout(done, 500));
+        return await api.shellTicket(slug, instance);
+      }
+    };
     let ticket: string;
     try {
-      ticket = (await api.shellTicket(slug, instance)).ticket;
+      ticket = (await mint()).ticket;
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : String(e);
       t.writeln(`\r\n${msg}`);
@@ -131,6 +145,9 @@ export function ShellView({ slug }: { slug: string }) {
         if (ctl.type === "open") {
           setStatus({ kind: "open", instance: ctl.instance, shell: ctl.shell });
           sendResize();
+          // Without this the terminal has no focus until it is clicked, so the
+          // first thing typed into a freshly opened shell is swallowed.
+          t.focus();
         } else if (ctl.type === "exit") {
           setStatus({
             kind: "closed",

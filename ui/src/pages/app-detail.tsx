@@ -84,8 +84,9 @@ import {
 import { cn } from "@/lib/utils";
 import { ConnectionsCard } from "@/components/connections-card";
 
-// xterm is only worth its bundle to someone who opens the tab, and the
-// component must not mount before then: mounting dials a socket.
+// xterm is only worth its bundle to someone who opens the tab, so it is loaded
+// when the tab is selected rather than with the page. Mounting only lists the
+// project's instances; no socket is dialled until Connect.
 const ShellView = lazy(() =>
   import("@/components/shell-view").then((m) => ({ default: m.ShellView })),
 );
