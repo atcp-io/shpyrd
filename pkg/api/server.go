@@ -122,6 +122,9 @@ type Server struct {
 	passwordFailures *rateLimiter
 	// regCache holds the registry catalog summary for a minute.
 	regCache registryCache
+	// The web terminal (RFC-0026): unredeemed tickets and the live shells.
+	execTickets *ticketStore
+	shells      *shellRegistry
 }
 
 // New wires the routes.
@@ -179,6 +182,8 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	s.authz = &authz.Resolver{Store: opts.Store}
 	s.tokenFailures = newRateLimiter(20)
 	s.passwordFailures = newRateLimiter(10)
+	s.execTickets = newTicketStore(execTicketTTL)
+	s.shells = newShellRegistry()
 	s.engine = gin.New()
 	s.engine.Use(gin.Recovery(), s.requestLogger(), securityHeaders())
 	_ = s.engine.SetTrustedProxies(nil)
@@ -364,7 +369,8 @@ func (s *Server) routes() error {
 	api.POST("/projects/:slug/domains", s.require(authz.ProjectConfig), s.addDomain)
 	api.DELETE("/projects/:slug/domains/:host", s.require(authz.ProjectConfig), s.removeDomain)
 	api.GET("/projects/:slug/audit", s.require(authz.ProjectView), s.appAudit)
-	api.GET("/projects/:slug/instances", s.require(authz.ProjectExec), s.listInstances) // RFC-0026
+	api.GET("/projects/:slug/instances", s.require(authz.ProjectExec), s.listInstances)       // RFC-0026
+	api.POST("/projects/:slug/shell/ticket", s.require(authz.ProjectExec), s.mintShellTicket) // RFC-0026
 	// Project resources (RFC-0003/0006) live in the project namespace.
 	api.GET("/projects/:slug/resources", s.require(authz.ProjectView), s.listProjectResources)
 	api.POST("/projects/:slug/resources", s.require(authz.ProjectResource), s.createResource)

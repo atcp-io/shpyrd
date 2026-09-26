@@ -1,14 +1,18 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/ext"
 	"shpyrd/pkg/logs"
 )
 
@@ -91,4 +95,60 @@ func podReady(p corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// mintShellTicket issues the one-time code the WebSocket presents. The
+// instance is checked here so a terminal never opens against something that
+// is not running, and the one-shell limit is refused here so a stale tab
+// learns why before it dials.
+func (s *Server) mintShellTicket(c *gin.Context) {
+	instance := c.Query("instance")
+	if instance == "" {
+		abort(c, http.StatusBadRequest, errors.New("name the instance to open a shell on (?instance=web.1)"))
+		return
+	}
+	app, ok := s.loadApp(c)
+	if !ok {
+		return
+	}
+	instances, err := s.instancesOf(c, app.Namespace, app.Name)
+	if err != nil {
+		abort(c, http.StatusBadGateway, err)
+		return
+	}
+	if !hasInstance(instances, instance) {
+		abort(c, http.StatusNotFound, fmt.Errorf("instance %q is not running; running: %s", instance, instanceList(instances)))
+		return
+	}
+	id, _ := ext.IdentityFrom(c)
+	if s.shells.held(actorKey(id), app.Name) {
+		abort(c, http.StatusConflict, errors.New("you already have a shell open on this project; close it first"))
+		return
+	}
+	code, err := s.execTickets.mint(execTicket{Identity: id, Project: app.Name, Instance: instance})
+	if err != nil {
+		abort(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ticket": code})
+}
+
+func hasInstance(list []Instance, name string) bool {
+	for _, i := range list {
+		if i.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func instanceList(list []Instance) string {
+	names := make([]string, 0, len(list))
+	for _, i := range list {
+		names = append(names, i.Name)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }

@@ -133,6 +133,64 @@ func TestListInstancesNamesAgreeDuringRollout(t *testing.T) {
 	}
 }
 
+func TestMintShellTicket(t *testing.T) {
+	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
+	s, _ := newTestServer(t, nil, []client.Object{blog}, appPod("blog", "web", "blog-web-aaa", corev1.PodRunning, true))
+
+	rec := do(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.1", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mint: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct{ Ticket string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ticket == "" {
+		t.Fatal("no ticket in the response")
+	}
+
+	// An instance that is not there cannot be given a ticket: the terminal
+	// would otherwise open and then fail with nothing useful to say.
+	if rec := do(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.9", "", true); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown instance: %d, want 404", rec.Code)
+	}
+	if rec := do(t, s, "POST", "/api/projects/blog/shell/ticket", "", true); rec.Code != http.StatusBadRequest {
+		t.Errorf("missing instance: %d, want 400", rec.Code)
+	}
+}
+
+func TestMintShellTicketRefusesSecondShell(t *testing.T) {
+	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
+	s, _ := newTestServer(t, nil, []client.Object{blog}, appPod("blog", "web", "blog-web-aaa", corev1.PodRunning, true))
+
+	// A shell is already live for this caller: the admin token's identity.
+	s.shells.claim(actorKey(ext.Identity{Subject: "admin-token", Provider: "token"}), "blog")
+	rec := do(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.1", "", true)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("second shell: %d, want 409", rec.Code)
+	}
+}
+
+func TestMintShellTicketNeedsExec(t *testing.T) {
+	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
+	s, _ := newTestServer(t, nil, []client.Object{blog}, appPod("blog", "web", "blog-web-aaa", corev1.PodRunning, true))
+	s.authz.TTL = 1
+	if rec := do(t, s, "POST", "/api/teams", `{"name":"ops","members":["ops@example.test"],"platformRole":"platform-admin"}`, true); rec.Code != http.StatusCreated {
+		t.Fatalf("create team: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, s, "POST", "/api/projects/blog/members", `{"role":"viewer","user":"viewer@example.test"}`, true); rec.Code != http.StatusCreated {
+		t.Fatalf("add viewer: %d %s", rec.Code, rec.Body.String())
+	}
+	sid, csrf := signIn(t, s, ext.Identity{Subject: "u2", Email: "viewer@example.test", Provider: "local"})
+	if rec := doCookie(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.1", "", sid, csrf); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer mint: %d, want 403", rec.Code)
+	}
+	// Being a POST, it is also a CSRF-protected route for cookie callers.
+	if rec := doCookie(t, s, "POST", "/api/projects/blog/shell/ticket?instance=web.1", "", sid, ""); rec.Code == http.StatusOK {
+		t.Error("a cookie caller without the CSRF header must not mint a ticket")
+	}
+}
+
 func TestListInstancesNeedsExec(t *testing.T) {
 	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
 	s, _ := newTestServer(t, nil, []client.Object{blog}, appPod("blog", "web", "blog-web-aaa", corev1.PodRunning, true))
