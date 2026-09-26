@@ -210,6 +210,12 @@ func (s *Snapshot) RolesFor(id ext.Identity) Roles {
 	return r
 }
 
+// RankRole returns a comparable rank for project roles.
+func RankRole(role string) int { return rank(role) }
+
+// PlatformRank returns a comparable rank for platform roles.
+func PlatformRank(role string) int { return platformRank(role) }
+
 // TeamNames lists the teams an identity belongs to, sorted.
 func (s *Snapshot) TeamNames(id ext.Identity) []string {
 	teams := s.teamsOf(id)

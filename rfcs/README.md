@@ -59,7 +59,7 @@ declare what they depend on.
 | [0028](0028-resource-pages-and-metrics.md) | Resource detail pages and metrics | provisional | 0006, 0009, 0010 |
 | [0029](0029-opentelemetry.md) | OpenTelemetry | provisional | 0016 |
 | [0030](0030-notifications.md) | Notifications (webhook, Slack, email) | provisional | 0013 (email) |
-| [0031](0031-api-tokens.md) | Per-user API tokens | implementable | 0008 |
+| [0031](0031-api-tokens.md) | Per-user API tokens | implemented (v0.9.0); gaps: CLI minting needs a person session or the admin token | 0008 |
 | [0032](0032-mcp-connector.md) | MCP connector | provisional | 0031 (remote) |
 | [0033](0033-workspaces.md) | Workspaces | in progress (control-plane database v0.4.0; the edge v0.5.0; login methods, join policy, domain claims v0.6.0) | 0008, 0016 |
 | [0034](0034-domains-and-certificates.md) | Custom domains | implemented | 0036, 0061 |
@@ -133,6 +133,7 @@ an "Implementation status" section with the details; the short version:
 | 0019 | zero-downtime rollout test; probe message in failing status |
 | 0022a | NetworkPolicy for logs-system; console sink off on cloud |
 | 0023 | `drain.failing` audit event |
+| 0031 | minting tokens from a CLI session opened with a `shp_` token (by design; needs the CLI browser sign-in of 0052) |
 | 0036 | `SHPYRD_INTERNAL_LB` semantics; platform-CA certificates for internal projects without a wildcard; `status.exposure`; cluster page hosts/certificate source |
 | 0037 | database and volume contents (Postgres archives stay in the cluster's store); release history; e2e in CI |
 | 0045 | e2e for `examples/hello-docker` |

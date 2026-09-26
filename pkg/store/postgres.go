@@ -291,6 +291,25 @@ func (p *Postgres) ListIdentities(ctx context.Context, ws string) ([]Identity, e
 	return out, rows.Err()
 }
 
+func (p *Postgres) GetIdentity(ctx context.Context, ws, email string) (*Identity, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	var it Identity
+	var groupsRaw []byte
+	err = p.pool.QueryRow(ctx, `SELECT id, workspace_id, realm, email, name, provider, groups, status, first_seen_at, last_seen_at FROM identities WHERE workspace_id = $1 AND lower(email) = lower($2)`, wsID, email).
+		Scan(&it.ID, &it.WorkspaceID, &it.Realm, &it.Email, &it.Name, &it.Provider, &groupsRaw, &it.Status, &it.FirstSeenAt, &it.LastSeenAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(groupsRaw, &it.Groups)
+	return &it, nil
+}
+
 func (p *Postgres) SetIdentityStatus(ctx context.Context, ws, email, status string) (*Identity, error) {
 	wsID, err := p.wsID(ctx, p.pool, ws)
 	if err != nil {
@@ -652,6 +671,99 @@ func (p *Postgres) TakeCode(ctx context.Context, code string) (*Code, error) {
 		return nil, ErrNotFound
 	}
 	return &c, nil
+}
+
+// ---- API tokens (RFC-0031) -------------------------------------------------
+
+func (p *Postgres) CreateToken(ctx context.Context, ws string, t APIToken, hash string) (*APIToken, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	roles, _ := json.Marshal(t.ProjectRoles)
+	row := p.pool.QueryRow(ctx, `INSERT INTO api_tokens (id, workspace_id, name, owner_email, hash, platform_role, project_roles, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, workspace_id, name, owner_email, platform_role, project_roles, created_at, expires_at, last_used_at`,
+		newID(), wsID, t.Name, strings.ToLower(t.OwnerEmail), hash, t.PlatformRole, roles, t.ExpiresAt)
+	out, err := scanToken(row)
+	if isUnique(err) {
+		return nil, ErrConflict
+	}
+	return out, err
+}
+
+func scanToken(row pgx.Row) (*APIToken, error) {
+	var t APIToken
+	var roles []byte
+	if err := row.Scan(&t.ID, &t.WorkspaceID, &t.Name, &t.OwnerEmail, &t.PlatformRole, &roles, &t.CreatedAt, &t.ExpiresAt, &t.LastUsedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	_ = json.Unmarshal(roles, &t.ProjectRoles)
+	return &t, nil
+}
+
+func (p *Postgres) LookupToken(ctx context.Context, hash string) (*APIToken, error) {
+	row := p.pool.QueryRow(ctx, `SELECT id, workspace_id, name, owner_email, platform_role, project_roles, created_at, expires_at, last_used_at
+		FROM api_tokens WHERE hash = $1 AND (expires_at IS NULL OR expires_at > now())`, hash)
+	t, err := scanToken(row)
+	if err != nil || t == nil {
+		return t, err
+	}
+	// Update last_used_at at most once a minute (best effort).
+	if t.LastUsedAt == nil || time.Since(*t.LastUsedAt) > time.Minute {
+		now := time.Now()
+		_, _ = p.pool.Exec(ctx, `UPDATE api_tokens SET last_used_at = $2::timestamptz WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < $2::timestamptz - interval '1 minute')`, t.ID, now)
+		t.LastUsedAt = &now
+	}
+	return t, nil
+}
+
+func (p *Postgres) ListTokens(ctx context.Context, ws, ownerEmail string) ([]APIToken, error) {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return nil, err
+	}
+	q := `SELECT id, workspace_id, name, owner_email, platform_role, project_roles, created_at, expires_at, last_used_at FROM api_tokens WHERE workspace_id = $1`
+	args := []any{wsID}
+	if ownerEmail != "" {
+		q += ` AND lower(owner_email) = lower($2)`
+		args = append(args, ownerEmail)
+	}
+	q += ` ORDER BY name`
+	rows, err := p.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []APIToken
+	for rows.Next() {
+		t, err := scanToken(rows)
+		if err != nil {
+			return nil, err
+		}
+		if t != nil {
+			out = append(out, *t)
+		}
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) DeleteToken(ctx context.Context, ws, id string) error {
+	wsID, err := p.wsID(ctx, p.pool, ws)
+	if err != nil {
+		return err
+	}
+	tag, err := p.pool.Exec(ctx, `DELETE FROM api_tokens WHERE workspace_id = $1 AND id = $2`, wsID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 var _ Store = (*Postgres)(nil)

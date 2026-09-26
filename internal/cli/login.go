@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -163,12 +164,14 @@ Tip: shpyrd cluster token --context <ctx> prints the admin token.`,
 		},
 	}
 	cmd.Flags().StringVar(&wsURL, "url", os.Getenv("SHPYRD_URL"), "workspace URL (or SHPYRD_URL)")
-	cmd.Flags().StringVar(&token, "token", os.Getenv("SHPYRD_TOKEN"), "API token (or SHPYRD_TOKEN; the admin token works: `shpyrd cluster token`)")
+	cmd.Flags().StringVar(&token, "token", os.Getenv("SHPYRD_TOKEN"), "API token (or SHPYRD_TOKEN): a personal token from `shpyrd tokens create` or the admin token from `shpyrd cluster token`")
 	return cmd
 }
 
+// verifyToken checks the token is accepted by the workspace: /api/me answers
+// 401 for an unknown, expired or revoked token and 200 for a live one.
 func verifyToken(ctx context.Context, wsURL, token string) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", wsURL+"/api/healthz", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", wsURL+"/api/me", nil)
 	if err != nil {
 		return err
 	}
@@ -178,7 +181,10 @@ func verifyToken(ctx context.Context, wsURL, token string) error {
 		return fmt.Errorf("cannot reach %s: %w", wsURL, err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode >= 500 {
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		return fmt.Errorf("the workspace rejected this token (expired, revoked or mistyped)")
+	case resp.StatusCode >= 500:
 		return fmt.Errorf("server error %d", resp.StatusCode)
 	}
 	return nil
@@ -255,9 +261,13 @@ func newWhoAmICmd(g *globalFlags) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("not signed in to %s; run `shpyrd login --url %s`", norm, norm)
 			}
+			if err := verifyToken(ctx, norm, sess.Token); err != nil {
+				return fmt.Errorf("%s: %w; run `shpyrd login --url %s --token <token>` again", norm, err, norm)
+			}
 			me := whoAmI(ctx, norm, sess.Token)
 			if me == "" {
-				me = "(token; re-run `shpyrd login` to refresh)"
+				// The admin token has no person behind it.
+				me = "admin token"
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), me)
 			return nil
@@ -265,5 +275,175 @@ func newWhoAmICmd(g *globalFlags) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&wsURL, "url", os.Getenv("SHPYRD_URL"), "workspace URL (or SHPYRD_URL)")
 	_ = g
+	return cmd
+}
+
+// TokenView is a token as shown in the CLI (mirrors api.TokenView).
+type TokenView struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	PlatformRole string            `json:"platformRole,omitempty"`
+	ProjectRoles map[string]string `json:"projectRoles,omitempty"`
+	ExpiresAt    *time.Time        `json:"expiresAt,omitempty"`
+	LastUsedAt   *time.Time        `json:"lastUsedAt,omitempty"`
+}
+
+// TokenCreateView is the create response.
+type TokenCreateView struct {
+	TokenView
+	Token string `json:"token"`
+}
+
+// newTokensCmd is `shpyrd tokens`.
+func newTokensCmd(g *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tokens",
+		Short: "Personal API tokens (scoped credentials for CI and integrations)",
+		Long: `API tokens let scripts and CI pipelines authenticate without the admin token.
+They carry only the roles you give them and expire when you say.
+
+  shpyrd tokens create ci --platform-role platform-viewer --expires 90d
+  shpyrd tokens create ci --project shop --role developer --expires 30d
+  shpyrd tokens list
+  shpyrd tokens revoke <id>
+  
+The token value is shown once. Store it in SHPYRD_TOKEN for the CLI, or
+pass it to shpyrd login --token.`,
+	}
+
+	var wsURL string
+
+	// helper: serverRequest via the login session
+	call := func(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+		sessions := loadSessions()
+		url := os.Getenv("SHPYRD_URL")
+		tok := os.Getenv("SHPYRD_TOKEN")
+		for _, sess := range sessions.Sessions {
+			if url == "" {
+				url = sess.URL
+			}
+			if tok == "" {
+				tok = sess.Token
+			}
+		}
+		if wsURL != "" {
+			url = wsURL
+		}
+		if url == "" {
+			return nil, errors.New("--url is required or run `shpyrd login`")
+		}
+		if tok == "" {
+			return nil, errors.New("not signed in: run `shpyrd login --url " + url + " --token <token>`")
+		}
+		return serverRequestDirect(ctx, url, tok, method, path, body, "application/json")
+	}
+
+	var (
+		name         string
+		platformRole string
+		projectRole  string
+		project      string
+		expiresIn    string
+	)
+	createCmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a personal API token",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			body := map[string]interface{}{"name": args[0]}
+			if platformRole != "" {
+				body["platformRole"] = platformRole
+			}
+			if project != "" && projectRole != "" {
+				body["projectRoles"] = map[string]string{project: projectRole}
+			}
+			if expiresIn != "" {
+				body["expiresIn"] = expiresIn
+			}
+			raw, _ := json.Marshal(body)
+			resp, err := call(ctx, "POST", "api/tokens", raw)
+			if err != nil {
+				return err
+			}
+			var tok TokenCreateView
+			if err := json.Unmarshal(resp, &tok); err != nil {
+				return fmt.Errorf("unexpected response: %s", truncate(string(resp), 200))
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, tok.Token)
+			fmt.Fprintf(out, "Token %q created (id: %s). The value above is shown once; store it safely.\n", tok.Name, tok.ID)
+			if tok.ExpiresAt != nil {
+				fmt.Fprintf(out, "Expires: %s\n", tok.ExpiresAt.Local().Format("2006-01-02"))
+			}
+			return nil
+		},
+	}
+	createCmd.Flags().StringVar(&platformRole, "platform-role", "", "platform-viewer or platform-admin")
+	createCmd.Flags().StringVar(&project, "project", "", "project slug for a project-scoped role")
+	createCmd.Flags().StringVar(&projectRole, "role", "", "user, viewer, developer or admin (with --project)")
+	createCmd.Flags().StringVar(&expiresIn, "expires", "90d", "expiry: 30d, 90d, 365d, etc.")
+	_ = name
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List your API tokens",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			resp, err := call(ctx, "GET", "api/tokens", nil)
+			if err != nil {
+				return err
+			}
+			var tokens []TokenView
+			if err := json.Unmarshal(resp, &tokens); err != nil {
+				return fmt.Errorf("unexpected response: %s", truncate(string(resp), 200))
+			}
+			if len(tokens) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No tokens. Create one with `shpyrd tokens create <name>`.")
+				return nil
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+			fmt.Fprintln(tw, "NAME\tID\tROLE\tEXPIRES\tLAST USED")
+			for _, t := range tokens {
+				role := t.PlatformRole
+				for p, r := range t.ProjectRoles {
+					role = p + "=" + r
+					break
+				}
+				if role == "" {
+					role = "project-scoped"
+				}
+				expires := "never"
+				if t.ExpiresAt != nil {
+					expires = t.ExpiresAt.Local().Format("2006-01-02")
+				}
+				used := "-"
+				if t.LastUsedAt != nil {
+					used = ago(*t.LastUsedAt)
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.Name, t.ID, role, expires, used)
+			}
+			return tw.Flush()
+		},
+	}
+
+	revokeCmd := &cobra.Command{
+		Use:   "revoke <id>",
+		Short: "Revoke an API token immediately",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := signalContext()
+			if _, err := call(ctx, "DELETE", "api/tokens/"+args[0], nil); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Token %s revoked.\n", args[0])
+			return nil
+		},
+	}
+
+	for _, c := range []*cobra.Command{createCmd, listCmd, revokeCmd} {
+		c.Flags().StringVar(&wsURL, "url", os.Getenv("SHPYRD_URL"), "workspace URL (or SHPYRD_URL)")
+	}
+	cmd.AddCommand(createCmd, listCmd, revokeCmd)
 	return cmd
 }

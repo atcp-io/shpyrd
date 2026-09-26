@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -20,8 +21,12 @@ func (s *Server) audit(c *gin.Context, project, action, target, detail string) {
 	actor := "anonymous"
 	if id, ok := ext.IdentityFrom(c); ok {
 		actor = firstNonEmpty(id.Email, id.Name, id.Subject)
-		if id.Provider == "token" {
+		switch id.Provider {
+		case "token":
 			actor = "admin token"
+		case "api-token":
+			// joao@acme.test (token ci): who, and which credential acted.
+			actor = fmt.Sprintf("%s (token %s)", id.Email, id.Name)
 		}
 	}
 	ref := audit.ClusterRef(s.deps().SystemNamespace)

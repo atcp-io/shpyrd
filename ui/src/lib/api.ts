@@ -401,6 +401,18 @@ export type AllowEntry = {
   platform?: "actions" | "mcp";
 };
 
+/** A personal API token (RFC-0031). */
+export type APIToken = {
+  id: string;
+  name: string;
+  ownerEmail?: string;
+  platformRole?: string;
+  projectRoles?: Record<string, string>;
+  createdAt: string;
+  expiresAt?: string;
+  lastUsedAt?: string;
+};
+
 /** One tile of the launcher: an app the caller may open (RFC-0033). */
 export type LauncherApp = {
   slug: string;
@@ -894,6 +906,18 @@ export const api = {
   preview: (slug: string, body: { teams: string[]; anonymous?: boolean }) =>
     request<{ url: string }>(`${project(slug)}/preview`, json("POST", body)),
   launcher: () => request<LauncherApp[]>("/api/launcher"),
+  tokens: () => request<APIToken[]>("/api/tokens"),
+  createToken: (body: {
+    name: string;
+    platformRole?: string;
+    projectRoles?: Record<string, string>;
+    expiresIn?: string;
+  }) =>
+    request<APIToken & { token: string }>("/api/tokens", json("POST", body)),
+  revokeToken: (id: string) =>
+    request<void>(`/api/tokens/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   backups: () => request<BackupInfo>("/api/cluster/backups"),
   runBackup: () =>
     request<{ job: string; status: string }>("/api/cluster/backups", {

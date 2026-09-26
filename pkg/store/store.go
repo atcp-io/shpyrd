@@ -42,6 +42,31 @@ type WorkspaceSettings struct {
 	JoinPolicy string `json:"joinPolicy,omitempty"` // JoinOpen when empty
 }
 
+// APIToken is a scoped, named credential (RFC-0031): shp_<id>_<random>.
+// The random part is shown once and not stored; Hash is SHA-256(random).
+type APIToken struct {
+	ID           string            `json:"id"`
+	WorkspaceID  string            `json:"workspaceId"`
+	Name         string            `json:"name"`
+	OwnerEmail   string            `json:"ownerEmail"`
+	PlatformRole string            `json:"platformRole,omitempty"`
+	ProjectRoles map[string]string `json:"projectRoles,omitempty"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	ExpiresAt    *time.Time        `json:"expiresAt,omitempty"`
+	LastUsedAt   *time.Time        `json:"lastUsedAt,omitempty"`
+}
+
+// Tokens is the token-management part of the Store.
+type Tokens interface {
+	// CreateToken stores a new token; caller provides the Hash of the random part.
+	CreateToken(ctx context.Context, ws string, t APIToken, hash string) (*APIToken, error)
+	// LookupToken finds a token by its hash; updates LastUsedAt at most once a
+	// minute (best-effort); nil when not found, expired or revoked.
+	LookupToken(ctx context.Context, hash string) (*APIToken, error)
+	ListTokens(ctx context.Context, ws, ownerEmail string) ([]APIToken, error)
+	DeleteToken(ctx context.Context, ws, id string) error
+}
+
 // DomainClaim says the workspace owns an email domain: once verified (a DNS
 // TXT record carrying Token), accounts of that domain must sign in through
 // Connector (when set) and count as the company's people.
@@ -135,6 +160,9 @@ type Store interface {
 	// updates name, provider, groups and the time otherwise.
 	TouchIdentity(ctx context.Context, ws string, id Identity) (*Identity, error)
 	ListIdentities(ctx context.Context, ws string) ([]Identity, error)
+	// GetIdentity finds a person by email (case-insensitive); ErrNotFound
+	// when the workspace has never seen them.
+	GetIdentity(ctx context.Context, ws, email string) (*Identity, error)
 	// SetIdentityStatus suspends or reactivates a person.
 	SetIdentityStatus(ctx context.Context, ws, email, status string) (*Identity, error)
 	DeleteIdentity(ctx context.Context, ws, email string) error
@@ -158,6 +186,7 @@ type Store interface {
 	DeleteProjectGrants(ctx context.Context, ws, project string) error
 
 	Sessions
+	Tokens
 
 	// Export and Import move the whole workspace's people and tenancy
 	// (platform backups, RFC-0037).

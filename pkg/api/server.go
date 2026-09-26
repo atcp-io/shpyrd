@@ -360,7 +360,10 @@ func (s *Server) routes() error {
 	api.PUT("/projects/:slug/allow", s.require(authz.ProjectMembers), s.setAllow)
 	api.POST("/projects/:slug/preview", s.require(authz.ProjectDeploy), s.previewApp) // "Open as"
 	api.GET("/launcher", s.launcher)                                                  // the apps the caller may open
-	api.GET("/projects/:slug/domains", s.require(authz.ProjectView), s.listDomains)   // RFC-0034
+	api.GET("/tokens", s.listTokens)                                                  // RFC-0031: the caller's tokens
+	api.POST("/tokens", s.createToken)
+	api.DELETE("/tokens/:id", s.deleteToken)
+	api.GET("/projects/:slug/domains", s.require(authz.ProjectView), s.listDomains) // RFC-0034
 	api.POST("/projects/:slug/domains", s.require(authz.ProjectConfig), s.addDomain)
 	api.DELETE("/projects/:slug/domains/:host", s.require(authz.ProjectConfig), s.removeDomain)
 	api.GET("/projects/:slug/audit", s.require(authz.ProjectView), s.appAudit)
@@ -413,6 +416,12 @@ func (s *Server) routes() error {
 func (s *Server) auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if s.opts.Token == "" && !s.opts.TokenDisabled {
+			c.Next()
+			return
+		}
+		// Try a per-user API token first (shp_... prefix, RFC-0031); it
+		// has its own identity and roles, so we skip the admin token check.
+		if s.identifyWithToken(c) {
 			c.Next()
 			return
 		}

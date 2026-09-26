@@ -24,7 +24,7 @@ func implementations(t *testing.T) map[string]func(t *testing.T) Store {
 				t.Fatal(err)
 			}
 			// A clean slate per test.
-			for _, stmt := range []string{"DROP TABLE IF EXISTS domain_claims", "DROP TABLE IF EXISTS edge_codes", "DROP TABLE IF EXISTS sessions", "DROP TABLE IF EXISTS grants", "DROP TABLE IF EXISTS teams", "DROP TABLE IF EXISTS identities", "DROP TABLE IF EXISTS workspaces", "DROP TABLE IF EXISTS schema_migrations"} {
+			for _, stmt := range []string{"DROP TABLE IF EXISTS api_tokens", "DROP TABLE IF EXISTS domain_claims", "DROP TABLE IF EXISTS edge_codes", "DROP TABLE IF EXISTS sessions", "DROP TABLE IF EXISTS grants", "DROP TABLE IF EXISTS teams", "DROP TABLE IF EXISTS identities", "DROP TABLE IF EXISTS workspaces", "DROP TABLE IF EXISTS schema_migrations"} {
 				if _, err := p.pool.Exec(ctx, stmt); err != nil {
 					t.Fatal(err)
 				}
@@ -271,6 +271,89 @@ func TestSessionsAndCodes(t *testing.T) {
 			_ = s.PutCode(ctx, Code{Code: "k2", Host: "h", Claims: json.RawMessage(`{}`), ExpiresAt: now.Add(-time.Second)})
 			if _, err := s.TakeCode(ctx, "k2"); !errors.Is(err, ErrNotFound) {
 				t.Errorf("expired take: %v", err)
+			}
+		})
+	}
+}
+
+func TestTokens(t *testing.T) {
+	for name, open := range implementations(t) {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s := open(t)
+			tok, err := s.CreateToken(ctx, DefaultWorkspace, APIToken{
+				Name: "ci", OwnerEmail: "joao@acme.test", ProjectRoles: map[string]string{"shop": "developer"},
+			}, "hash-1")
+			if err != nil || tok.ID == "" || tok.WorkspaceID == "" || tok.CreatedAt.IsZero() {
+				t.Fatalf("create: %+v %v", tok, err)
+			}
+			if _, err := s.CreateToken(ctx, DefaultWorkspace, APIToken{Name: "ci", OwnerEmail: "Joao@acme.test"}, "hash-2"); !errors.Is(err, ErrConflict) {
+				t.Errorf("duplicate name for the same owner: %v", err)
+			}
+			// Names are per person: someone else may also call theirs "ci".
+			if _, err := s.CreateToken(ctx, DefaultWorkspace, APIToken{Name: "ci", OwnerEmail: "ana@acme.test"}, "hash-3"); err != nil {
+				t.Errorf("same name, other owner: %v", err)
+			}
+			// Lookup by hash works, records first use, and misses on unknown hashes.
+			got, err := s.LookupToken(ctx, "hash-1")
+			if err != nil || got == nil || got.ID != tok.ID || got.ProjectRoles["shop"] != "developer" {
+				t.Fatalf("lookup: %+v %v", got, err)
+			}
+			if got.LastUsedAt == nil {
+				t.Errorf("first use did not record last_used_at")
+			}
+			// The write must be visible to a pure read, not only on the returned struct.
+			if listed, _ := s.ListTokens(ctx, DefaultWorkspace, "joao@acme.test"); len(listed) != 1 || listed[0].LastUsedAt == nil {
+				t.Errorf("last_used_at not persisted: %+v", listed)
+			}
+			if miss, err := s.LookupToken(ctx, "nope"); err != nil || miss != nil {
+				t.Errorf("unknown hash: %+v %v", miss, err)
+			}
+			// Expired tokens are invisible to lookup but still listed.
+			past := time.Now().Add(-time.Hour)
+			if _, err := s.CreateToken(ctx, DefaultWorkspace, APIToken{Name: "old", OwnerEmail: "joao@acme.test", ExpiresAt: &past}, "hash-old"); err != nil {
+				t.Fatal(err)
+			}
+			if exp, _ := s.LookupToken(ctx, "hash-old"); exp != nil {
+				t.Errorf("expired token accepted: %+v", exp)
+			}
+			mine, err := s.ListTokens(ctx, DefaultWorkspace, "joao@acme.test")
+			if err != nil || len(mine) != 2 {
+				t.Fatalf("list mine: %d %v", len(mine), err)
+			}
+			if all, err := s.ListTokens(ctx, DefaultWorkspace, ""); err != nil || len(all) != 3 {
+				t.Errorf("list all: %d %v", len(all), err)
+			}
+			if none, err := s.ListTokens(ctx, DefaultWorkspace, "other@acme.test"); err != nil || len(none) != 0 {
+				t.Errorf("list other: %d %v", len(none), err)
+			}
+			if err := s.DeleteToken(ctx, DefaultWorkspace, tok.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.DeleteToken(ctx, DefaultWorkspace, tok.ID); !errors.Is(err, ErrNotFound) {
+				t.Errorf("delete twice: %v", err)
+			}
+			if gone, _ := s.LookupToken(ctx, "hash-1"); gone != nil {
+				t.Errorf("revoked token accepted: %+v", gone)
+			}
+		})
+	}
+}
+
+func TestGetIdentity(t *testing.T) {
+	for name, open := range implementations(t) {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s := open(t)
+			if _, err := s.TouchIdentity(ctx, DefaultWorkspace, Identity{Email: "Maria@acme.test", Name: "Maria", Provider: "google", Groups: []string{"eng"}}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.GetIdentity(ctx, DefaultWorkspace, "maria@acme.test")
+			if err != nil || got.Provider != "google" || len(got.Groups) != 1 || got.Groups[0] != "eng" {
+				t.Fatalf("get: %+v %v", got, err)
+			}
+			if _, err := s.GetIdentity(ctx, DefaultWorkspace, "nobody@acme.test"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("unknown: %v", err)
 			}
 		})
 	}

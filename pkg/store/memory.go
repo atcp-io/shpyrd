@@ -11,6 +11,12 @@ import (
 )
 
 // Memory is the in-memory Store: tests, and the reference for the SQL one.
+type tokenEntry struct {
+	token       APIToken
+	hash        string
+	lastUpdated time.Time
+}
+
 type Memory struct {
 	mu         sync.Mutex
 	workspaces map[string]*Workspace // by slug
@@ -20,6 +26,7 @@ type Memory struct {
 	sessions   map[string]*Session
 	codes      map[string]*Code
 	domains    []DomainClaim
+	tokens     []tokenEntry
 	now        func() time.Time
 }
 
@@ -221,6 +228,22 @@ func (m *Memory) ListIdentities(_ context.Context, ws string) ([]Identity, error
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
 	return out, nil
+}
+
+func (m *Memory) GetIdentity(_ context.Context, ws, email string) (*Identity, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range m.identities {
+		if it.WorkspaceID == w.ID && strings.EqualFold(it.Email, email) {
+			c := it
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (m *Memory) SetIdentityStatus(_ context.Context, ws, email, status string) (*Identity, error) {
@@ -661,4 +684,85 @@ func (m *Memory) TakeCode(_ context.Context, code string) (*Code, error) {
 	}
 	cc := *c
 	return &cc, nil
+}
+
+// ---- API tokens (RFC-0031) -------------------------------------------------
+
+func (m *Memory) CreateToken(_ context.Context, ws string, t APIToken, hash string) (*APIToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	t.OwnerEmail = strings.ToLower(t.OwnerEmail)
+	for _, e := range m.tokens {
+		if e.token.WorkspaceID == w.ID && e.token.OwnerEmail == t.OwnerEmail && e.token.Name == t.Name {
+			return nil, ErrConflict
+		}
+	}
+	t.ID, t.WorkspaceID = newID(), w.ID
+	t.CreatedAt = m.now()
+	c := t
+	m.tokens = append(m.tokens, tokenEntry{token: c, hash: hash})
+	return &c, nil
+}
+
+func (m *Memory) LookupToken(_ context.Context, hash string) (*APIToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	for i := range m.tokens {
+		e := &m.tokens[i]
+		if e.hash != hash {
+			continue
+		}
+		if e.token.ExpiresAt != nil && now.After(*e.token.ExpiresAt) {
+			return nil, nil
+		}
+		if now.Sub(e.lastUpdated) > time.Minute {
+			e.token.LastUsedAt = &now
+			e.lastUpdated = now
+		}
+		c := e.token
+		return &c, nil
+	}
+	return nil, nil
+}
+
+func (m *Memory) ListTokens(_ context.Context, ws, ownerEmail string) ([]APIToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return nil, err
+	}
+	var out []APIToken
+	for _, e := range m.tokens {
+		if e.token.WorkspaceID != w.ID {
+			continue
+		}
+		if ownerEmail != "" && !strings.EqualFold(e.token.OwnerEmail, ownerEmail) {
+			continue
+		}
+		out = append(out, e.token)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (m *Memory) DeleteToken(_ context.Context, ws, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, err := m.ws(ws)
+	if err != nil {
+		return err
+	}
+	for i, e := range m.tokens {
+		if e.token.WorkspaceID == w.ID && e.token.ID == id {
+			m.tokens = append(m.tokens[:i], m.tokens[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
 }

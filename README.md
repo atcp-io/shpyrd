@@ -239,6 +239,14 @@ Until the first team or member exists every signed-in user is a platform admin,
 so a fresh cluster stays usable; the dashboard says so. The admin token is
 always a platform admin.
 
+For CI and scripts, people create **API tokens** (rfcs/0031) in the dashboard
+(Workspace → API tokens) or with `shpyrd tokens create ci --project shop --role
+developer --expires 90d`. A token carries at most the role its owner holds
+when it is used (a demoted or suspended owner's tokens follow), expires when
+told to, is shown once and can be revoked at any time. `shpyrd login --url
+https://shpyrd.example.com --token shp_...` signs the CLI in with it, or set
+`SHPYRD_TOKEN` and `SHPYRD_URL` in CI.
+
 Hardening that needs no extension: a `NetworkPolicy` per project (ingress only
 from the project itself, the ingress controller and monitoring; egress to the
 project, platform namespaces and the internet, never to other projects), the

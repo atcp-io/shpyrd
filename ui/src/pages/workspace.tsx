@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TeamsPage } from "@/pages/teams";
 import { UsersPage } from "@/pages/users";
 import { SignInSettings } from "@/components/signin-settings";
+import { TokensCard } from "@/components/tokens-card";
 
 /**
  * The workspace (RFC-0033): the tenant every project belongs to. Its name,
@@ -95,6 +96,9 @@ export function WorkspacePage() {
           {perms.clusterAdmin && (
             <TabsTrigger value="signin">Sign-in</TabsTrigger>
           )}
+          {config.data?.authRequired && (
+            <TabsTrigger value="tokens">API tokens</TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <WorkspaceCard readOnly={!perms.clusterAdmin} />
@@ -112,6 +116,9 @@ export function WorkspacePage() {
           <SignInSettings
             authLocal={!!config.data?.extensions?.includes("auth-local")}
           />
+        </TabsContent>
+        <TabsContent value="tokens" className="mt-4">
+          <TokensCard />
         </TabsContent>
       </Tabs>
     </div>
