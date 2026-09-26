@@ -35,24 +35,38 @@ have no shell.
 
 ## Proposal
 
-Three routes, all on the authenticated `/api` group:
+Three routes. The two HTTP routes sit on the authenticated `/api` group, behind the
+session middleware and a role check. The WebSocket does **not**: it is registered on the
+public group, so no `s.auth()` runs in front of it and the handler is its own
+authorization boundary — it takes the identity from the one-time ticket, re-resolves that
+identity's roles itself, and refuses without `project.exec`. That placement is
+deliberate, and it is the most security-relevant fact in this design: a browser cannot
+set headers on a WebSocket handshake, and `shpyrd cluster dashboard` signs in with a
+token in localStorage and so has no session cookie either, so a route requiring either
+one would refuse exactly the people the shell is for. Anything added to this handler is
+therefore unauthenticated until the ticket is redeemed.
 
 - `GET /api/projects/{slug}/instances` (`project.exec`) lists the instances the selector
   offers: `{name, process, pod, ready}`, named by `logs.InstanceNames` so they match the
   log viewer, and filtered to app processes so build and run instances are absent.
 - `POST /api/projects/{slug}/shell/ticket?instance=web.1` (`project.exec`) mints a
-  one-time code, held in memory for 30 seconds and bound to the session, project and
+  one-time code, held in memory for 30 seconds and bound to the actor, project and
   instance. Being a POST, the existing session middleware already requires the CSRF
-  header.
-- `GET /api/projects/{slug}/shell?instance=web.1&ticket=...` upgrades to a WebSocket:
-  `Origin` must match the dashboard, the ticket is redeemed once, the role it recorded is
-  checked again, then the server opens the exec stream with a TTY and pipes bytes both
-  ways.
+  header. Minting is rate limited per actor, since it is the cheapest way to make a
+  single-replica control plane do repeated work (two pod LISTs, up to four `pods/exec`
+  calls and two audit Events per session), and the number of outstanding tickets is
+  capped.
+- `GET /api/projects/{slug}/shell?instance=web.1&ticket=...` upgrades to a WebSocket: the
+  handshake's `Origin`, when it carries one, must name the host this server answered on,
+  the ticket is redeemed once, the role it recorded is checked again, then the server
+  opens the exec stream with a TTY and pipes bytes both ways.
 
 Browsers cannot set headers on a WebSocket, which is why the ticket exists and why it
 carries the actor rather than leaning on the session cookie; the `Origin` check is the
 conventional defence against cross-site WebSocket hijacking and costs nothing, so both
-apply.
+apply. Authorization is checked once, when the socket opens: revoking a grant stops the
+next shell from opening but does not kill a shell already running, which ends when the
+process exits, the tab closes, or the idle timeout reaps it.
 
 Frames: binary carries terminal bytes in both directions. Text carries JSON control —
 `{"type":"resize","cols":N,"rows":N}` from the client, and `{"type":"open","instance":…,
@@ -64,9 +78,14 @@ UI: a Shell tab on the project page with an instance selector and xterm.js (fit 
 with `project.exec` and is lazy-loaded, so xterm stays out of the main bundle and no
 socket opens until it is selected.
 
-Limits: one shell per user per project at a time; idle timeout 30 minutes; the server logs
-and audits `shell.open` (instance and chosen shell) and `shell.close` (exit code, or the
-reason it ended).
+Limits: one shell per user per project at a time; idle timeout 30 minutes; every write to
+the socket takes a two-second deadline, so a client that stops reading is dropped rather
+than holding the session's only writer and with it the reap that would free the user's
+slot; resolving the shell is bounded by 15 seconds, since it happens before the idle timer
+is armed; inbound frames are capped at 1 MiB; a closed socket cancels the session, so a
+process that ignores stdin does not outlive the tab. The server logs and audits
+`shell.open` (instance and chosen shell) and `shell.close` (exit code, or the reason it
+ended: an exit status, an idle reap, or the client disconnecting).
 
 ## Design Details
 
@@ -103,6 +122,20 @@ reason it ended).
 - The exec stream is reached through an injected seam, the way `Options.Apps` and
   `lookupTXT` already are, so role checks, tickets, limits, framing and timeouts are
   tested without a cluster.
+
+## Implementation status
+
+Audited on 2026-09-26 against the code, at the end of the branch's own review. What the
+text above promises but the platform does not do yet is listed here.
+
+- **Not implemented:** `closed: server shutting down` is a reachable-looking branch that
+  cannot actually be reached, so a control-plane rollout ends every live shell with no
+  `shell.close` audited. `srv.Shutdown` neither cancels nor waits for hijacked
+  connections, so a shutdown does not cancel the session's context and the handler is
+  killed with the process instead of unwinding. Fixing it needs two things this branch
+  does not have: a server-lifetime context the bridge can select on, and an audit write
+  that outlives the request context, since `pkg/api/audit.go` records through
+  `c.Request.Context()`.
 
 ## Implementation History
 
