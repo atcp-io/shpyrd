@@ -108,21 +108,68 @@ func Attach(ctx context.Context, k *kube.Client, namespace, pod, container strin
 	return Stream(ctx, k, req.URL().String(), tty, stdout)
 }
 
-// Stream connects stdin/stdout to an exec or attach URL.
-func Stream(ctx context.Context, k *kube.Client, rawURL string, tty bool, stdout io.Writer) error {
+// ExecURL is the API URL of an exec stream into a container. Callers that
+// bridge the stream themselves (the server's web terminal) need the URL
+// without the local terminal handling Exec applies.
+func ExecURL(k *kube.Client, namespace, pod, container string, command []string, tty bool) string {
+	req := k.Kube.CoreV1().RESTClient().Post().
+		Resource("pods").Namespace(namespace).Name(pod).SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container, Command: command, Stdin: true, Stdout: true, Stderr: !tty, TTY: tty,
+		}, scheme.ParameterCodec)
+	return req.URL().String()
+}
+
+// newExecutor builds the executor both stream entry points use: WebSocket
+// first, SPDY when the apiserver or a proxy in between cannot upgrade.
+func newExecutor(k *kube.Client, rawURL string) (remotecommand.Executor, error) {
 	ws, err := remotecommand.NewWebSocketExecutor(k.Config, "GET", rawURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	spdy, err := remotecommand.NewSPDYExecutor(k.Config, "POST", u)
 	if err != nil {
+		return nil, err
+	}
+	return remotecommand.NewFallbackExecutor(ws, spdy, func(err error) bool { return httpstream.IsUpgradeFailure(err) })
+}
+
+// StreamIO is Stream without a local terminal: explicit streams and sizes
+// from a channel, so a server can bridge a browser socket into a pod. The
+// caller closes sizes when the session ends, which stops the size goroutine
+// remotecommand runs.
+func StreamIO(ctx context.Context, k *kube.Client, rawURL string, tty bool, stdin io.Reader, stdout, stderr io.Writer, sizes <-chan remotecommand.TerminalSize) error {
+	executor, err := newExecutor(k, rawURL)
+	if err != nil {
 		return err
 	}
-	executor, err := remotecommand.NewFallbackExecutor(ws, spdy, func(err error) bool { return httpstream.IsUpgradeFailure(err) })
+	opts := remotecommand.StreamOptions{Stdin: stdin, Stdout: stdout, Stderr: stderr, Tty: tty}
+	if tty && sizes != nil {
+		opts.TerminalSizeQueue = &chanSizeQueue{ch: sizes}
+	}
+	return executor.StreamWithContext(ctx, opts)
+}
+
+// chanSizeQueue feeds remotecommand from a channel instead of SIGWINCH.
+type chanSizeQueue struct {
+	ch <-chan remotecommand.TerminalSize
+}
+
+func (q *chanSizeQueue) Next() *remotecommand.TerminalSize {
+	s, ok := <-q.ch
+	if !ok {
+		return nil
+	}
+	return &s
+}
+
+// Stream connects the local stdin/stdout to an exec or attach URL.
+func Stream(ctx context.Context, k *kube.Client, rawURL string, tty bool, stdout io.Writer) error {
+	executor, err := newExecutor(k, rawURL)
 	if err != nil {
 		return err
 	}
