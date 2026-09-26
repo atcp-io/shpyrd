@@ -128,14 +128,15 @@ ended: an exit status, an idle reap, or the client disconnecting).
 Audited on 2026-09-26 against the code, at the end of the branch's own review. What the
 text above promises but the platform does not do yet is listed here.
 
-- **Not implemented:** `closed: server shutting down` is a reachable-looking branch that
-  cannot actually be reached, so a control-plane rollout ends every live shell with no
-  `shell.close` audited. `srv.Shutdown` neither cancels nor waits for hijacked
-  connections, so a shutdown does not cancel the session's context and the handler is
-  killed with the process instead of unwinding. Fixing it needs two things this branch
-  does not have: a server-lifetime context the bridge can select on, and an audit write
-  that outlives the request context, since `pkg/api/audit.go` records through
-  `c.Request.Context()`.
+- **Not implemented:** a shutdown is never audited. `srv.Shutdown` neither cancels nor
+  waits for hijacked connections, so it does not cancel a live session's context: the
+  handler is killed with the process instead of unwinding, and a control-plane rollout ends
+  every live shell with no `shell.close` recorded. No shutdown therefore reaches the
+  `closed: server shutting down` branch that names it — that branch stands only as the
+  fall-through when a cancelled session matches neither the idle reap nor the client going
+  away. Fixing it needs two things this branch does not have: a server-lifetime context the
+  bridge can select on, and an audit write that outlives the request context, since
+  `pkg/api/audit.go` records through `c.Request.Context()`.
 
 ## Implementation History
 

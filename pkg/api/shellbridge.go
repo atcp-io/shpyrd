@@ -342,8 +342,20 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 		// Most specific reason first. An idle reap outranks a client close
 		// because the reap is what ended the session: closing the socket makes
 		// the browser's side go away a moment later, so both can be signalled
-		// and only the first one is the cause. The fall-through is the request
-		// context itself going away, which today means a server shutdown.
+		// and only the first one is the cause.
+		//
+		// A client close is read from the request context, not from the reader
+		// goroutine's closed channel, and the order matters: net/http cancels the
+		// request context from inside the read that hits EOF, so the cancellation
+		// is visible here before ReadMessage has even returned to the reader,
+		// never mind before its deferred close(closed) runs. Polling closed
+		// therefore loses the race against a stream that returns on cancellation
+		// — which is every real one — and attributes an ordinary tab close to a
+		// server shutdown. The request context going away is itself the client
+		// leaving: a real shutdown does not cancel it, which is exactly why the
+		// shutdown branch below is unreachable (see the RFC's implementation
+		// status). closed stays for the case the context cannot speak to: a reader
+		// parked in the stdin Write rather than in a read.
 		detail = "closed: server shutting down"
 		switch {
 		case signalled(idled):
@@ -351,7 +363,7 @@ func (s *Server) runShell(c *gin.Context, conn *websocket.Conn, namespace, pod, 
 			// Why, before the close: a terminal that vanishes without a word
 			// reads as a bug to the person it happens to.
 			_ = w.control(shellControl{Type: "error", Message: fmt.Sprintf("shell closed after %s idle", s.shellIdle)})
-		case signalled(closed):
+		case c.Request.Context().Err() != nil, signalled(closed):
 			detail = "closed: the client disconnected"
 		}
 		_ = w.close(websocket.CloseNormalClosure, "closed")
