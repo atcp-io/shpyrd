@@ -36,6 +36,27 @@ export type Identity = {
   };
 };
 
+/** The workspace (RFC-0033): the tenant every project belongs to. */
+export type WorkspaceInfo = {
+  slug: string;
+  name: string;
+  implicit: boolean;
+  domain?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Someone the workspace has seen sign in. */
+export type Person = {
+  email: string;
+  name?: string;
+  provider?: string;
+  groups: string[];
+  realm: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
 export type Team = {
   name: string;
   description?: string;
@@ -547,6 +568,14 @@ export const api = {
   },
   loginUrl: (provider: string, next: string) =>
     `/api/auth/login?provider=${encodeURIComponent(provider)}&next=${encodeURIComponent(next)}`,
+  workspace: () => request<WorkspaceInfo>("/api/workspace"),
+  updateWorkspace: (name: string) =>
+    request<WorkspaceInfo>("/api/workspace", json("PATCH", { name })),
+  people: () => request<Person[]>("/api/workspace/people"),
+  forgetPerson: (email: string) =>
+    request<void>(`/api/workspace/people/${encodeURIComponent(email)}`, {
+      method: "DELETE",
+    }),
   teams: () => request<Team[]>("/api/teams"),
   putTeam: (body: Team) => request<Team>("/api/teams", json("POST", body)),
   deleteTeam: (name: string) =>

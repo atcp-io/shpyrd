@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/store"
 )
 
 // FormatVersion of the archive layout.
@@ -56,11 +57,10 @@ var (
 		{Group: "shpyrd.io", Version: "v1alpha1", Resource: "redis"},
 		{Group: "shpyrd.io", Version: "v1alpha1", Resource: "logdrains"},
 	}
-	clusterKinds = []schema.GroupVersionResource{
-		{Group: "shpyrd.io", Version: "v1alpha1", Resource: "teams"},
-		{Group: "shpyrd.io", Version: "v1alpha1", Resource: "projectmembers"},
-	}
-	systemKinds = []schema.GroupVersionResource{
+	// Teams and grants live in the control-plane store since RFC-0033 and
+	// travel as cluster/store.json; nothing cluster-scoped is left to list.
+	clusterKinds = []schema.GroupVersionResource{}
+	systemKinds  = []schema.GroupVersionResource{
 		{Group: "dex.coreos.com", Version: "v1", Resource: "passwords"},
 		{Group: "dex.coreos.com", Version: "v1", Resource: "connectors"},
 	}
@@ -82,6 +82,8 @@ type Exporter struct {
 	// (http://shpyrd-server.shpyrd-system.svc); empty skips sources.
 	SourceBase string
 	HTTP       *http.Client
+	// Store is the control-plane database; nil skips it.
+	Store store.Store
 	// Domain, Cluster, Profile and Version describe the origin in the
 	// manifest; the domain names the archives (cluster names default to
 	// "shpyrd", domains are one per platform).
@@ -172,6 +174,21 @@ func (e *Exporter) Export(ctx context.Context, w io.Writer) (*Manifest, error) {
 		if err := addObjects("cluster/"+gvr.Resource+".yaml", list.Items); err != nil {
 			return nil, err
 		}
+	}
+	// The control-plane store: the workspace, its people, teams and grants.
+	if e.Store != nil {
+		dump, err := e.Store.Export(ctx, store.DefaultWorkspace)
+		if err != nil {
+			return nil, fmt.Errorf("export store: %w", err)
+		}
+		raw, err := json.MarshalIndent(dump, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		if err := add("cluster/store.json", raw); err != nil {
+			return nil, err
+		}
+		man.Objects += len(dump.Teams) + len(dump.Grants)
 	}
 
 	// Projects: every namespace carrying the project label.

@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynfake "k8s.io/client-go/dynamic/fake"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+
+	"shpyrd/pkg/store"
 )
 
 // RFC-0037: the export carries the install record, cluster objects, every
@@ -67,7 +70,11 @@ func TestExportEncryptReadRoundTrip(t *testing.T) {
 		{Group: "dex.coreos.com", Version: "v1", Resource: "connectors"}:      "ConnectorList",
 	}, app, team)
 
-	e := &Exporter{Kube: kube, Dynamic: dyn, SystemNamespace: "shpyrd-system", SourceBase: src.URL, Cluster: "dev", Profile: "oci", Version: "v0.3.4"}
+	st := store.NewMemory()
+	if _, _, err := st.PutTeam(context.Background(), store.DefaultWorkspace, store.Team{Name: "platform", Members: []string{"ops@example.test"}}); err != nil {
+		t.Fatal(err)
+	}
+	e := &Exporter{Kube: kube, Dynamic: dyn, SystemNamespace: "shpyrd-system", SourceBase: src.URL, Cluster: "dev", Profile: "oci", Version: "v0.3.4", Store: st}
 	var plain bytes.Buffer
 	man, err := e.Export(context.Background(), &plain)
 	if err != nil {
@@ -117,8 +124,9 @@ func TestExportEncryptReadRoundTrip(t *testing.T) {
 	if !names["shop-env"] || names["shop-release-v1"] || names["db-app"] || names["shpyrd-registry"] || names["db-backups-object-storage"] {
 		t.Errorf("secrets kept = %v", names)
 	}
-	if teams, _ := a.Objects("cluster/teams.yaml"); len(teams) != 1 {
-		t.Error("teams missing")
+	var dump store.Dump
+	if err := json.Unmarshal(a.Files["cluster/store.json"], &dump); err != nil || len(dump.Teams) != 1 || dump.Teams[0].Name != "platform" {
+		t.Errorf("store dump: %v %+v", err, dump)
 	}
 	if _, has := a.Files["system/configmap-shpyrd-install.yaml"]; !has {
 		t.Error("install record missing")
@@ -162,8 +170,10 @@ func TestRestore(t *testing.T) {
 	dyn := dynfake.NewSimpleDynamicClient(runtime.NewScheme())
 	var order []string
 	uploaded := map[string]int{}
+	imported := &store.Dump{}
 	r := &Restorer{Dynamic: dyn, Archive: a, System: true,
 		UploadSource: func(_ context.Context, sha string, data []byte) error { uploaded[sha] += len(data); return nil },
+		ImportStore:  func(_ context.Context, d *store.Dump, _ bool) error { imported = d; return nil },
 		Log:          func(f string, args ...any) { order = append(order, fmt.Sprintf(f, args...)) }}
 	res, err := r.Run(context.Background())
 	if err != nil {
@@ -171,6 +181,10 @@ func TestRestore(t *testing.T) {
 	}
 	if res.Created != 6 || res.Sources != 1 || uploaded["abc123"] != 7 || len(res.Projects) != 1 {
 		t.Errorf("result = %+v uploaded=%v", res, uploaded)
+	}
+	// An archive from before the store carries Team objects: they become a dump.
+	if len(imported.Teams) != 1 || imported.Teams[0].Name != "platform" || len(imported.Teams[0].Members) != 1 {
+		t.Errorf("imported = %+v", imported)
 	}
 	joined := strings.Join(order, "\n")
 	if strings.Index(joined, "postgres app-shop/db") > strings.Index(joined, "app app-shop/shop") {

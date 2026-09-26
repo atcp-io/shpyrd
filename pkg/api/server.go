@@ -22,6 +22,7 @@ import (
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
+	"shpyrd/pkg/store"
 )
 
 // Options configures the server.
@@ -58,6 +59,13 @@ type Options struct {
 	// RegistryGC is the in-cluster registry's garbage collector (RFC-0059);
 	// nil when this replica does not run the controller.
 	RegistryGC RegistryGC
+	// Store is the control-plane database (RFC-0033): teams, grants, the
+	// people seen at sign-in, the workspace. Defaults to an in-memory store
+	// (tests, development without a database).
+	Store store.Store
+	// MembershipChanged is called after every team or grant write so the
+	// RBAC mirror runs at once; nil when this replica does not run it.
+	MembershipChanged func()
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -99,6 +107,7 @@ type Server struct {
 	prom    *PromClient
 	rp      *relyingParty
 	authz   *authz.Resolver
+	store   store.Store
 	// tokenFailures throttles clients presenting wrong admin tokens.
 	tokenFailures *rateLimiter
 	// passwordFailures throttles wrong passwords per account (RFC-0012).
@@ -155,8 +164,11 @@ func newServer(k *kube.Client, opts Options, helmCfg *action.Configuration) (*Se
 	if opts.TokenDisabled {
 		opts.Logger.Info("admin token disabled: sign-in through accounts only")
 	}
-	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus}
-	s.authz = &authz.Resolver{Client: opts.Apps}
+	if opts.Store == nil {
+		opts.Store = store.NewMemory()
+	}
+	s := &Server{opts: opts, log: opts.Logger, kube: k, apps: opts.Apps, helm: helmCfg, sources: opts.Sources, prom: opts.Prometheus, store: opts.Store}
+	s.authz = &authz.Resolver{Store: opts.Store}
 	s.tokenFailures = newRateLimiter(20)
 	s.passwordFailures = newRateLimiter(10)
 	s.engine = gin.New()
@@ -272,6 +284,14 @@ func (s *Server) routes() error {
 	api.POST("/drains", s.require(authz.ClusterAdmin), s.createClusterDrain)
 	api.DELETE("/drains/:name", s.require(authz.ClusterAdmin), s.deleteClusterDrain)
 	api.POST("/sources", s.uploadSource) // deploys check the project right when the App is updated
+	// The workspace (RFC-0033): its name and the people it has seen.
+	api.GET("/workspace", s.getWorkspace) // any signed-in user: the dashboard shows the name
+	api.PATCH("/workspace", s.require(authz.ClusterAdmin), s.updateWorkspace)
+	api.GET("/workspace/people", s.require(authz.ClusterAdmin), s.listPeople)
+	api.DELETE("/workspace/people/:email", s.require(authz.ClusterAdmin), s.forgetPerson)
+	api.GET("/workspace/grants", s.require(authz.ClusterAdmin), s.listAllMembers)
+	api.GET("/workspace/export", s.require(authz.ClusterAdmin), s.exportWorkspace) // RFC-0037
+	api.POST("/workspace/import", s.require(authz.ClusterAdmin), s.importWorkspace)
 	api.GET("/teams", s.require(authz.ClusterAdmin), s.listTeams)
 	api.POST("/teams", s.require(authz.ClusterAdmin), s.putTeam)
 	api.PUT("/teams/:name", s.require(authz.ClusterAdmin), s.putTeam)

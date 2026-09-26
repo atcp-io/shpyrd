@@ -470,6 +470,7 @@ func (s *Server) openSession(c *gin.Context, id ext.Identity, idToken, how strin
 	s.setSessionCookies(c, sess)
 	s.log.Info("user signed in", "email", id.Email, "provider", id.Provider, "how", how)
 	ext.SetIdentity(c, id)
+	s.recordSignIn(c, id)
 	s.audit(c, "", "auth.login", firstNonEmpty(id.Email, id.Name, id.Subject), "provider "+id.Provider+" ("+how+")")
 	return "/", true
 }

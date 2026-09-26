@@ -13,18 +13,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/store"
 )
 
 func TestMembershipMirror(t *testing.T) {
 	shopNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "app-shop", Labels: map[string]string{shpyrdv1.LabelProject: "shop", shpyrdv1.LabelManagedBy: "shpyrd"}}}
 	blogNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "app-blog", Labels: map[string]string{shpyrdv1.LabelProject: "blog"}}}
 	other := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
-	web := &shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: "web"}, Spec: shpyrdv1.TeamSpec{Members: []string{"Ada@Example.test", "bob@example.test"}, Groups: []string{"engineering"}}}
-	ops := &shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: "ops"}, Spec: shpyrdv1.TeamSpec{Members: []string{"ops@example.test"}, PlatformRole: shpyrdv1.RolePlatformAdmin}}
-	devs := &shpyrdv1.ProjectMember{ObjectMeta: metav1.ObjectMeta{Name: "shop-dev"}, Spec: shpyrdv1.ProjectMemberSpec{Project: "shop", Role: shpyrdv1.RoleDeveloper, Team: "web"}}
-	guest := &shpyrdv1.ProjectMember{ObjectMeta: metav1.ObjectMeta{Name: "shop-guest"}, Spec: shpyrdv1.ProjectMemberSpec{Project: "shop", Role: shpyrdv1.RoleViewer, User: "guest@example.test"}}
-	base, c := newTestReconciler(t, shopNS, blogNS, other, web, ops, devs, guest)
-	r := &MembershipReconciler{Client: c, Scheme: base.Scheme}
+	st := store.NewMemory()
+	ctx := context.Background()
+	if _, _, err := st.PutTeam(ctx, store.DefaultWorkspace, store.Team{Name: "web", Members: []string{"Ada@Example.test", "bob@example.test"}, Groups: []string{"engineering"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.PutTeam(ctx, store.DefaultWorkspace, store.Team{Name: "ops", Members: []string{"ops@example.test"}, PlatformRole: shpyrdv1.RolePlatformAdmin}); err != nil {
+		t.Fatal(err)
+	}
+	devs, err := st.AddGrant(ctx, store.DefaultWorkspace, store.Grant{Project: "shop", Role: shpyrdv1.RoleDeveloper, Team: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddGrant(ctx, store.DefaultWorkspace, store.Grant{Project: "shop", Role: shpyrdv1.RoleViewer, User: "guest@example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	base, c := newTestReconciler(t, shopNS, blogNS, other)
+	r := &MembershipReconciler{Client: c, Scheme: base.Scheme, Store: st}
 
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{}); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -61,7 +73,7 @@ func TestMembershipMirror(t *testing.T) {
 	}
 
 	// Removing the grant removes the binding.
-	if err := c.Delete(context.Background(), devs); err != nil {
+	if err := st.DeleteGrant(ctx, store.DefaultWorkspace, devs.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{}); err != nil {

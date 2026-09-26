@@ -19,6 +19,19 @@ jobs:
   go:
     name: Go tests
     runs-on: ubuntu-latest
+    services:
+      # The control-plane store's tests run against PostgreSQL too (RFC-0033).
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: shpyrd
+          POSTGRES_PASSWORD: shpyrd
+          POSTGRES_DB: shpyrd
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shpyrd" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SHPYRD_TEST_DATABASE_URL: postgres://shpyrd:shpyrd@127.0.0.1:5432/shpyrd?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -114,7 +127,12 @@ jobs:
           ./bin/shpyrd volumes list --project api --context kind-ci
           ./bin/shpyrd teams create platform --platform-role platform-admin --member ci@example.com --context kind-ci
           ./bin/shpyrd members add hello-world --user dev@example.com --role developer --context kind-ci
-          ./bin/shpyrd members list hello-world --context kind-ci
+          ./bin/shpyrd members list hello-world --context kind-ci | grep -q "dev@example.com"
+          ./bin/shpyrd teams list --context kind-ci | grep -q platform
+          # Teams and grants live in the control-plane database and survive a server restart (RFC-0033).
+          kubectl --context kind-ci -n shpyrd-system rollout restart deployment/shpyrd-server
+          kubectl --context kind-ci -n shpyrd-system rollout status deployment/shpyrd-server --timeout=180s
+          ./bin/shpyrd members list hello-world --context kind-ci | grep -q "dev@example.com"
           ./bin/shpyrd projects destroy api --yes --context kind-ci
       - name: Diagnostics
         if: failure()

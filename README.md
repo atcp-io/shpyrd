@@ -36,7 +36,7 @@ and installs the base stack in dependency-ordered runlevels:
 | rc0 | Prometheus Operator CRDs |
 | rc1 | cert-manager |
 | rc2 | development CA `ClusterIssuer`, trust-manager, ingress-nginx (host ports 80/443), in-cluster registry |
-| rc3 | kpack (Paketo buildpacks builder), kube-prometheus-stack + Grafana |
+| rc3 | kpack (Paketo buildpacks builder), kube-prometheus-stack + Grafana, the control-plane database (PostgreSQL: teams, grants, the workspace) |
 | rc4 | shpyrd server (API, controller, dashboard) |
 
 Everything is reachable under a wildcard domain that resolves to your machine

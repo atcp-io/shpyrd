@@ -17,23 +17,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/authz"
+	"shpyrd/pkg/store"
 )
 
-// MembershipReconciler mirrors Teams and ProjectMembers into Kubernetes RBAC
-// (RFC-0008): per project namespace a RoleBinding per role to the users and
-// groups holding it, and ClusterRoleBindings for the platform roles. The
-// whole mirror is recomputed on any change: it is small and the outcome is
-// deterministic, so no per-object bookkeeping is needed.
+// MembershipReconciler mirrors the workspace's teams and grants (RFC-0033,
+// read from the control-plane store) into Kubernetes RBAC (RFC-0008): per
+// project namespace a RoleBinding per role to the users and groups holding
+// it, and ClusterRoleBindings for the platform roles. The whole mirror is
+// recomputed on any change: it is small and the outcome is deterministic,
+// so no per-object bookkeeping is needed. Changes arrive through Notify
+// (the API after every write), new project namespaces through a watch, and
+// a periodic pass covers the rest.
 type MembershipReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Store     store.Store
+	Workspace string // slug; empty means the implicit workspace
+
+	events chan event.GenericEvent
 }
 
 // ClusterRoles the mirror binds; they ship with the shpyrd component.
@@ -60,18 +70,34 @@ var isProjectNamespace = predicate.NewPredicateFuncs(func(o client.Object) bool 
 	return ok
 })
 
+// Notify asks for a mirror pass now (after teams or grants changed). Safe
+// before SetupWithManager and from any goroutine; coalesces.
+func (r *MembershipReconciler) Notify() {
+	if r.events == nil {
+		return
+	}
+	select {
+	case r.events <- event.GenericEvent{Object: &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "memberships"}}}:
+	default: // a pass is already queued
+	}
+}
+
 func (r *MembershipReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.events = make(chan event.GenericEvent, 1)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("memberships").
-		Watches(&shpyrdv1.Team{}, handler.EnqueueRequestsFromMapFunc(toMirror)).
-		Watches(&shpyrdv1.ProjectMember{}, handler.EnqueueRequestsFromMapFunc(toMirror)).
+		WatchesRawSource(source.Channel(r.events, handler.EnqueueRequestsFromMapFunc(toMirror))).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(toMirror), builder.WithPredicates(isProjectNamespace)).
 		Complete(r)
 }
 
 func (r *MembershipReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	snap, err := authz.Load(ctx, r.Client)
+	ws := r.Workspace
+	if ws == "" {
+		ws = store.DefaultWorkspace
+	}
+	snap, err := authz.Load(ctx, r.Store, ws)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -100,24 +126,25 @@ func (r *MembershipReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 			}
 		}
 	}
-	logger.V(1).Info("rbac mirror reconciled", "namespaces", len(namespaces.Items), "teams", len(snap.Teams), "members", len(snap.Members))
-	// Namespaces created later are caught by the watch; a periodic pass
-	// covers anything else.
-	return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
+	logger.V(1).Info("rbac mirror reconciled", "namespaces", len(namespaces.Items), "teams", len(snap.Teams), "grants", len(snap.Grants))
+	// Writes through the API notify; namespaces created later are caught by
+	// the watch; a periodic pass covers anything else (CLI writes bypassing
+	// the API, manual edits).
+	return ctrl.Result{RequeueAfter: 2 * time.Minute}, nil
 }
 
 // projectSubjects lists the users and groups holding exactly role on project.
 func projectSubjects(snap *authz.Snapshot, project, role string) []rbacv1.Subject {
 	set := subjectSet{}
-	for _, m := range snap.Members {
-		if m.Spec.Project != project || m.Spec.Role != role {
+	for _, g := range snap.Grants {
+		if g.Project != project || g.Role != role {
 			continue
 		}
-		if m.Spec.User != "" {
-			set.user(m.Spec.User)
+		if g.User != "" {
+			set.user(g.User)
 		}
-		if m.Spec.Team != "" {
-			set.team(snap, m.Spec.Team)
+		if g.Team != "" {
+			set.team(snap, g.Team)
 		}
 	}
 	return set.sorted()
@@ -127,7 +154,7 @@ func projectSubjects(snap *authz.Snapshot, project, role string) []rbacv1.Subjec
 func platformSubjects(snap *authz.Snapshot, role string) []rbacv1.Subject {
 	set := subjectSet{}
 	for _, t := range snap.Teams {
-		if t.Spec.PlatformRole == role {
+		if t.PlatformRole == role {
 			set.team(snap, t.Name)
 		}
 	}
@@ -150,10 +177,10 @@ func (s subjectSet) team(snap *authz.Snapshot, name string) {
 		if t.Name != name {
 			continue
 		}
-		for _, m := range t.Spec.Members {
+		for _, m := range t.Members {
 			s.user(m)
 		}
-		for _, g := range t.Spec.Groups {
+		for _, g := range t.Groups {
 			s.group(g)
 		}
 	}

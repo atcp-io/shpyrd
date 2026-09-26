@@ -295,8 +295,8 @@ func (s *Server) createApp(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-		Name:   project.Namespace(slug),
-		Labels: map[string]string{shpyrdv1.LabelApp: slug, shpyrdv1.LabelProject: slug, shpyrdv1.LabelManagedBy: "shpyrd"},
+		Name:   project.NamespaceIn(s.workspace(c), slug),
+		Labels: project.NamespaceLabels(s.workspace(c), slug),
 	}}
 	if err := s.apps.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		abort(c, http.StatusBadGateway, fmt.Errorf("create namespace: %w", err))
@@ -432,6 +432,12 @@ func (s *Server) deleteApp(c *gin.Context) {
 	if err := s.apps.Delete(c.Request.Context(), ns); err != nil && !apierrors.IsNotFound(err) {
 		abort(c, http.StatusBadGateway, err)
 		return
+	}
+	// Grants on a destroyed project go with it (RFC-0033).
+	if err := s.store.DeleteProjectGrants(c.Request.Context(), s.workspace(c), app.Name); err != nil {
+		s.log.Warn("could not remove the project's grants", "project", app.Name, "err", err.Error())
+	} else {
+		s.membershipChanged()
 	}
 	s.audit(c, app.Name, "project.destroy", app.Name, "")
 	c.JSON(http.StatusAccepted, gin.H{"status": "deleting"})

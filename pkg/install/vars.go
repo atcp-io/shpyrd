@@ -70,6 +70,9 @@ const (
 	VarVolumeMinSize      = "SHPYRD_VOLUME_MIN_SIZE"      // provider minimum a request is rounded up to ("" = none)
 	VarSnapshotClass      = "SHPYRD_SNAPSHOT_CLASS"       // VolumeSnapshotClass for `shpyrd volumes snapshot` ("" = snapshots unavailable)
 	VarObjectStorageSize  = "SHPYRD_OBJECT_STORAGE_SIZE"  // volume of the object-storage extension (RFC-0046)
+	// The control-plane database (RFC-0033).
+	VarDatabaseURL        = "SHPYRD_DATABASE_URL"          // managed PostgreSQL; empty runs the control-plane-db component
+	VarControlPlaneDBSize = "SHPYRD_CONTROL_PLANE_DB_SIZE" // its volume
 	// Platform backups (RFC-0037): where the encrypted archives go.
 	VarBackupTarget   = "SHPYRD_BACKUP_TARGET"   // s3://bucket/prefix ("" = component skipped)
 	VarBackupEndpoint = "SHPYRD_BACKUP_ENDPOINT" // S3 endpoint URL ("" = AWS S3 in the region)

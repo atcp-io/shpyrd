@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"flag"
 	"fmt"
@@ -31,6 +32,7 @@ import (
 	"shpyrd/pkg/ext/all"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
+	"shpyrd/pkg/store"
 	"shpyrd/pkg/version"
 	"shpyrd/ui"
 )
@@ -130,8 +132,27 @@ func run(o runOptions, logger *slog.Logger) error {
 		}
 	}
 
+	// The control-plane store (RFC-0033): teams, grants, people, the
+	// workspace. Postgres from SHPYRD_DATABASE_URL (the control-plane-db
+	// component or a managed database); memory only for development.
+	st, err := openStore(logger, k, domain)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	// The RBAC mirror runs in the controller manager; the API pokes it
+	// after every team or grant write.
+	memberships := &controller.MembershipReconciler{Store: st}
+
 	srv, err := api.New(k, api.Options{
-		Addr:           o.addr,
+		Addr:  o.addr,
+		Store: st,
+		MembershipChanged: func() {
+			if o.controller {
+				memberships.Notify()
+			}
+		},
 		UI:             ui.Dist(),
 		Sources:        &api.SourceStore{Dir: o.dataDir, BaseURL: internalURL},
 		Token:          strings.TrimSpace(os.Getenv("SHPYRD_ADMIN_TOKEN")),
@@ -173,7 +194,7 @@ func run(o runOptions, logger *slog.Logger) error {
 	}
 
 	if o.controller {
-		mgr, err := newManager(k, o)
+		mgr, err := newManager(k, o, memberships)
 		if err != nil {
 			return err
 		}
@@ -199,7 +220,49 @@ func run(o runOptions, logger *slog.Logger) error {
 	return g.Wait()
 }
 
-func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
+// openStore connects to the control-plane database, migrates it, and
+// imports the Team and ProjectMember objects of installs that predate it.
+func openStore(logger *slog.Logger, k *kube.Client, domain string) (store.Store, error) {
+	url := strings.TrimSpace(os.Getenv("SHPYRD_DATABASE_URL"))
+	if url == "" {
+		if os.Getenv("SHPYRD_DEV_MEMORY_STORE") == "" {
+			return nil, fmt.Errorf("SHPYRD_DATABASE_URL is not set: the control-plane database is required (the control-plane-db component provides it; SHPYRD_DEV_MEMORY_STORE=1 runs without one for development, losing teams on restart)")
+		}
+		logger.Warn("running with an in-memory control-plane store: teams and grants are lost on restart")
+		return store.NewMemory(), nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	var st *store.Postgres
+	var err error
+	for attempt := 1; ; attempt++ {
+		st, err = store.Open(ctx, url)
+		if err == nil {
+			break
+		}
+		if attempt >= 12 {
+			return nil, err
+		}
+		logger.Info("waiting for the control-plane database", "attempt", attempt, "err", err.Error())
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(5 * time.Second):
+		}
+	}
+	if err := st.Migrate(ctx, domain); err != nil {
+		st.Close()
+		return nil, fmt.Errorf("control-plane database: %w", err)
+	}
+	if teams, grants, err := store.ImportCRDs(ctx, k.Dynamic, st, store.DefaultWorkspace); err != nil {
+		logger.Warn("importing teams and members from Kubernetes objects failed; they stay where they are", "err", err.Error())
+	} else if teams+grants > 0 {
+		logger.Info("imported teams and members into the control-plane database", "teams", teams, "grants", grants)
+	}
+	return st, nil
+}
+
+func newManager(k *kube.Client, o runOptions, memberships *controller.MembershipReconciler) (ctrl.Manager, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, err
@@ -266,7 +329,7 @@ func newManager(k *kube.Client, o runOptions) (ctrl.Manager, error) {
 	if err := volumes.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("volume controller: %w", err)
 	}
-	memberships := &controller.MembershipReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	memberships.Client, memberships.Scheme = mgr.GetClient(), mgr.GetScheme()
 	if err := memberships.SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("membership controller: %w", err)
 	}

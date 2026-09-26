@@ -134,3 +134,10 @@ Audited on 2026-09-25 against the code. What the text promises but the platform 
 - **Not implemented:** Audit export and a cluster-level audit listing; session-id rotation; a general API rate limit (login and token endpoints are limited).
 - **Not implemented:** etcd encryption at rest by the installer (managed clusters decide this) and the backup-exclusion label on config var Secrets.
 - **Superseded:** Cross-project access "through a declared binding": bindings are project-local; projects never reach each other.
+- **Changed (v0.4.0):** teams and grants are stored in the control-plane database (component
+  `control-plane-db`, or `SHPYRD_DATABASE_URL`) rather than as `Team`/`ProjectMember`
+  objects; the API, CLI and roles are unchanged, the RBAC mirror reads the database and
+  runs after every write, and the first start after the upgrade imports the objects and
+  marks them `shpyrd.io/migrated` (they are removed in a later release). The workspace
+  they belong to is RFC-0033's; the dashboard gained a Workspace page (name, people seen
+  at sign-in, teams, accounts).

@@ -9,15 +9,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/authz"
 	"shpyrd/pkg/ext"
 	project_ "shpyrd/pkg/project"
+	"shpyrd/pkg/store"
 )
 
 // Authorization (RFC-0008): every protected route names the action it
@@ -104,8 +101,8 @@ type TeamView struct {
 	PlatformRole string   `json:"platformRole,omitempty"`
 }
 
-func teamView(t shpyrdv1.Team) TeamView {
-	v := TeamView{Name: t.Name, Description: t.Spec.Description, Members: t.Spec.Members, Groups: t.Spec.Groups, PlatformRole: t.Spec.PlatformRole}
+func teamView(t store.Team) TeamView {
+	v := TeamView{Name: t.Name, Description: t.Description, Members: t.Members, Groups: t.Groups, PlatformRole: t.PlatformRole}
 	if v.Members == nil {
 		v.Members = []string{}
 	}
@@ -126,17 +123,40 @@ type TeamRequest struct {
 
 var dnsName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
+// workspace is the slug the request is scoped to: the implicit one until
+// hosts resolve to workspaces (RFC-0033).
+func (s *Server) workspace(*gin.Context) string { return store.DefaultWorkspace }
+
+// storeErr maps store errors to HTTP statuses.
+func storeErr(c *gin.Context, err error, what string) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		abort(c, http.StatusNotFound, fmt.Errorf("%s not found", what))
+	case errors.Is(err, store.ErrConflict):
+		abort(c, http.StatusConflict, fmt.Errorf("this %s already exists", what))
+	default:
+		abort(c, http.StatusBadGateway, err)
+	}
+}
+
+// membershipChanged refreshes the authz cache and the RBAC mirror.
+func (s *Server) membershipChanged() {
+	s.authz.Invalidate()
+	if s.opts.MembershipChanged != nil {
+		s.opts.MembershipChanged()
+	}
+}
+
 func (s *Server) listTeams(c *gin.Context) {
-	var list shpyrdv1.TeamList
-	if err := s.apps.List(c.Request.Context(), &list); err != nil {
+	teams, err := s.store.ListTeams(c.Request.Context(), s.workspace(c))
+	if err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	out := make([]TeamView, 0, len(list.Items))
-	for _, t := range list.Items {
+	out := make([]TeamView, 0, len(teams))
+	for _, t := range teams {
 		out = append(out, teamView(t))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	c.JSON(http.StatusOK, out)
 }
 
@@ -162,26 +182,12 @@ func (s *Server) putTeam(c *gin.Context) {
 		abort(c, http.StatusBadRequest, err)
 		return
 	}
-	team := &shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: name}}
-	ctx := c.Request.Context()
-	err = s.apps.Get(ctx, types.NamespacedName{Name: name}, team)
-	created := apierrors.IsNotFound(err)
-	if err != nil && !created {
-		abort(c, http.StatusBadGateway, err)
-		return
-	}
-	team.Spec = shpyrdv1.TeamSpec{Description: req.Description, Members: members, Groups: compact(req.Groups), PlatformRole: req.PlatformRole}
-	if created {
-		team.Labels = map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}
-		err = s.apps.Create(ctx, team)
-	} else {
-		err = s.apps.Update(ctx, team)
-	}
+	team, created, err := s.store.PutTeam(c.Request.Context(), s.workspace(c), store.Team{Name: name, Description: req.Description, Members: members, Groups: compact(req.Groups), PlatformRole: req.PlatformRole})
 	if err != nil {
-		abort(c, http.StatusBadGateway, err)
+		storeErr(c, err, "team")
 		return
 	}
-	s.authz.Invalidate()
+	s.membershipChanged()
 	s.audit(c, "", "team."+map[bool]string{true: "create", false: "update"}[created], name, "")
 	status := http.StatusOK
 	if created {
@@ -191,22 +197,14 @@ func (s *Server) putTeam(c *gin.Context) {
 }
 
 func (s *Server) deleteTeam(c *gin.Context) {
-	team := &shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: c.Param("name")}}
-	if err := s.apps.Delete(c.Request.Context(), team); err != nil {
-		abortNotFound(c, err, "team")
+	name := c.Param("name")
+	// Grants given to the team go with it.
+	if err := s.store.DeleteTeam(c.Request.Context(), s.workspace(c), name); err != nil {
+		storeErr(c, err, "team")
 		return
 	}
-	// Memberships granted to the team go with it.
-	var members shpyrdv1.ProjectMemberList
-	if err := s.apps.List(c.Request.Context(), &members); err == nil {
-		for i := range members.Items {
-			if members.Items[i].Spec.Team == team.Name {
-				_ = s.apps.Delete(c.Request.Context(), &members.Items[i])
-			}
-		}
-	}
-	s.authz.Invalidate()
-	s.audit(c, "", "team.delete", team.Name, "")
+	s.membershipChanged()
+	s.audit(c, "", "team.delete", name, "")
 	c.Status(http.StatusNoContent)
 }
 
@@ -215,6 +213,7 @@ func (s *Server) deleteTeam(c *gin.Context) {
 // MemberView is one grant on a project.
 type MemberView struct {
 	Name    string `json:"name"`
+	ID      string `json:"id,omitempty"`
 	Project string `json:"project"`
 	Role    string `json:"role"`
 	User    string `json:"user,omitempty"`
@@ -228,11 +227,12 @@ type MemberRequest struct {
 	Team string `json:"team,omitempty"`
 }
 
-func memberView(m shpyrdv1.ProjectMember) MemberView {
-	return MemberView{Name: m.Name, Project: m.Spec.Project, Role: m.Spec.Role, User: m.Spec.User, Team: m.Spec.Team}
+func memberView(g store.Grant) MemberView {
+	return MemberView{Name: MemberName(g.Project, g.Role, g.User, g.Team), ID: g.ID, Project: g.Project, Role: g.Role, User: g.User, Team: g.Team}
 }
 
-// MemberName is the deterministic object name of a grant.
+// MemberName is the deterministic name of a grant, kept from the days
+// grants were objects: the CLI and the dashboard remove grants by it.
 func MemberName(project, role, user, team string) string {
 	subject := "user-" + strings.NewReplacer("@", "-at-", ".", "-", "+", "-plus-", "_", "-").Replace(strings.ToLower(user))
 	if team != "" {
@@ -247,18 +247,30 @@ func MemberName(project, role, user, team string) string {
 
 func (s *Server) listMembers(c *gin.Context) {
 	project := c.Param("slug")
-	var list shpyrdv1.ProjectMemberList
-	if err := s.apps.List(c.Request.Context(), &list); err != nil {
+	grants, err := s.store.ListProjectGrants(c.Request.Context(), s.workspace(c), project)
+	if err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
 	out := []MemberView{}
-	for _, m := range list.Items {
-		if m.Spec.Project == project {
-			out = append(out, memberView(m))
-		}
+	for _, g := range grants {
+		out = append(out, memberView(g))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	c.JSON(http.StatusOK, out)
+}
+
+// listAllMembers lists every grant of the workspace (`shpyrd members list`).
+func (s *Server) listAllMembers(c *gin.Context) {
+	grants, err := s.store.ListGrants(c.Request.Context(), s.workspace(c))
+	if err != nil {
+		abort(c, http.StatusBadGateway, err)
+		return
+	}
+	out := []MemberView{}
+	for _, g := range grants {
+		out = append(out, memberView(g))
+	}
 	c.JSON(http.StatusOK, out)
 }
 
@@ -279,7 +291,6 @@ func (s *Server) addMember(c *gin.Context) {
 		abort(c, http.StatusBadRequest, errors.New("give exactly one of user (email) or team"))
 		return
 	}
-	ctx := c.Request.Context()
 	if req.User != "" {
 		emails, err := normalizeEmails([]string{req.User})
 		if err != nil {
@@ -287,48 +298,44 @@ func (s *Server) addMember(c *gin.Context) {
 			return
 		}
 		req.User = emails[0]
-	} else {
-		team := &shpyrdv1.Team{}
-		if err := s.apps.Get(ctx, types.NamespacedName{Name: req.Team}, team); err != nil {
-			abortNotFound(c, err, "team")
+	}
+	g, err := s.store.AddGrant(c.Request.Context(), s.workspace(c), store.Grant{Project: project, Role: req.Role, User: req.User, Team: req.Team})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			abort(c, http.StatusNotFound, errors.New("team not found"))
 			return
 		}
-	}
-	m := &shpyrdv1.ProjectMember{
-		ObjectMeta: metav1.ObjectMeta{Name: MemberName(project, req.Role, req.User, req.Team), Labels: map[string]string{shpyrdv1.LabelProject: project, shpyrdv1.LabelManagedBy: "shpyrd"}},
-		Spec:       shpyrdv1.ProjectMemberSpec{Project: project, Role: req.Role, User: req.User, Team: req.Team},
-	}
-	if err := s.apps.Create(ctx, m); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			abort(c, http.StatusConflict, errors.New("this grant already exists"))
-		} else {
-			abort(c, http.StatusBadGateway, err)
-		}
+		storeErr(c, err, "grant")
 		return
 	}
-	s.authz.Invalidate()
+	s.membershipChanged()
 	s.audit(c, project, "member.add", firstNonEmpty(req.User, "team "+req.Team), req.Role)
-	c.JSON(http.StatusCreated, memberView(*m))
+	c.JSON(http.StatusCreated, memberView(*g))
 }
 
+// removeMember accepts the grant's id or its deterministic name.
 func (s *Server) removeMember(c *gin.Context) {
-	project := c.Param("slug")
-	m := &shpyrdv1.ProjectMember{}
-	if err := s.apps.Get(c.Request.Context(), types.NamespacedName{Name: c.Param("name")}, m); err != nil {
-		abortNotFound(c, err, "member")
-		return
-	}
-	if m.Spec.Project != project {
-		abort(c, http.StatusNotFound, errors.New("member not found"))
-		return
-	}
-	if err := s.apps.Delete(c.Request.Context(), m); client.IgnoreNotFound(err) != nil {
+	project, key := c.Param("slug"), c.Param("name")
+	ctx := c.Request.Context()
+	grants, err := s.store.ListProjectGrants(ctx, s.workspace(c), project)
+	if err != nil {
 		abort(c, http.StatusBadGateway, err)
 		return
 	}
-	s.authz.Invalidate()
-	s.audit(c, project, "member.remove", firstNonEmpty(m.Spec.User, "team "+m.Spec.Team), m.Spec.Role)
-	c.Status(http.StatusNoContent)
+	for _, g := range grants {
+		if g.ID != key && MemberName(g.Project, g.Role, g.User, g.Team) != key {
+			continue
+		}
+		if err := s.store.DeleteGrant(ctx, s.workspace(c), g.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			abort(c, http.StatusBadGateway, err)
+			return
+		}
+		s.membershipChanged()
+		s.audit(c, project, "member.remove", firstNonEmpty(g.User, "team "+g.Team), g.Role)
+		c.Status(http.StatusNoContent)
+		return
+	}
+	abort(c, http.StatusNotFound, errors.New("member not found"))
 }
 
 func normalizeEmails(in []string) ([]string, error) {

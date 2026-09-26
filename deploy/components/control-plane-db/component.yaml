@@ -1,0 +1,9 @@
+name: control-plane-db
+description: "PostgreSQL for the platform's control plane: the workspace, its people, teams and grants (RFC-0033); replaced by SHPYRD_DATABASE_URL when a managed database is used"
+namespace: shpyrd-system
+hooks: [control-plane-db-credentials]
+kustomize:
+  path: base
+wait:
+  - statefulSet: shpyrd-system/control-plane-db
+timeout: 5m

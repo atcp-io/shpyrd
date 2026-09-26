@@ -1,20 +1,19 @@
 // Package authz decides what an identity may do (RFC-0008): a small static
-// role table, memberships read from Team and ProjectMember objects, and a
-// bootstrap rule so a fresh cluster is usable before anyone defines teams.
+// role table, memberships read from the control-plane store (teams and
+// grants, RFC-0033), and a bootstrap rule so a fresh cluster is usable
+// before anyone defines teams.
 package authz
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/ext"
 	"shpyrd/pkg/project"
+	"shpyrd/pkg/store"
 )
 
 // Action is something the API can do; the role table says who may.
@@ -118,27 +117,27 @@ func platformRank(role string) int {
 
 // Snapshot is the membership state at one point in time.
 type Snapshot struct {
-	Teams   []shpyrdv1.Team
-	Members []shpyrdv1.ProjectMember
+	Teams  []store.Team
+	Grants []store.Grant
 }
 
-// Enforced reports whether any membership object exists.
-func (s *Snapshot) Enforced() bool { return len(s.Teams) > 0 || len(s.Members) > 0 }
+// Enforced reports whether any team or grant exists.
+func (s *Snapshot) Enforced() bool { return len(s.Teams) > 0 || len(s.Grants) > 0 }
 
 // teamsOf returns the teams an identity belongs to (by email or group).
-func (s *Snapshot) teamsOf(id ext.Identity) map[string]*shpyrdv1.Team {
-	out := map[string]*shpyrdv1.Team{}
+func (s *Snapshot) teamsOf(id ext.Identity) map[string]*store.Team {
+	out := map[string]*store.Team{}
 	email := strings.ToLower(id.Email)
 	for i := range s.Teams {
 		t := &s.Teams[i]
 		if email != "" {
-			for _, m := range t.Spec.Members {
+			for _, m := range t.Members {
 				if strings.EqualFold(m, email) {
 					out[t.Name] = t
 				}
 			}
 		}
-		for _, g := range t.Spec.Groups {
+		for _, g := range t.Groups {
 			for _, have := range id.Groups {
 				if g == have {
 					out[t.Name] = t
@@ -165,43 +164,43 @@ func (s *Snapshot) RolesFor(id ext.Identity) Roles {
 	}
 	teams := s.teamsOf(id)
 	for _, t := range teams {
-		if platformRank(t.Spec.PlatformRole) > platformRank(r.Platform) {
-			r.Platform = t.Spec.PlatformRole
+		if platformRank(t.PlatformRole) > platformRank(r.Platform) {
+			r.Platform = t.PlatformRole
 		}
 	}
 	email := strings.ToLower(id.Email)
-	for _, m := range s.Members {
-		match := (m.Spec.User != "" && email != "" && strings.EqualFold(m.Spec.User, email)) ||
-			(m.Spec.Team != "" && teams[m.Spec.Team] != nil)
+	for _, g := range s.Grants {
+		match := (g.User != "" && email != "" && strings.EqualFold(g.User, email)) ||
+			(g.Team != "" && teams[g.Team] != nil)
 		if !match {
 			continue
 		}
-		if rank(m.Spec.Role) > rank(r.Projects[m.Spec.Project]) {
-			r.Projects[m.Spec.Project] = m.Spec.Role
+		if rank(g.Role) > rank(r.Projects[g.Project]) {
+			r.Projects[g.Project] = g.Role
 		}
 	}
 	return r
 }
 
-// Load reads the membership objects.
-func Load(ctx context.Context, c client.Client) (*Snapshot, error) {
-	var teams shpyrdv1.TeamList
-	if err := c.List(ctx, &teams); err != nil {
+// Load reads the teams and grants of the workspace.
+func Load(ctx context.Context, st store.Store, workspace string) (*Snapshot, error) {
+	teams, err := st.ListTeams(ctx, workspace)
+	if err != nil {
 		return nil, err
 	}
-	var members shpyrdv1.ProjectMemberList
-	if err := c.List(ctx, &members); err != nil {
+	grants, err := st.ListGrants(ctx, workspace)
+	if err != nil {
 		return nil, err
 	}
-	sort.Slice(teams.Items, func(i, j int) bool { return teams.Items[i].Name < teams.Items[j].Name })
-	return &Snapshot{Teams: teams.Items, Members: members.Items}, nil
+	return &Snapshot{Teams: teams, Grants: grants}, nil
 }
 
-// Resolver caches snapshots briefly: a request costs two list calls at most
+// Resolver caches snapshots briefly: a request costs two queries at most
 // every TTL.
 type Resolver struct {
-	Client client.Client
-	TTL    time.Duration
+	Store     store.Store
+	Workspace string // slug; empty means the implicit workspace
+	TTL       time.Duration
 
 	mu      sync.Mutex
 	snap    *Snapshot
@@ -224,7 +223,11 @@ func (r *Resolver) Snapshot(ctx context.Context) (*Snapshot, error) {
 	if r.snap != nil && now().Sub(r.fetched) < ttl {
 		return r.snap, nil
 	}
-	snap, err := Load(ctx, r.Client)
+	ws := r.Workspace
+	if ws == "" {
+		ws = store.DefaultWorkspace
+	}
+	snap, err := Load(ctx, r.Store, ws)
 	if err != nil {
 		if r.snap != nil {
 			return r.snap, nil // stale beats down

@@ -47,6 +47,10 @@ vars:
   SHPYRD_STORAGE_CLASS_SHARED: shpyrd-fss
   SHPYRD_VOLUME_MIN_SIZE: 50Gi
   # Object storage (RFC-0046): the MinIO volume of the object-storage extension.
+  # The control-plane database (RFC-0033): PostgreSQL in the cluster unless
+  # SHPYRD_DATABASE_URL names a managed one.
+  SHPYRD_DATABASE_URL: ""
+  SHPYRD_CONTROL_PLANE_DB_SIZE: 50Gi
   SHPYRD_OBJECT_STORAGE_SIZE: 50Gi
   # Platform backups (RFC-0037): nightly encrypted archives of the platform's
   # state to the provider's object storage (contrib/*/terraform prints the
@@ -90,6 +94,6 @@ runlevels:
   - name: rc2
     components: [letsencrypt-issuers, ca-issuers, trust-manager, ingress-nginx, ingress-nginx-internal, registry, registry-nodes, external-dns, dns01-oci]
   - name: rc3
-    components: [kpack, monitoring, dns]
+    components: [kpack, monitoring, dns, control-plane-db]
   - name: rc4
     components: [shpyrd, platform-backup]

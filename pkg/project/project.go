@@ -72,8 +72,39 @@ func ValidateSlug(s string) error {
 	return nil
 }
 
-// Namespace of a project.
-func Namespace(slug string) string { return "app-" + slug }
+// DefaultWorkspace is the slug of the implicit workspace of the open-source
+// platform (RFC-0033); names built from it carry no workspace part.
+const DefaultWorkspace = "default"
+
+// MaxWorkspaceSlugLength keeps app-<workspace>-<project> under 63 characters.
+const MaxWorkspaceSlugLength = 24
+
+// Namespace of a project in the implicit workspace.
+func Namespace(slug string) string { return NamespaceIn(DefaultWorkspace, slug) }
+
+// NamespaceIn is the only place namespace names are built (RFC-0033): the
+// implicit workspace keeps app-<project>; any other gives
+// app-<workspace>-<project>. Names are never parsed back: the labels
+// shpyrd.io/workspace and shpyrd.io/project are authoritative.
+func NamespaceIn(workspace, slug string) string {
+	if workspace == "" || workspace == DefaultWorkspace {
+		return "app-" + slug
+	}
+	return "app-" + workspace + "-" + slug
+}
+
+// NamespaceLabels are the labels every project namespace carries.
+func NamespaceLabels(workspace, slug string) map[string]string {
+	if workspace == "" {
+		workspace = DefaultWorkspace
+	}
+	return map[string]string{
+		shpyrdv1.LabelApp:       slug,
+		shpyrdv1.LabelProject:   slug,
+		shpyrdv1.LabelWorkspace: workspace,
+		shpyrdv1.LabelManagedBy: "shpyrd",
+	}
+}
 
 // FromNamespace maps app-<slug> to <slug>.
 func FromNamespace(ns string) string { return strings.TrimPrefix(ns, "app-") }

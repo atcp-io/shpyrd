@@ -3,18 +3,17 @@ package authz
 import (
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	shpyrdv1 "shpyrd/api/v1alpha1"
 	"shpyrd/pkg/ext"
+	"shpyrd/pkg/store"
 )
 
-func team(name string, members, groups []string, platform string) shpyrdv1.Team {
-	return shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: shpyrdv1.TeamSpec{Members: members, Groups: groups, PlatformRole: platform}}
+func team(name string, members, groups []string, platform string) store.Team {
+	return store.Team{Name: name, Members: members, Groups: groups, PlatformRole: platform}
 }
 
-func member(project, role, user, teamName string) shpyrdv1.ProjectMember {
-	return shpyrdv1.ProjectMember{ObjectMeta: metav1.ObjectMeta{Name: project + "-" + role}, Spec: shpyrdv1.ProjectMemberSpec{Project: project, Role: role, User: user, Team: teamName}}
+func member(project, role, user, teamName string) store.Grant {
+	return store.Grant{Project: project, Role: role, User: user, Team: teamName}
 }
 
 func TestBootstrapAndToken(t *testing.T) {
@@ -23,7 +22,7 @@ func TestBootstrapAndToken(t *testing.T) {
 	if r.Enforced || r.Platform != shpyrdv1.RolePlatformAdmin || !r.Can(ClusterAdmin, "") || !r.Can(ProjectDestroy, "x") {
 		t.Errorf("without memberships everyone is a platform admin: %+v", r)
 	}
-	enforced := &Snapshot{Teams: []shpyrdv1.Team{team("ops", []string{"ops@example.test"}, nil, shpyrdv1.RolePlatformAdmin)}}
+	enforced := &Snapshot{Teams: []store.Team{team("ops", []string{"ops@example.test"}, nil, shpyrdv1.RolePlatformAdmin)}}
 	tok := enforced.RolesFor(ext.Identity{Subject: "admin-token", Provider: "token"})
 	if tok.Platform != shpyrdv1.RolePlatformAdmin || !tok.Enforced {
 		t.Errorf("token must stay platform admin: %+v", tok)
@@ -36,12 +35,12 @@ func TestBootstrapAndToken(t *testing.T) {
 
 func TestRolesResolution(t *testing.T) {
 	snap := &Snapshot{
-		Teams: []shpyrdv1.Team{
+		Teams: []store.Team{
 			team("ops", []string{"Ops@Example.test"}, nil, shpyrdv1.RolePlatformAdmin),
 			team("auditors", nil, []string{"security"}, shpyrdv1.RolePlatformViewer),
 			team("web", []string{"dev@example.test"}, []string{"engineering"}, ""),
 		},
-		Members: []shpyrdv1.ProjectMember{
+		Grants: []store.Grant{
 			member("shop", shpyrdv1.RoleDeveloper, "", "web"),
 			member("shop", shpyrdv1.RoleViewer, "dev@example.test", ""), // weaker grant does not downgrade
 			member("blog", shpyrdv1.RoleAdmin, "dev@example.test", ""),

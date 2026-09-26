@@ -2,26 +2,25 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"net/url"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/api"
 	"shpyrd/pkg/audit"
 	"shpyrd/pkg/install"
+	"shpyrd/pkg/kube"
 )
 
-// Teams and project members (RFC-0008) are cluster-scoped objects the CLI
-// edits directly with the kubeconfig; the dashboard enforces the roles
-// they define, and the controller mirrors them into Kubernetes RBAC.
+// Teams and project roles (RFC-0008) live in the control-plane store
+// (RFC-0033); the CLI talks to the server's API for them, as the dashboard
+// does, so the rules and the audit trail are the same.
 
 func newTeamsCmd(g *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
@@ -45,8 +44,74 @@ first:
 	return cmd
 }
 
-func teamClient(g *globalFlags) (*appClient, error) {
-	return newAppClient(g, nil)
+// teamsAPI is the CLI's view of the teams and members routes.
+type teamsAPI struct {
+	k *kube.Client
+}
+
+func newTeamsAPI(g *globalFlags) (*teamsAPI, error) {
+	k, err := kube.Connect(kube.Options{Kubeconfig: g.kubeconfig, Context: g.kubeCtx})
+	if err != nil {
+		return nil, err
+	}
+	return &teamsAPI{k: k}, nil
+}
+
+func (t *teamsAPI) call(ctx context.Context, method, path string, body any, out any) error {
+	var raw []byte
+	var contentType string
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		raw, contentType = b, "application/json"
+	}
+	resp, err := serverRequest(ctx, t.k, method, path, raw, contentType)
+	if err != nil {
+		return err
+	}
+	if out != nil && len(resp) > 0 {
+		if err := json.Unmarshal(resp, out); err != nil {
+			return fmt.Errorf("unexpected response: %s", truncate(string(resp), 200))
+		}
+	}
+	return nil
+}
+
+func (t *teamsAPI) teams(ctx context.Context) ([]api.TeamView, error) {
+	var out []api.TeamView
+	err := t.call(ctx, "GET", "api/teams", nil, &out)
+	return out, err
+}
+
+func (t *teamsAPI) team(ctx context.Context, name string) (*api.TeamView, error) {
+	teams, err := t.teams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range teams {
+		if teams[i].Name == name {
+			return &teams[i], nil
+		}
+	}
+	return nil, fmt.Errorf("team %q not found (see `shpyrd teams list`)", name)
+}
+
+func (t *teamsAPI) put(ctx context.Context, req api.TeamRequest) (*api.TeamView, error) {
+	var out api.TeamView
+	err := t.call(ctx, "PUT", "api/teams/"+url.PathEscape(req.Name), req, &out)
+	return &out, err
+}
+
+func (t *teamsAPI) members(ctx context.Context, project string) ([]api.MemberView, error) {
+	var out []api.MemberView
+	path := "api/workspace/grants"
+	if project != "" {
+		path = "api/projects/" + url.PathEscape(project) + "/members"
+	}
+	err := t.call(ctx, "GET", path, nil, &out)
+	return out, err
 }
 
 func newTeamsCreateCmd(g *globalFlags) *cobra.Command {
@@ -63,53 +128,41 @@ func newTeamsCreateCmd(g *globalFlags) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
 			name := args[0]
-			if !volumeNameRe.MatchString(name) {
-				return errors.New("team names use lowercase letters, digits and dashes (max 40 chars)")
-			}
-			switch platform {
-			case "", shpyrdv1.RolePlatformAdmin, shpyrdv1.RolePlatformViewer:
-			default:
-				return fmt.Errorf("--platform-role must be %s or %s", shpyrdv1.RolePlatformAdmin, shpyrdv1.RolePlatformViewer)
-			}
 			emails, err := normalizeEmails(members)
 			if err != nil {
 				return err
 			}
-			ac, err := teamClient(g)
+			switch platform {
+			case "", shpyrdv1.RolePlatformAdmin, shpyrdv1.RolePlatformViewer:
+			default:
+				return errors.New("--platform-role must be platform-admin or platform-viewer")
+			}
+			t, err := newTeamsAPI(g)
 			if err != nil {
 				return err
 			}
-			team := &shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: name}}
-			err = ac.c.Get(ctx, types.NamespacedName{Name: name}, team)
-			created := apierrors.IsNotFound(err)
-			if err != nil && !created {
+			before, err := t.teams(ctx)
+			if err != nil {
 				return err
 			}
-			if created {
-				team.Labels = map[string]string{shpyrdv1.LabelManagedBy: "shpyrd"}
-				team.Spec = shpyrdv1.TeamSpec{Description: desc, Members: emails, Groups: groups, PlatformRole: platform}
-				if err := warnFirstEnforcement(ctx, cmd, ac); err != nil {
-					return err
+			existed := false
+			for _, e := range before {
+				if e.Name == name {
+					existed = true
 				}
-				if err := ac.c.Create(ctx, team); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Created team %s%s\n", name, describeTeam(team))
-			} else {
-				team.Spec.Members = mergeStrings(team.Spec.Members, emails)
-				team.Spec.Groups = mergeStrings(team.Spec.Groups, groups)
-				if platform != "" {
-					team.Spec.PlatformRole = platform
-				}
-				if desc != "" {
-					team.Spec.Description = desc
-				}
-				if err := ac.c.Update(ctx, team); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Updated team %s%s\n", name, describeTeam(team))
 			}
-			ac.auditCluster(ctx, "team.create", name, describeTeam(team))
+			team, err := t.put(ctx, api.TeamRequest{Name: name, Description: desc, Members: emails, Groups: groups, PlatformRole: platform})
+			if err != nil {
+				return err
+			}
+			if existed {
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated team %s%s\n", name, describeTeam(team))
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Created team %s%s\n", name, describeTeam(team))
+			if len(before) == 0 {
+				warnFirstEnforcement(cmd, t, ctx)
+			}
 			return nil
 		},
 	}
@@ -120,33 +173,26 @@ func newTeamsCreateCmd(g *globalFlags) *cobra.Command {
 	return cmd
 }
 
-// warnFirstEnforcement reminds the operator that the first membership
-// object switches roles on for everyone.
-func warnFirstEnforcement(ctx context.Context, cmd *cobra.Command, ac *appClient) error {
-	var teams shpyrdv1.TeamList
-	var members shpyrdv1.ProjectMemberList
-	if err := ac.c.List(ctx, &teams); err != nil {
-		return err
+// warnFirstEnforcement tells the operator that roles are now enforced: the
+// first team or grant switches the bootstrap mode off.
+func warnFirstEnforcement(cmd *cobra.Command, t *teamsAPI, ctx context.Context) {
+	grants, err := t.members(ctx, "")
+	if err != nil || len(grants) > 0 {
+		return
 	}
-	if err := ac.c.List(ctx, &members); err != nil {
-		return err
-	}
-	if len(teams.Items) == 0 && len(members.Items) == 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Note: this is the first team. From now on roles are enforced: users without a team or membership see nothing in the dashboard (the admin token keeps full access).")
-	}
-	return nil
+	fmt.Fprintln(cmd.ErrOrStderr(), "Note: this is the first team. From now on roles are enforced: users without a team or membership see nothing in the dashboard (the admin token keeps full access).")
 }
 
-func describeTeam(t *shpyrdv1.Team) string {
+func describeTeam(t *api.TeamView) string {
 	var parts []string
-	if len(t.Spec.Members) > 0 {
-		parts = append(parts, fmt.Sprintf("%d member(s)", len(t.Spec.Members)))
+	if len(t.Members) > 0 {
+		parts = append(parts, "members: "+strings.Join(t.Members, ", "))
 	}
-	if len(t.Spec.Groups) > 0 {
-		parts = append(parts, "groups "+strings.Join(t.Spec.Groups, ", "))
+	if len(t.Groups) > 0 {
+		parts = append(parts, "groups: "+strings.Join(t.Groups, ", "))
 	}
-	if t.Spec.PlatformRole != "" {
-		parts = append(parts, t.Spec.PlatformRole)
+	if t.PlatformRole != "" {
+		parts = append(parts, "platform role: "+t.PlatformRole)
 	}
 	if len(parts) == 0 {
 		return ""
@@ -161,23 +207,22 @@ func newTeamsListCmd(g *globalFlags) *cobra.Command {
 		Short:   "List teams",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
-			ac, err := teamClient(g)
+			t, err := newTeamsAPI(g)
 			if err != nil {
 				return err
 			}
-			var teams shpyrdv1.TeamList
-			if err := ac.c.List(ctx, &teams); err != nil {
+			teams, err := t.teams(ctx)
+			if err != nil {
 				return err
 			}
-			if len(teams.Items) == 0 {
+			if len(teams) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No teams: every signed-in user is a platform admin. Create one with `shpyrd teams create platform --platform-role platform-admin --member you@example.com`.")
 				return nil
 			}
-			sort.Slice(teams.Items, func(i, j int) bool { return teams.Items[i].Name < teams.Items[j].Name })
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tMEMBERS\tGROUPS\tPLATFORM ROLE")
-			for _, t := range teams.Items {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Name, firstNonEmpty(strings.Join(t.Spec.Members, ", "), "-"), firstNonEmpty(strings.Join(t.Spec.Groups, ", "), "-"), firstNonEmpty(t.Spec.PlatformRole, "-"))
+			for _, team := range teams {
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", team.Name, firstNonEmpty(strings.Join(team.Members, ", "), "-"), firstNonEmpty(strings.Join(team.Groups, ", "), "-"), firstNonEmpty(team.PlatformRole, "-"))
 			}
 			return tw.Flush()
 		},
@@ -204,33 +249,31 @@ func newTeamsMembersCmd(g *globalFlags, add bool) *cobra.Command {
 			if len(emails) == 0 && len(groups) == 0 {
 				return errors.New("give emails or --group names")
 			}
-			ac, err := teamClient(g)
+			t, err := newTeamsAPI(g)
 			if err != nil {
 				return err
 			}
-			team := &shpyrdv1.Team{}
-			if err := ac.c.Get(ctx, types.NamespacedName{Name: args[0]}, team); err != nil {
-				if apierrors.IsNotFound(err) {
-					return fmt.Errorf("team %q not found (see `shpyrd teams list`)", args[0])
-				}
+			team, err := t.team(ctx, args[0])
+			if err != nil {
 				return err
 			}
+			req := api.TeamRequest{Name: team.Name, Description: team.Description, Members: team.Members, Groups: team.Groups, PlatformRole: team.PlatformRole}
 			if add {
-				team.Spec.Members = mergeStrings(team.Spec.Members, emails)
-				team.Spec.Groups = mergeStrings(team.Spec.Groups, groups)
+				req.Members = mergeStrings(req.Members, emails)
+				req.Groups = mergeStrings(req.Groups, groups)
 			} else {
-				team.Spec.Members = removeStrings(team.Spec.Members, emails)
-				team.Spec.Groups = removeStrings(team.Spec.Groups, groups)
+				req.Members = removeStrings(req.Members, emails)
+				req.Groups = removeStrings(req.Groups, groups)
 			}
-			if err := ac.c.Update(ctx, team); err != nil {
+			updated, err := t.put(ctx, req)
+			if err != nil {
 				return err
 			}
 			verb := "Added"
 			if !add {
 				verb = "Removed"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s in team %s; members now: %s\n", verb, strings.Join(append(emails, groups...), ", "), team.Name, firstNonEmpty(strings.Join(team.Spec.Members, ", "), "-"))
-			ac.auditCluster(ctx, "team.update", team.Name, verb+" "+strings.Join(append(emails, groups...), ", "))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s in team %s; members now: %s\n", verb, strings.Join(append(emails, groups...), ", "), updated.Name, firstNonEmpty(strings.Join(updated.Members, ", "), "-"))
 			return nil
 		},
 	}
@@ -250,27 +293,14 @@ func newTeamsDeleteCmd(g *globalFlags) *cobra.Command {
 			if !yes {
 				return fmt.Errorf("this deletes team %q and every project role granted to it; re-run with --yes", args[0])
 			}
-			ac, err := teamClient(g)
+			t, err := newTeamsAPI(g)
 			if err != nil {
 				return err
 			}
-			team := &shpyrdv1.Team{ObjectMeta: metav1.ObjectMeta{Name: args[0]}}
-			if err := ac.c.Delete(ctx, team); err != nil {
-				if apierrors.IsNotFound(err) {
-					return fmt.Errorf("team %q not found", args[0])
-				}
+			if err := t.call(ctx, "DELETE", "api/teams/"+url.PathEscape(args[0]), nil, nil); err != nil {
 				return err
 			}
-			var members shpyrdv1.ProjectMemberList
-			if err := ac.c.List(ctx, &members); err == nil {
-				for i := range members.Items {
-					if members.Items[i].Spec.Team == args[0] {
-						_ = ac.c.Delete(ctx, &members.Items[i])
-					}
-				}
-			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleted team %s\n", args[0])
-			ac.auditCluster(ctx, "team.delete", args[0], "")
 			return nil
 		},
 	}
@@ -285,12 +315,12 @@ func newMembersCmd(g *globalFlags) *cobra.Command {
 		Use:     "members",
 		Aliases: []string{"member"},
 		Short:   "Who has which role on a project",
-		Long: `Roles per project: viewer (see everything, change nothing), developer
-(deploy, roll back, scale, resize, config vars, shell) and admin (also
-members, resources, destroy). Grant them to users or teams.
+		Long: `Project roles (RFC-0008): viewer (read), developer (deploy, scale, config
+vars, shells) and admin (everything, including members and destroy). A role is
+granted to a user by email or to a team.
 
   shpyrd members add shop --user ada@example.com --role developer
-  shpyrd members add shop --team web --role viewer
+  shpyrd members add shop --team web --role developer
   shpyrd members list shop
   shpyrd members remove shop --user ada@example.com`,
 	}
@@ -298,24 +328,8 @@ members, resources, destroy). Grant them to users or teams.
 	return cmd
 }
 
-func memberName(project, role, user, team string) string {
-	subject := "user-" + strings.NewReplacer("@", "-at-", ".", "-", "+", "-plus-", "_", "-").Replace(strings.ToLower(user))
-	if team != "" {
-		subject = "team-" + team
-	}
-	name := project + "-" + role + "-" + subject
-	if len(name) > 63 {
-		name = name[:63]
-	}
-	return strings.TrimRight(name, "-")
-}
-
 func newMembersAddCmd(g *globalFlags) *cobra.Command {
-	var (
-		user string
-		team string
-		role string
-	)
+	var user, team, role string
 	cmd := &cobra.Command{
 		Use:   "add <project> (--user <email> | --team <name>) --role viewer|developer|admin",
 		Short: "Grant a role on a project",
@@ -331,36 +345,19 @@ func newMembersAddCmd(g *globalFlags) *cobra.Command {
 			if (user == "") == (team == "") {
 				return errors.New("give exactly one of --user or --team")
 			}
-			ac, err := teamClient(g)
-			if err != nil {
-				return err
-			}
-			if _, err := ac.getApp(ctx, project); err != nil {
-				return err
-			}
 			if user != "" {
 				emails, err := normalizeEmails([]string{user})
 				if err != nil {
 					return err
 				}
 				user = emails[0]
-			} else if err := ac.c.Get(ctx, types.NamespacedName{Name: team}, &shpyrdv1.Team{}); err != nil {
-				if apierrors.IsNotFound(err) {
-					return fmt.Errorf("team %q not found (see `shpyrd teams list`)", team)
-				}
+			}
+			t, err := newTeamsAPI(g)
+			if err != nil {
 				return err
 			}
-			if err := warnFirstEnforcement(ctx, cmd, ac); err != nil {
-				return err
-			}
-			m := &shpyrdv1.ProjectMember{
-				ObjectMeta: metav1.ObjectMeta{Name: memberName(project, role, user, team), Labels: map[string]string{shpyrdv1.LabelProject: project, shpyrdv1.LabelManagedBy: "shpyrd"}},
-				Spec:       shpyrdv1.ProjectMemberSpec{Project: project, Role: role, User: user, Team: team},
-			}
-			if err := ac.c.Create(ctx, m); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					return errors.New("this grant already exists")
-				}
+			var out api.MemberView
+			if err := t.call(ctx, "POST", "api/projects/"+url.PathEscape(project)+"/members", api.MemberRequest{Role: role, User: user, Team: team}, &out); err != nil {
 				return err
 			}
 			who := user
@@ -368,14 +365,12 @@ func newMembersAddCmd(g *globalFlags) *cobra.Command {
 				who = "team " + team
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s is now %s on project %s\n", who, role, project)
-			ac.audit(ctx, project, "member.add", who, role)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&user, "user", "", "user email")
 	cmd.Flags().StringVar(&team, "team", "", "team name")
 	cmd.Flags().StringVar(&role, "role", "", "viewer, developer or admin (required)")
-	_ = cmd.MarkFlagRequired("role")
 	return cmd
 }
 
@@ -387,34 +382,26 @@ func newMembersListCmd(g *globalFlags) *cobra.Command {
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := signalContext()
-			ac, err := teamClient(g)
+			t, err := newTeamsAPI(g)
 			if err != nil {
 				return err
 			}
-			var list shpyrdv1.ProjectMemberList
-			if err := ac.c.List(ctx, &list); err != nil {
-				return err
+			project := ""
+			if len(args) == 1 {
+				project = args[0]
 			}
-			var rows []shpyrdv1.ProjectMember
-			for _, m := range list.Items {
-				if len(args) == 0 || m.Spec.Project == args[0] {
-					rows = append(rows, m)
-				}
+			rows, err := t.members(ctx, project)
+			if err != nil {
+				return err
 			}
 			if len(rows) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No project roles granted. Add one with `shpyrd members add <project> --user <email> --role developer`.")
 				return nil
 			}
-			sort.Slice(rows, func(i, j int) bool {
-				if rows[i].Spec.Project != rows[j].Spec.Project {
-					return rows[i].Spec.Project < rows[j].Spec.Project
-				}
-				return rows[i].Name < rows[j].Name
-			})
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "PROJECT\tROLE\tUSER\tTEAM")
 			for _, m := range rows {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Spec.Project, m.Spec.Role, firstNonEmpty(m.Spec.User, "-"), firstNonEmpty(m.Spec.Team, "-"))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Project, m.Role, firstNonEmpty(m.User, "-"), firstNonEmpty(m.Team, "-"))
 			}
 			return tw.Flush()
 		},
@@ -422,10 +409,7 @@ func newMembersListCmd(g *globalFlags) *cobra.Command {
 }
 
 func newMembersRemoveCmd(g *globalFlags) *cobra.Command {
-	var (
-		user string
-		team string
-	)
+	var user, team string
 	cmd := &cobra.Command{
 		Use:     "remove <project> (--user <email> | --team <name>)",
 		Aliases: []string{"rm"},
@@ -436,32 +420,28 @@ func newMembersRemoveCmd(g *globalFlags) *cobra.Command {
 			if (user == "") == (team == "") {
 				return errors.New("give exactly one of --user or --team")
 			}
-			ac, err := teamClient(g)
+			user = strings.ToLower(strings.TrimSpace(user))
+			t, err := newTeamsAPI(g)
 			if err != nil {
 				return err
 			}
-			var list shpyrdv1.ProjectMemberList
-			if err := ac.c.List(ctx, &list); err != nil {
+			rows, err := t.members(ctx, args[0])
+			if err != nil {
 				return err
 			}
 			removed := 0
-			for i := range list.Items {
-				m := &list.Items[i]
-				if m.Spec.Project != args[0] {
-					continue
-				}
-				if (user != "" && strings.EqualFold(m.Spec.User, user)) || (team != "" && m.Spec.Team == team) {
-					if err := ac.c.Delete(ctx, m); client.IgnoreNotFound(err) != nil {
+			for _, m := range rows {
+				if (user != "" && m.User == user) || (team != "" && m.Team == team) {
+					if err := t.call(ctx, "DELETE", "api/projects/"+url.PathEscape(args[0])+"/members/"+url.PathEscape(m.Name), nil, nil); err != nil {
 						return err
 					}
 					removed++
 				}
 			}
 			if removed == 0 {
-				return fmt.Errorf("no role of %s on project %s", firstNonEmpty(user, "team "+team), args[0])
+				return fmt.Errorf("no roles of %s on project %s", firstNonEmpty(user, "team "+team), args[0])
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed %d role(s) of %s on project %s\n", removed, firstNonEmpty(user, "team "+team), args[0])
-			ac.audit(ctx, args[0], "member.remove", firstNonEmpty(user, "team "+team), "")
 			return nil
 		},
 	}
@@ -470,23 +450,21 @@ func newMembersRemoveCmd(g *globalFlags) *cobra.Command {
 	return cmd
 }
 
-// ---- helpers ----------------------------------------------------------------
-
 func normalizeEmails(in []string) ([]string, error) {
-	var out []string
+	out := make([]string, 0, len(in))
 	seen := map[string]bool{}
-	for _, raw := range in {
-		for _, e := range strings.Split(raw, ",") {
-			e = strings.ToLower(strings.TrimSpace(e))
-			if e == "" {
+	for _, e := range in {
+		for _, part := range strings.Split(e, ",") {
+			part = strings.ToLower(strings.TrimSpace(part))
+			if part == "" {
 				continue
 			}
-			if !strings.Contains(e, "@") {
-				return nil, fmt.Errorf("%q is not an email address", e)
+			if !strings.Contains(part, "@") {
+				return nil, fmt.Errorf("%q is not an email address", part)
 			}
-			if !seen[e] {
-				seen[e] = true
-				out = append(out, e)
+			if !seen[part] {
+				seen[part] = true
+				out = append(out, part)
 			}
 		}
 	}
@@ -495,9 +473,9 @@ func normalizeEmails(in []string) ([]string, error) {
 
 func mergeStrings(have, add []string) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := make([]string, 0, len(have)+len(add))
 	for _, s := range append(append([]string{}, have...), add...) {
-		if s != "" && !seen[s] {
+		if !seen[s] {
 			seen[s] = true
 			out = append(out, s)
 		}
@@ -508,11 +486,11 @@ func mergeStrings(have, add []string) []string {
 func removeStrings(have, drop []string) []string {
 	gone := map[string]bool{}
 	for _, s := range drop {
-		gone[strings.ToLower(s)] = true
+		gone[s] = true
 	}
-	var out []string
+	out := make([]string, 0, len(have))
 	for _, s := range have {
-		if !gone[strings.ToLower(s)] {
+		if !gone[s] {
 			out = append(out, s)
 		}
 	}

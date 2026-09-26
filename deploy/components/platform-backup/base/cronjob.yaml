@@ -23,6 +23,7 @@ spec:
           labels:
             app.kubernetes.io/name: platform-backup
             app.kubernetes.io/part-of: shpyrd
+            shpyrd.io/control-plane-client: "true"
         spec:
           serviceAccountName: shpyrd-server
           restartPolicy: Never
@@ -42,6 +43,11 @@ spec:
                   value: http://shpyrd-server.shpyrd-system.svc
                 - name: SHPYRD_BACKUP_KEEP
                   value: "${SHPYRD_BACKUP_KEEP}"
+                - name: SHPYRD_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: control-plane-db
+                      key: url
                 - name: SHPYRD_BACKUP_PASSPHRASE
                   valueFrom:
                     secretKeyRef:

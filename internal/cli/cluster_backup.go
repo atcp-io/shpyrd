@@ -20,6 +20,7 @@ import (
 	"shpyrd/pkg/backup"
 	"shpyrd/pkg/install"
 	"shpyrd/pkg/kube"
+	"shpyrd/pkg/store"
 )
 
 // Platform backups (RFC-0037): `cluster backup` runs one now, `cluster
@@ -327,6 +328,18 @@ func runRestore(ctx context.Context, cmd *cobra.Command, g *globalFlags, f *rest
 		Projects: f.projects, System: !f.noSystem, Overwrite: f.overwrite,
 		UploadSource: func(ctx context.Context, sha string, data []byte) error {
 			_, err := serverRequest(ctx, k, "POST", "api/sources", data, "application/gzip")
+			return err
+		},
+		ImportStore: func(ctx context.Context, dump *store.Dump, overwrite bool) error {
+			body, err := json.Marshal(dump)
+			if err != nil {
+				return err
+			}
+			path := "api/workspace/import"
+			if overwrite {
+				path += "?overwrite=true"
+			}
+			_, err = serverRequest(ctx, k, "POST", path, body, "application/json")
 			return err
 		},
 		Log: func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) },

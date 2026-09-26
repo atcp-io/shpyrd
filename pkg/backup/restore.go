@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	shpyrdv1 "shpyrd/api/v1alpha1"
+	"shpyrd/pkg/store"
 )
 
 // Restorer puts an archive back into a cluster that already runs the
@@ -31,6 +33,9 @@ type Restorer struct {
 	// UploadSource stores a source archive on the server (POST
 	// /api/sources); nil skips sources.
 	UploadSource func(ctx context.Context, sha string, data []byte) error
+	// ImportStore puts the control-plane dump back (POST
+	// /api/workspace/import); nil skips teams and grants.
+	ImportStore func(ctx context.Context, dump *store.Dump, overwrite bool) error
 	// Log receives one line per step.
 	Log func(format string, args ...any)
 }
@@ -122,10 +127,55 @@ func (r *Restorer) restoreSystem(ctx context.Context, res *Result) error {
 		}
 	}
 	for _, path := range r.Archive.Paths("cluster/") {
+		if path == "cluster/store.json" || path == "cluster/teams.yaml" || path == "cluster/projectmembers.yaml" {
+			continue // the store, below
+		}
 		if err := r.applyFile(ctx, path, true, res); err != nil {
 			return err
 		}
 	}
+	return r.restoreStore(ctx, res)
+}
+
+// restoreStore imports teams and grants: from cluster/store.json, or, for
+// archives made before the control-plane store, from the Team and
+// ProjectMember objects they carry.
+func (r *Restorer) restoreStore(ctx context.Context, res *Result) error {
+	if r.ImportStore == nil {
+		return nil
+	}
+	var dump store.Dump
+	if raw, ok := r.Archive.Files["cluster/store.json"]; ok {
+		if err := json.Unmarshal(raw, &dump); err != nil {
+			return fmt.Errorf("cluster/store.json: %w", err)
+		}
+	} else {
+		teams, _ := r.Archive.Objects("cluster/teams.yaml")
+		for _, u := range teams {
+			members, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "members")
+			groups, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "groups")
+			desc, _, _ := unstructured.NestedString(u.Object, "spec", "description")
+			role, _, _ := unstructured.NestedString(u.Object, "spec", "platformRole")
+			dump.Teams = append(dump.Teams, store.Team{Name: u.GetName(), Description: desc, Members: members, Groups: groups, PlatformRole: role})
+		}
+		members, _ := r.Archive.Objects("cluster/projectmembers.yaml")
+		for _, u := range members {
+			project, _, _ := unstructured.NestedString(u.Object, "spec", "project")
+			role, _, _ := unstructured.NestedString(u.Object, "spec", "role")
+			user, _, _ := unstructured.NestedString(u.Object, "spec", "user")
+			team, _, _ := unstructured.NestedString(u.Object, "spec", "team")
+			dump.Grants = append(dump.Grants, store.Grant{Project: project, Role: role, User: user, Team: team})
+		}
+		dump.Version = store.DumpVersion
+	}
+	if len(dump.Teams) == 0 && len(dump.Grants) == 0 && len(dump.Identities) == 0 {
+		return nil
+	}
+	if err := r.ImportStore(ctx, &dump, r.Overwrite); err != nil {
+		return fmt.Errorf("teams and grants: %w", err)
+	}
+	res.Created += len(dump.Teams) + len(dump.Grants)
+	r.Log("  teams %d, grants %d, people %d restored", len(dump.Teams), len(dump.Grants), len(dump.Identities))
 	return nil
 }
 

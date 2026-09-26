@@ -32,6 +32,11 @@ func runBackup(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	st, err := openStore(logger, k, os.Getenv(install.VarDomain))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
 	passphrase := os.Getenv("SHPYRD_BACKUP_PASSPHRASE")
 	if passphrase == "" {
 		return fmt.Errorf("SHPYRD_BACKUP_PASSPHRASE is not set")
@@ -47,6 +52,7 @@ func runBackup(logger *slog.Logger) error {
 		Kube: k.Kube, Dynamic: k.Dynamic, SystemNamespace: systemNS,
 		SourceBase: envOr("SHPYRD_INTERNAL_URL", "http://shpyrd-server."+systemNS+".svc"),
 		Domain:     domain, Cluster: firstNonEmptyStr(cluster, "shpyrd"), Profile: profile, Version: version.Version,
+		Store: st,
 	}
 
 	var enc bytes.Buffer

@@ -58,12 +58,8 @@ hostname <slug>.<cluster domain>. Pass --slug to choose it.`,
 				return err
 			}
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-				Name: appNamespace(slug),
-				Labels: map[string]string{
-					shpyrdv1.LabelApp:       slug,
-					shpyrdv1.LabelProject:   slug,
-					shpyrdv1.LabelManagedBy: "shpyrd",
-				},
+				Name:   appNamespace(slug),
+				Labels: project.NamespaceLabels(project.DefaultWorkspace, slug),
 			}}
 			if err := ac.c.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 				return fmt.Errorf("create namespace: %w", err)

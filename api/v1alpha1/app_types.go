@@ -17,6 +17,9 @@ const (
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	// LabelProject marks the namespace of a project (value: project slug).
 	LabelProject = "shpyrd.io/project"
+	// LabelWorkspace names the workspace a project belongs to (RFC-0033);
+	// the open-source platform has one, "default".
+	LabelWorkspace = "shpyrd.io/workspace"
 	// AnnotationDisplayName on an App holds the human name of the project
 	// when it differs from the slug (RFC-0011).
 	AnnotationDisplayName = "shpyrd.io/display-name"

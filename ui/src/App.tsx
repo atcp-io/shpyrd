@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToken } from "@/lib/auth";
@@ -7,8 +7,7 @@ import { LoginPage } from "@/pages/login";
 import { AppsPage } from "@/pages/apps";
 import { AppDetailPage } from "@/pages/app-detail";
 import { ClusterPage } from "@/pages/cluster";
-import { UsersPage } from "@/pages/users";
-import { TeamsPage } from "@/pages/teams";
+import { WorkspacePage } from "@/pages/workspace";
 
 export default function App() {
   const token = useToken();
@@ -41,8 +40,16 @@ export default function App() {
           <Route path="/" element={<AppsPage />} />
           <Route path="/projects/:slug" element={<AppDetailPage />} />
           <Route path="/cluster" element={<ClusterPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/teams" element={<TeamsPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/workspace/:tab" element={<WorkspacePage />} />
+          <Route
+            path="/users"
+            element={<Navigate to="/workspace/users" replace />}
+          />
+          <Route
+            path="/teams"
+            element={<Navigate to="/workspace/teams" replace />}
+          />
           <Route path="*" element={<AppsPage />} />
         </Route>
       </Routes>

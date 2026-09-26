@@ -43,14 +43,15 @@ const (
 const AdminTokenSecretName = "shpyrd-admin-token"
 
 var hooks = map[string]Hook{
-	"local-ca":                   localCAHook,
-	"admin-token":                adminTokenHook,
-	"default-sizes":              defaultSizesHook,
-	"oidc-client":                oidcClientHook,
-	"registry-credentials":       registryCredentialsHook,
-	"object-storage-credentials": objectStorageCredentialsHook,
-	"backup-target":              backupTargetHook,
-	"dns-credentials":            dnsCredentialsHook,
+	"local-ca":                     localCAHook,
+	"admin-token":                  adminTokenHook,
+	"default-sizes":                defaultSizesHook,
+	"oidc-client":                  oidcClientHook,
+	"registry-credentials":         registryCredentialsHook,
+	"object-storage-credentials":   objectStorageCredentialsHook,
+	"backup-target":                backupTargetHook,
+	"control-plane-db-credentials": controlPlaneDBHook,
+	"dns-credentials":              dnsCredentialsHook,
 }
 
 // RegisterHook lets extensions add hooks their components reference.
@@ -594,5 +595,43 @@ func backupTargetHook(ctx context.Context, e *Engine, c *Component) error {
 		how = "an access key"
 	}
 	e.rep.Step(c.Name, "backups go to "+target+" ("+how+")")
+	return nil
+}
+
+// The control-plane database (RFC-0033): Secret control-plane-db holds the
+// password of the in-cluster PostgreSQL and the URL the server dials. With
+// SHPYRD_DATABASE_URL set (a managed database) the URL is that one and the
+// in-cluster component is skipped; the hook runs from both components so
+// the Secret exists whichever is installed.
+const ControlPlaneDBSecretName = "control-plane-db"
+
+func controlPlaneDBHook(ctx context.Context, e *Engine, c *Component) error {
+	secrets := e.kube.Kube.CoreV1().Secrets(c.Namespace)
+	existing, err := secrets.Get(ctx, ControlPlaneDBSecretName, metav1.GetOptions{})
+	if external := e.vars[VarDatabaseURL]; external != "" {
+		if err == nil && string(existing.Data["url"]) == external {
+			e.rep.Step(c.Name, "control-plane database: the configured SHPYRD_DATABASE_URL")
+			return nil
+		}
+		if err := e.applyOpaqueSecret(ctx, c.Namespace, ControlPlaneDBSecretName, map[string]string{"url": external}); err != nil {
+			return err
+		}
+		e.rep.Step(c.Name, "control-plane database: using the configured SHPYRD_DATABASE_URL")
+		return nil
+	}
+	if err == nil && len(existing.Data["password"]) > 0 {
+		e.rep.Step(c.Name, "keeping the control-plane database credentials")
+		return nil
+	}
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return err
+	}
+	password := hex.EncodeToString(raw)
+	url := "postgres://shpyrd:" + password + "@control-plane-db." + c.Namespace + ".svc:5432/shpyrd?sslmode=disable"
+	if err := e.applyOpaqueSecret(ctx, c.Namespace, ControlPlaneDBSecretName, map[string]string{"password": password, "url": url}); err != nil {
+		return err
+	}
+	e.rep.Step(c.Name, "generated the control-plane database credentials (Secret "+ControlPlaneDBSecretName+")")
 	return nil
 }

@@ -1,0 +1,19 @@
+# Only the platform's server (and its backup job, which runs under the same
+# service account labels) talks to the control-plane database.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-plane-db
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: control-plane-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: shpyrd
+              shpyrd.io/control-plane-client: "true"
+      ports:
+        - port: 5432

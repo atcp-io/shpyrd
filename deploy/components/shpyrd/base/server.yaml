@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: shpyrd-server
+        app.kubernetes.io/part-of: shpyrd
+        shpyrd.io/control-plane-client: "true"
     spec:
       serviceAccountName: shpyrd-server
       securityContext:
@@ -116,6 +118,11 @@ spec:
               value: "1"
             - name: SHPYRD_PROMETHEUS_URL
               value: http://monitoring-prometheus.monitoring.svc:9090
+            - name: SHPYRD_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: control-plane-db
+                  key: url
             - name: SHPYRD_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -305,16 +306,16 @@ func checkTokenCanBeDisabled(ctx context.Context, k *kube.Client) error {
 	if !hasProvider {
 		return errors.New("no login provider is enabled: enable one first (`shpyrd extensions enable auth-local`) or nobody could sign in")
 	}
-	c, err := k.ControllerClient()
+	raw, err := serverRequest(ctx, k, "GET", "api/teams", nil, "")
 	if err != nil {
 		return err
 	}
-	var teams shpyrdv1.TeamList
-	if err := c.List(ctx, &teams); err != nil {
-		return err
+	var teams []api.TeamView
+	if err := json.Unmarshal(raw, &teams); err != nil {
+		return fmt.Errorf("unexpected response: %s", truncate(string(raw), 200))
 	}
-	for _, t := range teams.Items {
-		if t.Spec.PlatformRole == shpyrdv1.RolePlatformAdmin && (len(t.Spec.Members) > 0 || len(t.Spec.Groups) > 0) {
+	for _, t := range teams {
+		if t.PlatformRole == shpyrdv1.RolePlatformAdmin && (len(t.Members) > 0 || len(t.Groups) > 0) {
 			return nil
 		}
 	}
@@ -810,6 +811,10 @@ func conditionalComponents(vars map[string]string, prof *install.Profile) []stri
 	}
 	if effectiveVar(vars, prof, install.VarEFSID) == "" && prof.HasComponent("storage-efs") {
 		skip = append(skip, "storage-efs")
+	}
+	// A managed database replaces the in-cluster one (RFC-0033).
+	if vars[install.VarDatabaseURL] != "" && prof.HasComponent("control-plane-db") {
+		skip = append(skip, "control-plane-db")
 	}
 	// Platform backups need somewhere to go (RFC-0037).
 	if effectiveVar(vars, prof, install.VarBackupTarget) == "" && prof.HasComponent("platform-backup") {
