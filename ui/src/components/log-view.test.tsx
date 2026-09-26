@@ -63,6 +63,36 @@ describe("AppLogView level labels", () => {
   });
 });
 
+describe("AppLogView on lines that never named a level", () => {
+  const plain = (m: string): LogLine[] => [
+    { t: "2026-09-25T10:00:00Z", i: "web.1", p: "web", m },
+  ];
+  const show = (m: string) =>
+    decode(
+      renderToStaticMarkup(
+        <AppLogView lines={plain(m)} follow={false} filter="" />,
+      ),
+    );
+
+  it("labels one that reads as an error, so the column is not blank", () => {
+    const html = show("panic: runtime error: index out of range [3]");
+    expect(html).toContain(">error<");
+  });
+
+  it("labels one that reads as a warning", () => {
+    expect(show("WARN disk almost full")).toContain(">warn<");
+  });
+
+  it("says the label was read off the text, not declared", () => {
+    expect(show("panic: runtime error")).toContain("read from the text");
+  });
+
+  it("leaves ordinary output unlabelled: INFO on every line is noise", () => {
+    const html = show("Listening on :8080");
+    expect(html).not.toContain(">info<");
+  });
+});
+
 describe("LogFields", () => {
   const fields = parseLogLine(
     '{"msg":"job lost","job":{"id":"j-12","queue":"mail"},"tags":["a","b"],"n":2}',

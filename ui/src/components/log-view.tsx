@@ -40,6 +40,13 @@ const levelColor: Record<LogLevel, string> = {
   debug: "text-zinc-600",
 };
 
+/** Whether a line shows a level. A line that declared one always does; a
+ * plain line only when the text reads as a problem, since labelling every
+ * line of ordinary output INFO is noise, not information. */
+function labelled(p: ParsedLine): boolean {
+  return p.levelText !== "" || p.level === "error" || p.level === "warn";
+}
+
 /** Identifies a line across the trimming the stream does as it grows. */
 function lineKey(l: LogLine): string {
   return (l.t ?? "") + "|" + l.i + "|" + l.m;
@@ -263,12 +270,22 @@ export function AppLogView({
                   ) : (
                     <span className="size-3 shrink-0" aria-hidden="true" />
                   )}
-                  {!raw && p.levelText && (
+                  {!raw && labelled(p) && (
                     // The bucket, so the column keeps one width whatever
                     // the application spelled; the spelling is in the title.
+                    // A level read off a plain line is dimmed, because
+                    // nothing declared it.
                     <span
-                      title={p.levelText}
-                      className={cn("shrink-0 uppercase", levelColor[p.level])}
+                      title={
+                        p.levelText === ""
+                          ? "read from the text of the line"
+                          : p.levelText
+                      }
+                      className={cn(
+                        "shrink-0 uppercase",
+                        levelColor[p.level],
+                        p.levelText === "" && "opacity-60",
+                      )}
                     >
                       {p.level}
                     </span>
