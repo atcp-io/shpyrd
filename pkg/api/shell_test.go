@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,6 +66,70 @@ func TestListInstances(t *testing.T) {
 	}
 	if got[2].Process != "worker" {
 		t.Errorf("process = %q, want worker", got[2].Process)
+	}
+}
+
+// buildPod is shaped like an image-build pod (RFC-0024's builder): it carries
+// the app label but, unlike appPod, no process label at all. That is exactly
+// what "process!=run" alone would still match, since a "!=" selector also
+// matches objects missing the key.
+func buildPod(app, name string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "app-" + app,
+			Labels:    map[string]string{shpyrdv1.LabelApp: app, shpyrdv1.LabelBuild: name},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+}
+
+func TestListInstancesExcludesBuildPods(t *testing.T) {
+	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
+	s, _ := newTestServer(t, nil, []client.Object{blog},
+		appPod("blog", "web", "blog-web-aaa", corev1.PodRunning, true),
+		buildPod("blog", "blog-build-3-xyz"),
+	)
+
+	rec := do(t, s, "GET", "/api/projects/blog/instances", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("instances: %d %s", rec.Code, rec.Body.String())
+	}
+	var got []Instance
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	// Build pods run with unconfined seccomp/AppArmor for rootless
+	// BuildKit; offering one a shell would be worse than the run-pod case.
+	if len(got) != 1 || got[0].Name != "web.1" || got[0].Pod != "blog-web-aaa" {
+		t.Fatalf("instances = %+v, want just web.1/blog-web-aaa", got)
+	}
+}
+
+func TestListInstancesNamesAgreeDuringRollout(t *testing.T) {
+	blog := &shpyrdv1.App{ObjectMeta: metav1.ObjectMeta{Name: "blog", Namespace: "app-blog"}}
+	terminating := appPod("blog", "web", "blog-web-old", corev1.PodRunning, true)
+	terminating.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
+	deletedAt := metav1.Now()
+	terminating.DeletionTimestamp = &deletedAt
+	surviving := appPod("blog", "web", "blog-web-new", corev1.PodRunning, true)
+	surviving.CreationTimestamp = metav1.NewTime(time.Now())
+
+	s, _ := newTestServer(t, nil, []client.Object{blog}, terminating, surviving)
+
+	rec := do(t, s, "GET", "/api/projects/blog/instances", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("instances: %d %s", rec.Code, rec.Body.String())
+	}
+	var got []Instance
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	// The older, terminating pod held web.1 (it sorts first by creation
+	// time); the log viewer names it that way too, so the surviving pod
+	// must stay web.2 here rather than being renumbered down to web.1.
+	if len(got) != 1 || got[0].Name != "web.2" || got[0].Pod != "blog-web-new" {
+		t.Fatalf("instances = %+v, want just web.2/blog-web-new", got)
 	}
 }
 

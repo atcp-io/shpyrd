@@ -50,25 +50,29 @@ func (s *Server) listInstances(c *gin.Context) {
 }
 
 // instancesOf lists a project's shellable instances. Names are computed over
-// the filtered set, which is safe because InstanceNames numbers within a
-// process: dropping run pods cannot renumber web.1.
+// every pod the selector returns, not just the running ones, because
+// InstanceNames must see the same set the log viewer sees (pkg/api/logs.go)
+// to agree with it: during a rolling restart an older pod can be terminating
+// (excluded below) while still holding a lower ordinal, so a survivor can
+// legitimately show up as e.g. web.2 with no web.1 listed.
 func (s *Server) instancesOf(c *gin.Context, namespace, app string) ([]Instance, error) {
 	pods, err := s.kube.Kube.CoreV1().Pods(namespace).List(c.Request.Context(), metav1.ListOptions{
-		// "!=" also matches pods carrying no process label at all.
-		LabelSelector: shpyrdv1.LabelApp + "=" + app + "," + shpyrdv1.LabelProcess + "!=" + runProcess,
+		// The bare "process" term requires the label to be present at all,
+		// which build pods (shpyrd.io/build, no shpyrd.io/process) lack; the
+		// "!=" alone would not exclude them, since it also matches objects
+		// missing the key entirely. Both build and run pods share the
+		// project's namespace and are not shellable.
+		LabelSelector: shpyrdv1.LabelApp + "=" + app + "," + shpyrdv1.LabelProcess + "," + shpyrdv1.LabelProcess + "!=" + runProcess,
 	})
 	if err != nil {
 		return nil, err
 	}
-	var running []corev1.Pod
+	names := logs.InstanceNames(pods.Items)
+	out := make([]Instance, 0, len(pods.Items))
 	for _, p := range pods.Items {
-		if p.Status.Phase == corev1.PodRunning && p.DeletionTimestamp == nil {
-			running = append(running, p)
+		if p.Status.Phase != corev1.PodRunning || p.DeletionTimestamp != nil {
+			continue
 		}
-	}
-	names := logs.InstanceNames(running)
-	out := make([]Instance, 0, len(running))
-	for _, p := range running {
 		out = append(out, Instance{
 			Name:    names[p.Name],
 			Process: p.Labels[shpyrdv1.LabelProcess],
