@@ -131,3 +131,16 @@ site file and, with `--local-dns`, offers to remove the resolver entries.
     "Names: dnsmasq (*.shpyrd.test) · Front door: Caddy on 443 -> kind :8080".
   - Prompts default to Yes and are answered by `--yes` or a non-terminal stdin, so CI keeps
     working non-interactively.
+- 2026-09-25: `trust-ca` reaches the browser on Linux, and `untrust-ca` undoes it.
+  - The Chromium family (Chromium, Chrome, Brave, Vivaldi, Edge) does not read the operating
+    system trust store: it shares an NSS database at `~/.pki/nssdb`. `trust-ca` updated the
+    system store only, so `cluster dashboard` ended in a certificate warning on Linux for
+    most people, with the note mentioning Firefox alone.
+  - `trust-ca` now also imports the CA there when `certutil` is installed and the database
+    exists; a database the browser has not created yet is left alone (creating one would be
+    writing a browser profile nobody asked for) and the exact `certutil` line is printed
+    instead. The note names the restart the browser needs, and Firefox's per-profile store
+    stays a note: `security.enterprise_roots.enabled` makes it read the system store.
+  - `cluster untrust-ca` removes the CA from every system store it finds and from the NSS
+    database, naming each one. The certificate stays in `~/.shpyrd/ca`, so trusting it again
+    does not invalidate certificates already issued from it.

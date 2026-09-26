@@ -17,7 +17,7 @@ Requirements: Docker (Docker Desktop with 6-8 GB of memory), macOS or Linux.
 ```sh
 brew install shpyrd-io/tap/shpyrd    # macOS; or: curl -fsSL https://shpyrd.io/install.sh | sh
 shpyrd cluster create                # kind cluster + base stack (10-20 min first time)
-shpyrd cluster trust-ca              # trust the development CA (asks for sudo)
+shpyrd cluster trust-ca              # trust the development CA (asks for sudo; undo with untrust-ca)
 shpyrd cluster status
 shpyrd cluster dashboard             # opens https://shpyrd.127.0.0.1.nip.io signed in
 ```
